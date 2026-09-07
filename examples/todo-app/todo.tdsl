@@ -1,0 +1,30 @@
+// P0 最小切面输入：LLM 书写面（TS 风格子集）
+// 数据源 + 实体 + 逻辑（findTodos 过滤未完成项）
+
+@datasource('defaultDS')
+entity Todo {
+  id: Integer @pk;
+  title: String;
+  done: Boolean;
+}
+
+struct TodoInput {
+  title: String;
+  done: Boolean;
+}
+
+enum Priority {
+  LOW,
+  HIGH,
+}
+
+@export
+logic findTodos(): List<Todo> {
+  result := new List<Todo>();
+  for (todo in Todo.all) {
+    if (todo.done === false) {
+      result.add(todo);
+    }
+  }
+  return result;
+}

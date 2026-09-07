@@ -1,0 +1,21 @@
+{
+  "name": "todo-app",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "slice": "tsx scripts/slice.ts"
+  },
+  "dependencies": {
+    "@tdsl/codegen-java": "*",
+    "@tdsl/codegen-react": "*",
+    "@tdsl/core": "*",
+    "@tdsl/parser": "*",
+    "@tdsl/typecheck": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
