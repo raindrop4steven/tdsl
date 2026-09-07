@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TDSL 项目文档索引</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem auto; max-width: 900px; padding: 0 1rem; color: #333; }
+  h1 { border-bottom: 2px solid #4472C4; padding-bottom: .5rem; }
+  h2 { color: #4472C4; margin-top: 2rem; }
+  ul { line-height: 1.8; }
+  a { color: #1a5fb4; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .desc { color: #666; font-size: .9rem; }
+  .rv-add { background: #d4f7dc; }
+  .rv-del { background: #fdd; text-decoration: line-through; }
+  .rv-chg { background: #fff3cd; }
+  .toolbar { position: sticky; top: 0; background: #fff; padding: .5rem 0; border-bottom: 1px solid #eee; margin-bottom: 1rem; }
+  button { padding: .4rem 1rem; cursor: pointer; border: 1px solid #4472C4; background: #fff; color: #4472C4; border-radius: 4px; }
+  button.active { background: #4472C4; color: #fff; }
+  .badge { display: inline-block; font-size: .75rem; padding: .1rem .5rem; border-radius: 8px; background: #e8e8e8; margin-left: .5rem; }
+  .badge.done { background: #d4f7dc; }
+  .badge.todo { background: #fff3cd; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="btnReview" onclick="toggleReview()">审阅模式：关</button>
+  <span style="margin-left:1rem;font-size:.85rem;color:#666;">切换后高亮 <span class="rv-add">新增(rv-add)</span> <span class="rv-del">删除(rv-del)</span> <span class="rv-chg">修改(rv-chg)</span></span>
+</div>
+
+<h1>TDSL 项目文档索引</h1>
+<p class="desc">自研低代码 DSL（TDSL）—— 大模型写 TS 风格 DSL → Typed AST → 生成 React + Java。入口文档：<a href="README.md">docs/README.md</a></p>
+
+<h2>项目文档（docs/，markdown）</h2>
+<ul>
+  <li><a href="00_参考资料/NASL调研.md">00 参考资料 / NASL调研</a> <span class="badge done">完成</span><br><span class="desc">网易 CodeWave NASL 调研：三投影、类型、命名空间、继承/组合、SDK</span></li>
+  <li><a href="10_需求设计/需求设计.md">10 需求设计</a> <span class="badge done">完成</span><br><span class="desc">目标、核心路线、关键决策（D1-D7）、P0/P1/P2 需求清单</span></li>
+  <li><a href="20_系统设计/系统设计.md">20 系统设计</a> <span class="badge done">完成</span><br><span class="desc">分层架构、模块划分（packages/*）、数据流、LLM 管线、里程碑</span></li>
+  <li><a href="30_详细设计/详细设计.md">30 详细设计</a> <span class="badge done">完成</span><br><span class="desc">Typed AST 类型定义、TypeRef、Expr/Statement、parser、typecheck、codegen</span></li>
+  <li><a href="40_编码/编码.md">40 编码</a> <span class="badge todo">占位</span><br><span class="desc">编码约定（TS strict、判别联合 + never 穷尽）</span></li>
+  <li><a href="50_测试用例/测试用例.md">50 测试用例</a> <span class="badge todo">占位</span><br><span class="desc">单元测试策略：parser / round-trip / typecheck / codegen 快照</span></li>
+  <li><a href="60_集成测试/集成测试.md">60 集成测试</a> <span class="badge todo">占位</span><br><span class="desc">E2E 场景1：Todo 垂直切片（P0 验收）</span></li>
+  <li><a href="99_成果物/成果物.md">99 成果物</a> <span class="badge todo">占位</span><br><span class="desc">交付物索引：源码(A5)、Todo 示例(A6)、生成产物(A7)</span></li>
+</ul>
+
+<h2>内部开发文档（docs/dev/，本技能流程产物）</h2>
+<ul>
+  <li><a href="dev/00_需求管理.md">dev/00 需求管理（最小切面）</a> <span class="badge todo">进行中</span><br><span class="desc">P0 最小切面范围：五包闭环 + Todo demo + 真实 build 验收</span></li>
+  <li><a href="dev/10_系统设计-最小切面.md">dev/10 系统设计（最小切面）</a> <span class="badge todo">进行中</span><br><span class="desc">方案 A：core/parser/typecheck/codegen-java/codegen-react + 数据流</span></li>
+  <li><a href="dev/QA记录.xlsx">dev/QA记录.xlsx</a> <span class="badge done">已建</span><br><span class="desc">QA 跟踪：问题 → 结论 → 状态闭环</span></li>
+</ul>
+
+<h2>交付物（docs/api/）</h2>
+<ul>
+  <li><span class="desc">（P0 切片完成后再填：接口文档 / 生成产物说明）</span></li>
+</ul>
+
+<script>
+function toggleReview() {
+  const btn = document.getElementById('btnReview');
+  const on = btn.textContent.includes('关');
+  document.querySelectorAll('.rv-add,.rv-del,.rv-chg').forEach(el => {
+    el.style.display = on ? '' : 'none';
+  });
+  btn.textContent = on ? '审阅模式：开' : '审阅模式：关';
+  btn.classList.toggle('active', on);
+}
+</script>
+</body>
+</html>
