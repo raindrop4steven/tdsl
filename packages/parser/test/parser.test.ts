@@ -136,3 +136,58 @@ struct Todo { id: Integer; }
     expect(app.datasources[0].entities[0].name).toBe('Foo');
   });
 });
+
+describe('parser/interface', () => {
+  const CRUD = `
+entity Todo { id: Integer @pk; title: String; done: Boolean; }
+
+struct TodoInput { title: String; done: Boolean; }
+
+@export
+logic findTodos(): List<Todo> { return Todo.all; }
+@export
+logic createTodo(input: TodoInput): Todo { return new Todo(); }
+@export
+logic updateTodo(id: Integer, input: TodoInput): Todo { return new Todo(); }
+@export
+logic deleteTodo(id: Integer): Boolean { return true; }
+
+interface TodoApi {
+  GET    '/api/todos'       -> findTodos
+  POST   '/api/todos'       -> createTodo
+  PUT    '/api/todos/{id}'  -> updateTodo
+  DELETE '/api/todos/{id}'  -> deleteTodo
+}
+`;
+
+  it('parses interface with endpoints and binds logicRef', () => {
+    const app = parse(CRUD);
+    expect(app.interfaces).toHaveLength(1);
+    const itf = app.interfaces[0];
+    expect(itf.name).toBe('TodoApi');
+    expect(itf.endpoints).toHaveLength(4);
+
+    const get = itf.endpoints[0];
+    expect(get.method).toBe('GET');
+    expect(get.path).toBe('/api/todos');
+    // logicRef 短名被 link 绑定为 nodePath
+    expect(get.logicRef).toBe('app.logics.findTodos');
+
+    const put = itf.endpoints[2];
+    expect(put.method).toBe('PUT');
+    expect(put.path).toBe('/api/todos/{id}');
+    expect(put.logicRef).toBe('app.logics.updateTodo');
+  });
+
+  it('rejects invalid HTTP method', () => {
+    expect(() => parse('interface X { FETCH \'/api/x\' -> findTodos }')).toThrow(
+      /invalid HTTP method/,
+    );
+  });
+
+  it('rejects dangling logicRef', () => {
+    expect(() => parse("interface X { GET '/api/x' -> nope }")).toThrow(
+      /cannot resolve logic 'nope'/,
+    );
+  });
+});

@@ -7,6 +7,8 @@ import {
   type EnumItemNode,
   type EnumNode,
   type Expr,
+  type EndpointNode,
+  type InterfaceNode,
   type LogicNode,
   type ParamNode,
   type ReturnNode,
@@ -89,6 +91,7 @@ class Parser {
       structures: [],
       enums: [],
       logics: [],
+      interfaces: [],
     };
     let currentDs: DataSourceNode | null = null;
 
@@ -121,6 +124,8 @@ class Parser {
         app.enums.push(this.parseEnum());
       } else if (kw === 'logic') {
         app.logics.push(this.parseLogic());
+      } else if (kw === 'interface') {
+        app.interfaces.push(this.parseInterface());
       } else {
         this.fail(`unexpected '${kw}' at top level`);
       }
@@ -206,6 +211,35 @@ class Parser {
     const body = this.parseStatements();
     this.expect('}');
     return { ...createNode('Logic'), name, params, returns, body };
+  }
+
+  /** interface Name { METHOD 'path' -> logicName } */
+  private parseInterface(): InterfaceNode {
+    this.expect('interface');
+    const name = this.expectIdent();
+    this.expect('{');
+    const endpoints: EndpointNode[] = [];
+    while (this.peek().value !== '}') {
+      const methodTok = this.expectIdent();
+      const method = methodTok as EndpointNode['method'];
+      if (method !== 'GET' && method !== 'POST' && method !== 'PUT' && method !== 'DELETE') {
+        this.fail(`invalid HTTP method '${methodTok}'`);
+      }
+      const path = this.expectString();
+      this.expect('-');
+      this.expect('>');
+      const logicName = this.expectIdent();
+      endpoints.push({
+        ...createNode('Endpoint'),
+        name: logicName,
+        method,
+        path,
+        logicRef: logicName, // 短名，link 阶段绑定为 nodePath
+      });
+      if (this.peek().value === ';') this.next();
+    }
+    this.expect('}');
+    return { ...createNode('Interface'), name, endpoints };
   }
 
   private parseStatements(): Statement[] {
@@ -472,6 +506,20 @@ function linkApp(app: AppNode): void {
   }
   for (const en of app.enums) {
     declareName(en.name, `app.enums.${en.name}`);
+  }
+  for (const l of app.logics) {
+    nameToPath.set(l.name, `app.logics.${l.name}`);
+  }
+
+  // 接口端点：绑定 logicRef 短名 → Logic nodePath
+  for (const itf of app.interfaces) {
+    for (const ep of itf.endpoints) {
+      const full = nameToPath.get(ep.logicRef ?? '');
+      if (!full || !full.startsWith('app.logics.')) {
+        throw new TdslSyntaxError(`cannot resolve logic '${ep.logicRef}'`, 0, 0);
+      }
+      ep.logicRef = full;
+    }
   }
 
   const linkTypeRef = (tr: TypeRef): void => {
