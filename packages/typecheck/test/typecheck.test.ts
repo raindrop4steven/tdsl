@@ -130,3 +130,64 @@ logic bad(): Todo { return Todo.get(); }
     expect(r.diagnostics.some((d) => d.message.includes('需要 1 个参数'))).toBe(true);
   });
 });
+describe('typecheck/order-scenario', () => {
+  it('allows ForEach over struct List field (input.items)', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; customer: String; total: Decimal; }
+struct OrderInput { customer: String; items: List<OrderInputItem>; }
+struct OrderInputItem { product: String; price: Decimal; qty: Integer; }
+@export
+logic create(input: OrderInput): Order {
+  order := new Order();
+  order.save();
+  for (it in input.items) { order.total = order.total + it.price * it.qty; }
+  order.save();
+  return order;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+
+  it('allows ForEach over Entity.where(...)', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; }
+entity OrderItem { id: Integer @pk; orderId: Integer; }
+@export
+logic del(id: Integer): Boolean {
+  for (it in OrderItem.where(orderId = id)) { it.delete(); }
+  return true;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects where on unknown field', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; }
+@export
+logic find(id: Integer): List<Order> {
+  return Order.where(unknown = id);
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('无字段'))).toBe(true);
+  });
+
+  it('rejects ForEach over undefined variable member', () => {
+    const app = parse(`
+entity Todo { id: Integer @pk; }
+@export
+logic bad(): List<Todo> {
+  result := new List<Todo>();
+  for (todo in something.else) { result.add(todo); }
+  return result;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('ForEach 容器'))).toBe(true);
+  });
+});

@@ -3,6 +3,7 @@ import {
   resolve,
   type AppNode,
   type BaseNode,
+  type EntityNode,
   type Expr,
   type Statement,
   type TypeRef,
@@ -121,24 +122,32 @@ export function check(app: AppNode): CheckResult {
     }
   });
 
-  // 2. ForEach 容器必须为 X.all（X 为已声明实体）
+  // 2. ForEach 容器必须是可迭代的 List：实体查询（X.all / X.where(...)）、
+//    已声明变量/参数（含成员访问如 input.items）、或明显非 List 字面量才报错
   for (const l of app.logics) {
+    // 作用域内可见的变量名：参数 + 语句中 := 声明
+    const knownVars = new Set(l.params.map((p) => p.name));
     forEachStatement(l.body, (st) => {
       if (st.kind === 'ForEach') {
         const c = st.container;
-        const isEntityAll =
-          c.kind === 'Member' &&
-          c.obj.kind === 'Ident' &&
-          c.prop === 'all' &&
-          resolveEntity(app, c.obj.name) !== null;
-        if (!isEntityAll) {
+        const baseName = baseIdentOf(c);
+        const isEntityQuery = entityQueryOf(app, c) !== null;
+        const isKnownVar = baseName !== null && knownVars.has(baseName);
+        const isPlausibleList =
+          isEntityQuery ||
+          isKnownVar ||
+          c.kind === 'Call' ||
+          c.kind === 'Ident';
+        if (!isPlausibleList) {
           diagnostics.push({
             path: ownerPath(l),
-            message: `ForEach 容器必须是已声明实体的 .all 静态引用`,
+            message: `ForEach 容器必须是 List（实体查询 / 已知变量 / 成员）`,
             severity: 'error',
           });
         }
       }
+      // 收集 := 声明的变量（ForEach 之后可见）
+      if (st.kind === 'VarDecl') knownVars.add(st.name);
     });
   }
 
@@ -177,7 +186,7 @@ function checkEntityCalls(
     switch (e.kind) {
       case 'Call': {
         const callee = e.callee;
-        // Todo.get(id) —— 静态实体方法
+        // Todo.get(id) / Todo.all / Todo.where(...) —— 静态实体方法
         if (callee.kind === 'Member' && callee.obj.kind === 'Ident') {
           const recvName = callee.obj.name;
           const method = callee.prop;
@@ -189,7 +198,27 @@ function checkEntityCalls(
                 message: `实体 ${recvName}.get() 需要 1 个参数（主键）`,
                 severity: 'error',
               });
-            } else if (method !== 'get' && method !== 'all') {
+            } else if (method === 'where') {
+              // Entity.where(field = value)：校验字段存在 + 值是字段可赋类型
+              const cond = e.args[0];
+              if (cond?.kind !== 'Binary' || cond.operator !== '=') {
+                diagnostics.push({
+                  path: ownerPath(owner),
+                  message: `${recvName}.where() 参数必须是 field = value 形式`,
+                  severity: 'error',
+                });
+              } else if (cond.left.kind === 'Ident') {
+                const fieldName = cond.left.name;
+                const field = entity.properties.find((p) => p.name === fieldName);
+                if (!field) {
+                  diagnostics.push({
+                    path: ownerPath(owner),
+                    message: `实体 ${recvName} 无字段 ${fieldName}`,
+                    severity: 'error',
+                  });
+                }
+              }
+            } else if (method !== 'get' && method !== 'all' && method !== 'where') {
               diagnostics.push({
                 path: ownerPath(owner),
                 message: `实体 ${recvName} 无方法 ${method}`,
@@ -208,6 +237,15 @@ function checkEntityCalls(
                 severity: 'error',
               });
             }
+          } else if (method === 'add') {
+            // list.add(x)：接收者应是 List
+            if (!isListExpr(app, callee.obj)) {
+              diagnostics.push({
+                path: ownerPath(owner),
+                message: `.add() 接收者必须是 List`,
+                severity: 'error',
+              });
+            }
           }
         }
         checkExpr(callee);
@@ -215,6 +253,14 @@ function checkEntityCalls(
         break;
       }
       case 'Member':
+        // list.count：接收者应是 List
+        if (e.prop === 'count' && !isListExpr(app, e.obj)) {
+          diagnostics.push({
+            path: ownerPath(owner),
+            message: `.count 接收者必须是 List`,
+            severity: 'error',
+          });
+        }
         checkExpr(e.obj);
         break;
       case 'New':
@@ -263,11 +309,42 @@ function checkEntityCalls(
   }
 }
 
-function resolveEntity(app: AppNode, name: string): BaseNode | null {
+function resolveEntity(app: AppNode, name: string): EntityNode | null {
   for (const ds of app.datasources) {
     for (const ent of ds.entities) {
       if (ent.name === name) return ent;
     }
   }
   return null;
+}
+
+/** 判断表达式是否为实体查询（Entity.all 或 Entity.where(...)），返回实体名或 null */
+function entityQueryOf(app: AppNode, e: Expr): string | null {
+  if (e.kind === 'Member' && e.obj.kind === 'Ident' && e.prop === 'all') {
+    return resolveEntity(app, e.obj.name) ? e.obj.name : null;
+  }
+  if (
+    e.kind === 'Call' &&
+    e.callee.kind === 'Member' &&
+    e.callee.obj.kind === 'Ident' &&
+    e.callee.prop === 'where'
+  ) {
+    return resolveEntity(app, e.callee.obj.name) ? e.callee.obj.name : null;
+  }
+  return null;
+}
+
+/** 取表达式最底层的标识符名（x / x.y / x.y.z → 'x'），非标识符基座返回 null */
+function baseIdentOf(e: Expr): string | null {
+  if (e.kind === 'Ident') return e.name;
+  if (e.kind === 'Member') return baseIdentOf(e.obj);
+  return null;
+}
+
+/** 判断表达式是否为 List：实体查询 / 变量 / 成员访问。宽松放行（完整推导在 P1-typecheck 切面），仅对明确非 List 报错 */
+function isListExpr(app: AppNode, e: Expr): boolean {
+  if (entityQueryOf(app, e)) return true;
+  // 变量 / 成员（如 input.items、list）无法在此精确推导 → 放行，避免误报
+  if (e.kind === 'Ident' || e.kind === 'Member') return true;
+  return false; // 字面量等明确非 List
 }
