@@ -1,48 +1,86 @@
+// P2 复杂逻辑：扁平表 + 外键关联（无主子表概念）
+// Order / OrderItem 是两个平等实体，OrderItem.orderId 为普通外键字段
+
 @datasource('defaultDS')
-entity Todo {
+entity Order {
   id: Integer @pk;
-  title: String;
-  done: Boolean;
+  customer: String;
+  total: Decimal;
 }
 
-struct TodoInput {
-  title: String;
-  done: Boolean;
+entity OrderItem {
+  id: Integer @pk;
+  orderId: Integer;
+  product: String;
+  price: Decimal;
+  qty: Integer;
 }
 
-@export
-logic findTodos(): List<Todo> {
-  return Todo.all;
+struct OrderInput {
+  customer: String;
+  items: List<OrderItemInput>;
 }
 
-@export
-logic createTodo(input: TodoInput): Todo {
-  todo := new Todo();
-  todo.title = input.title;
-  todo.done = input.done;
-  todo.save();
-  return todo;
+struct OrderItemInput {
+  product: String;
+  price: Decimal;
+  qty: Integer;
 }
 
-@export
-logic updateTodo(id: Integer, input: TodoInput): Todo {
-  todo := Todo.get(id);
-  todo.title = input.title;
-  todo.done = input.done;
-  todo.save();
-  return todo;
+struct OrderDetail {
+  order: Order;
+  items: List<OrderItem>;
 }
 
 @export
-logic deleteTodo(id: Integer): Boolean {
-  todo := Todo.get(id);
-  todo.delete();
+logic createOrder(input: OrderInput): Order {
+  if (input.items.count === 0) {
+    return null;
+  }
+  order := new Order();
+  order.customer = input.customer;
+  order.total = 0;
+  order.save();
+  for (it in input.items) {
+    item := new OrderItem();
+    item.orderId = order.id;
+    item.product = it.product;
+    item.price = it.price;
+    item.qty = it.qty;
+    item.save();
+    order.total = order.total + it.price * it.qty;
+  }
+  order.save();
+  return order;
+}
+
+@export
+logic getOrderDetail(id: Integer): OrderDetail {
+  order := Order.get(id);
+  detail := new OrderDetail();
+  detail.order = order;
+  detail.items = OrderItem.where(orderId = id);
+  return detail;
+}
+
+@export
+logic deleteOrder(id: Integer): Boolean {
+  order := Order.get(id);
+  for (it in OrderItem.where(orderId = id)) {
+    it.delete();
+  }
+  order.delete();
   return true;
 }
 
-interface TodoApi {
-  GET    '/api/todos'       -> findTodos
-  POST   '/api/todos'       -> createTodo
-  PUT    '/api/todos/{id}'  -> updateTodo
-  DELETE '/api/todos/{id}'  -> deleteTodo
+@export
+logic listOrders(): List<Order> {
+  return Order.all;
+}
+
+interface OrderApi {
+  GET    '/api/orders'      -> listOrders
+  POST   '/api/orders'      -> createOrder
+  GET    '/api/orders/{id}' -> getOrderDetail
+  DELETE '/api/orders/{id}' -> deleteOrder
 }
