@@ -9,16 +9,22 @@ entity Todo {
   title: String;
   done: Boolean;
 }
+struct TodoInput { title: String; done: Boolean; }
 
 @export
-logic findTodos(): List<Todo> {
-  result := new List<Todo>();
-  for (todo in Todo.all) {
-    if (todo.done === false) {
-      result.add(todo);
-    }
-  }
-  return result;
+logic findTodos(): List<Todo> { return Todo.all; }
+@export
+logic createTodo(input: TodoInput): Todo { return new Todo(); }
+@export
+logic updateTodo(id: Integer, input: TodoInput): Todo { return new Todo(); }
+@export
+logic deleteTodo(id: Integer): Boolean { return true; }
+
+interface TodoApi {
+  GET    '/api/todos'       -> findTodos
+  POST   '/api/todos'       -> createTodo
+  PUT    '/api/todos/{id}'  -> updateTodo
+  DELETE '/api/todos/{id}'  -> deleteTodo
 }
 `;
 
@@ -34,21 +40,25 @@ describe('codegen-react', () => {
     expect(names).toContain('src/App.tsx');
   });
 
-  it('generates TS types from entity', () => {
+  it('generates TS types from entity and structure', () => {
     const files = generateReact(parse(SAMPLE));
-    const types = files.find((f) => f.path.endsWith('types/todo.ts'))!.content;
+    const types = files.find((f) => f.path.endsWith('types/index.ts'))!.content;
     expect(types).toContain('export interface Todo');
     expect(types).toContain('id: number;');
     expect(types).toContain('title: string;');
     expect(types).toContain('done: boolean;');
+    expect(types).toContain('export interface TodoInput');
   });
 
-  it('generates App.tsx with entity fields injected', () => {
+  it('generates App.tsx with real CRUD fetch', () => {
     const files = generateReact(parse(SAMPLE));
     const app = files.find((f) => f.path === 'src/App.tsx')!.content;
-    expect(app).toContain('Todo List');
-    expect(app).toContain('useEffect');
-    expect(app).toContain('JSON.stringify(item)');
+    expect(app).toContain('http://localhost:8080');
+    expect(app).toContain("fetch(API + '/api/todos')");
+    expect(app).toContain("method: 'POST'");
+    expect(app).toContain("method: 'PUT'");
+    expect(app).toContain("method: 'DELETE'");
+    expect(app).toContain('.replace(\'{id}\', String(item.id))');
   });
 
   it('generates React17-style main.tsx', () => {
