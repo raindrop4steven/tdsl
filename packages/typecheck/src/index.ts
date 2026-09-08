@@ -142,7 +142,125 @@ export function check(app: AppNode): CheckResult {
     });
   }
 
+  // 3. Interface：每个 Endpoint 的 logicRef 必须可 resolve
+  for (const itf of app.interfaces) {
+    itf.endpoints.forEach((ep) => {
+      if (!ep.logicRef || !resolve(app, ep.logicRef)) {
+        diagnostics.push({
+          path: ownerPath(itf),
+          message: `接口端点悬空引用 logic: ${ep.logicRef}`,
+          severity: 'error',
+        });
+      }
+    });
+  }
+
+  // 4. 实体方法：识别 Todo.get / entity.save / entity.delete 的接收者类型
+  for (const l of app.logics) {
+    forEachStatement(l.body, (st) => {
+      checkEntityCalls(app, st, l, diagnostics, ownerPath);
+    });
+  }
+
   return { ok: diagnostics.length === 0, diagnostics };
+}
+
+/** 实体方法调用校验：Todo.get(id)、entity.save()、entity.delete() */
+function checkEntityCalls(
+  app: AppNode,
+  st: Statement,
+  owner: BaseNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  const checkExpr = (e: Expr): void => {
+    switch (e.kind) {
+      case 'Call': {
+        const callee = e.callee;
+        // Todo.get(id) —— 静态实体方法
+        if (callee.kind === 'Member' && callee.obj.kind === 'Ident') {
+          const recvName = callee.obj.name;
+          const method = callee.prop;
+          const entity = resolveEntity(app, recvName);
+          if (entity) {
+            if (method === 'get' && e.args.length !== 1) {
+              diagnostics.push({
+                path: ownerPath(owner),
+                message: `实体 ${recvName}.get() 需要 1 个参数（主键）`,
+                severity: 'error',
+              });
+            } else if (method !== 'get' && method !== 'all') {
+              diagnostics.push({
+                path: ownerPath(owner),
+                message: `实体 ${recvName} 无方法 ${method}`,
+                severity: 'error',
+              });
+            }
+          }
+        } else if (callee.kind === 'Member') {
+          // entity.save() / entity.delete() —— 实例方法
+          const method = callee.prop;
+          if (method === 'save' || method === 'delete') {
+            if (e.args.length !== 0) {
+              diagnostics.push({
+                path: ownerPath(owner),
+                message: `${method}() 不接受参数`,
+                severity: 'error',
+              });
+            }
+          }
+        }
+        checkExpr(callee);
+        e.args.forEach(checkExpr);
+        break;
+      }
+      case 'Member':
+        checkExpr(e.obj);
+        break;
+      case 'New':
+        e.args.forEach(checkExpr);
+        break;
+      case 'NewList':
+        e.items.forEach(checkExpr);
+        break;
+      case 'Binary':
+        checkExpr(e.left);
+        checkExpr(e.right);
+        break;
+      case 'Group':
+        checkExpr(e.expr);
+        break;
+      case 'Ident':
+      case 'Bool':
+      case 'Numeric':
+      case 'String':
+      case 'Null':
+        break;
+    }
+  };
+
+  // 遍历语句内所有表达式
+  switch (st.kind) {
+    case 'VarDecl':
+      if (st.init) checkExpr(st.init);
+      break;
+    case 'Assign':
+      checkExpr(st.target);
+      checkExpr(st.value);
+      break;
+    case 'Return':
+      if (st.value) checkExpr(st.value);
+      break;
+    case 'If':
+      checkExpr(st.cond);
+      break;
+    case 'ForEach':
+      checkExpr(st.container);
+      break;
+    case 'CallStmt':
+      checkExpr(st.call);
+      break;
+  }
 }
 
 function resolveEntity(app: AppNode, name: string): BaseNode | null {
