@@ -111,6 +111,24 @@ describe('parser/parse', () => {
     expect(() => parse('entity Todo { a: Missing; }')).toThrow(/cannot resolve type 'Missing'/);
   });
 
+  it('rejects duplicate names across datasources', () => {
+    const src = `
+@datasource('ds1')
+entity Todo { id: Integer @pk; }
+@datasource('ds2')
+entity Todo { id: Integer @pk; }
+`;
+    expect(() => parse(src)).toThrow(/duplicate type name 'Todo'/);
+  });
+
+  it('rejects duplicate names across concepts', () => {
+    const src = `
+entity Todo { id: Integer @pk; }
+struct Todo { id: Integer; }
+`;
+    expect(() => parse(src)).toThrow(/duplicate type name 'Todo'/);
+  });
+
   it('parses entity without datasource into defaultDS', () => {
     const app = parse('entity Foo { name: String; }');
     expect(app.datasources).toHaveLength(1);

@@ -448,16 +448,30 @@ class Parser {
 
 function linkApp(app: AppNode): void {
   const nameToPath = new Map<string, string>();
+
+  // 短名即全局命名空间：重名（跨概念/跨数据源）一律报错，禁止歧义
+  const declareName = (name: string, path: string): void => {
+    const existing = nameToPath.get(name);
+    if (existing !== undefined && existing !== path) {
+      throw new TdslSyntaxError(
+        `duplicate type name '${name}': ${existing} vs ${path}`,
+        0,
+        0,
+      );
+    }
+    nameToPath.set(name, path);
+  };
+
   for (const ds of app.datasources) {
     for (const ent of ds.entities) {
-      nameToPath.set(ent.name, `app.datasources.${ds.name}.entities.${ent.name}`);
+      declareName(ent.name, `app.datasources.${ds.name}.entities.${ent.name}`);
     }
   }
   for (const s of app.structures) {
-    nameToPath.set(s.name, `app.structures.${s.name}`);
+    declareName(s.name, `app.structures.${s.name}`);
   }
   for (const en of app.enums) {
-    nameToPath.set(en.name, `app.enums.${en.name}`);
+    declareName(en.name, `app.enums.${en.name}`);
   }
 
   const linkTypeRef = (tr: TypeRef): void => {
