@@ -50,15 +50,16 @@ describe('codegen-react', () => {
     expect(types).toContain('export interface TodoInput');
   });
 
-  it('generates App.tsx with real CRUD fetch', () => {
+  it('generates App.tsx with real CRUD fetch (data-driven)', () => {
     const files = generateReact(parse(SAMPLE));
     const app = files.find((f) => f.path === 'src/App.tsx')!.content;
     expect(app).toContain('http://localhost:8080');
     expect(app).toContain("fetch(API + '/api/todos')");
     expect(app).toContain("method: 'POST'");
-    expect(app).toContain("method: 'PUT'");
     expect(app).toContain("method: 'DELETE'");
-    expect(app).toContain('.replace(\'{id}\', String(item.id))');
+    // 列表表单：非主键字段 title/done 生成输入控件
+    expect(app).toContain('title');
+    expect(app).toContain('done');
   });
 
   it('generates React17-style main.tsx', () => {

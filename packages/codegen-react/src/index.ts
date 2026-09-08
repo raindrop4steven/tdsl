@@ -183,37 +183,59 @@ function pathForMethod(itf: InterfaceNode | undefined, method: EndpointNode['met
   return itf?.endpoints.find((e) => e.method === method)?.path ?? '';
 }
 
-/** 从实体挑选：主键、首个 String 字段（作为输入）、首个 Boolean 字段（作为勾选） */
-function pickFields(ent: EntityNode): { id: string; title: string; done: string } {
-  const pk = ent.properties.find((p) => p.primary);
-  const title = ent.properties.find(
-    (p) => p.type.kind === 'primitive' && p.type.builtin === 'String',
-  );
-  const done = ent.properties.find(
-    (p) => p.type.kind === 'primitive' && p.type.builtin === 'Boolean',
-  );
-  return {
-    id: pk?.name ?? 'id',
-    title: title?.name ?? ent.properties[0]?.name ?? 'title',
-    done: done?.name ?? 'done',
-  };
+/** 主键字段名 */
+function pkOf(ent: EntityNode): string {
+  return ent.properties.find((p) => p.primary)?.name ?? 'id';
+}
+
+/** 某结构字段是否为 List<X>，返回元素类型名 */
+function listElemOf(s: StructureNode): string | null {
+  const f = s.properties.find((p) => p.type.kind === 'generic' && p.type.name === 'List');
+  if (f && f.type.kind === 'generic') return tsType(f.type.args[0] ?? { kind: 'primitive', builtin: 'String' });
+  return null;
 }
 
 function appFile(app: AppNode, ent: EntityNode, itf?: InterfaceNode): GeneratedFile {
-  const { id, title, done } = pickFields(ent);
+  const id = pkOf(ent);
   const listPath = pathForMethod(itf, 'GET');
   const postPath = pathForMethod(itf, 'POST');
-  const putPath = pathForMethod(itf, 'PUT');
   const delPath = pathForMethod(itf, 'DELETE');
 
+  // POST 逻辑的入参结构（如 OrderInput）+ 其 List 元素结构（如 OrderItemInput）
+  const postLogic = itf?.endpoints
+    .find((e) => e.method === 'POST')
+    ?.logicRef?.split('.').pop();
+  const inputStruct = app.structures.find(
+    (s) => postLogic && app.logics.find((l) => l.name === postLogic)?.params.some((p) => p.type.kind === 'reference' && nameFromPath(p.type.path) === s.name),
+  );
+  const itemStructName = inputStruct ? listElemOf(inputStruct) : null;
+  const itemStruct = itemStructName
+    ? app.structures.find((s) => s.name === itemStructName)
+    : null;
+  const inputNonListFields = inputStruct
+    ? inputStruct.properties.filter((p) => !(p.type.kind === 'generic' && p.type.name === 'List'))
+    : ent.properties.filter((p) => p.name !== id);
+
+  // 列表展示字段：实体非主键字段（如 customer/total）
+  const listFields = ent.properties.filter((p) => p.name !== id);
+
   const content = `import { useEffect, useState } from 'react';
-import { ${ent.name}, ${ent.name}Input } from './types';
+import { ${ent.name}, ${inputStruct?.name ?? ent.name + 'Input'}${
+    itemStruct ? `, ${itemStruct.name}` : ''
+  } } from './types';
 
 const API = 'http://localhost:8080';
 
 export default function App() {
   const [items, setItems] = useState<${ent.name}[]>([]);
-  const [${title}, set${cap(title)}] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [detail, setDetail] = useState<${inputStruct ? 'any' : ent.name} | null>(null);
+${inputNonListFields
+  .map((f) => `  const [${f.name}, set${cap(f.name)}] = useState(${f.type.kind === 'primitive' && f.type.builtin === 'String' ? "''" : '0'});`)
+  .join('\n')}
+${itemStruct ? `  const [rows, setRows] = useState<${itemStruct.name}[]>([{ ${itemStruct.properties
+  .map((f) => `${f.name}: ${f.type.kind === 'primitive' && (f.type.builtin === 'String') ? "''" : '0'}`)
+  .join(', ')} }]);` : ''}
 
   const load = () => {
     fetch(API + '${listPath}')
@@ -225,24 +247,25 @@ export default function App() {
     load();
   }, []);
 
-  const add = async () => {
-    if (!${title}) return;
+  const submit = async () => {
+    const body: ${inputStruct?.name ?? `${ent.name}Input`} = ${
+      itemStruct
+        ? `{ ${inputNonListFields.map((f) => f.name).join(', ')}, ${inputStruct?.properties.find((p) => p.type.kind === 'generic' && p.type.name === 'List')?.name ?? 'items'}: rows }`
+        : `{ ${inputNonListFields.map((f) => `${f.name}: ${f.name}`).join(', ')} }`
+    };
     await fetch(API + '${postPath}', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ${title}, ${done}: false } as ${ent.name}Input),
+      body: JSON.stringify(body),
     });
-    set${cap(title)}('');
+    setShowForm(false);
+${inputNonListFields.map((f) => `    set${cap(f.name)}(${f.type.kind === 'primitive' && f.type.builtin === 'String' ? "''" : '0'});`).join('\n')}
     load();
   };
 
-  const toggle = async (item: ${ent.name}) => {
-    await fetch(API + '${putPath}'.replace('{id}', String(item.${id})), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ${title}: item.${title}, ${done}: !item.${done} } as ${ent.name}Input),
-    });
-    load();
+  const openDetail = async (${id}: number) => {
+    const r = await fetch(API + '${listPath}/{id}'.replace('{id}', String(${id})));
+    setDetail(await r.json());
   };
 
   const remove = async (${id}: number) => {
@@ -251,40 +274,87 @@ export default function App() {
   };
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '0 auto', padding: 24 }}>
-      <h1>${cap(ent.name)} List</h1>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input
-          value={${title}}
-          onChange={(e) => set${cap(title)}(e.target.value)}
-          placeholder="新增..."
-          style={{ flex: 1, padding: 8, borderRadius: 6, border: '1px solid #ccc' }}
-        />
-        <button onClick={add} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#4472C4', color: '#fff' }}>
-          新增
-        </button>
-      </div>
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {items.map((item) => (
-          <li
-            key={item.${id}}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '10px 12px', margin: '4px 0', border: '1px solid #ddd', borderRadius: 6,
-              textDecoration: item.${done} ? 'line-through' : 'none', opacity: item.${done} ? 0.6 : 1,
-            }}
-          >
-            <span onClick={() => toggle(item)} style={{ cursor: 'pointer' }}>{item.${title}}</span>
-            <span>
-              <button onClick={() => toggle(item)} style={{ marginRight: 8, cursor: 'pointer' }}>
-                {item.${done} ? '✅ 已完成' : '⬜ 未完成'}
-              </button>
-              <button onClick={() => remove(item.${id})} style={{ cursor: 'pointer' }}>删除</button>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {items.length === 0 && <p style={{ color: '#888' }}>暂无数据</p>}
+    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 760, margin: '0 auto', padding: 24 }}>
+      <h1>${cap(ent.name)} 管理</h1>
+
+      <button onClick={() => setShowForm(!showForm)} style={{ padding: '8px 16px', marginBottom: 16, borderRadius: 6, border: 'none', background: '#4472C4', color: '#fff' }}>
+        {showForm ? '取消' : '新增 ${ent.name}'}
+      </button>
+
+      {showForm && (
+        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+${inputNonListFields
+  .map(
+    (f) => `          <label style={{ display: 'block', marginBottom: 8 }}>
+            ${f.name}:
+            <input
+              value={${f.name}}
+              onChange={(e) => set${cap(f.name)}(${f.type.kind === 'primitive' && (f.type.builtin === 'String') ? 'e.target.value' : 'Number(e.target.value)'})}
+              style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
+            />
+          </label>`,
+  )
+  .join('\n')}
+${itemStruct ? `          <h4 style={{ margin: '12px 0 8px' }}>明细行</h4>
+          {rows.map((row, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+${itemStruct.properties
+  .map(
+    (f) => `              <input
+                placeholder="${f.name}"
+                value={row.${f.name}}
+                onChange={(e) => {
+                  const next = [...rows];
+                  next[i] = { ...next[i], ${f.name}: ${f.type.kind === 'primitive' && (f.type.builtin === 'String') ? "e.target.value" : "Number(e.target.value)"} };
+                  setRows(next);
+                }}
+                style={{ flex: 1, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
+              />`,
+  )
+  .join('\n')}
+              <button onClick={() => setRows(rows.filter((_, j) => j !== i))} style={{ padding: '6px 10px' }}>删</button>
+            </div>
+          ))}
+          <button onClick={() => setRows([...rows, { ${itemStruct.properties
+            .map((f) => `${f.name}: ${f.type.kind === 'primitive' && f.type.builtin === 'String' ? "''" : '0'}`)
+            .join(', ')} }])} style={{ padding: '6px 12px' }}>
+            + 添加明细
+          </button>` : ''}
+          <div style={{ marginTop: 12 }}>
+            <button onClick={submit} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#2E7D32', color: '#fff' }}>
+              提交
+            </button>
+          </div>
+        </div>
+      )}
+
+      {detail ? (
+        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+          <h3>详情</h3>
+          <pre style={{ whiteSpace: 'pre-wrap', background: '#f5f5f5', padding: 12, borderRadius: 6 }}>{JSON.stringify(detail, null, 2)}</pre>
+          <button onClick={() => setDetail(null)} style={{ padding: '6px 12px', marginTop: 8 }}>返回</button>
+        </div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+${[...listFields.map((f) => `              <th style={{ border: '1px solid #ddd', padding: 8, textAlign: 'left' }}>${f.name}</th>`), '              <th style={{ border: \'1px solid #ddd\', padding: 8 }}>操作</th>'].join('\n')}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.${id}}>
+${listFields.map((f) => `                <td style={{ border: '1px solid #ddd', padding: 8 }}>{String(item.${f.name})}</td>`).join('\n')}
+                <td style={{ border: '1px solid #ddd', padding: 8 }}>
+                  <button onClick={() => openDetail(item.${id})} style={{ marginRight: 8, cursor: 'pointer' }}>详情</button>
+                  <button onClick={() => remove(item.${id})} style={{ cursor: 'pointer' }}>删除</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {items.length === 0 && !detail && <p style={{ color: '#888' }}>暂无数据</p>}
     </div>
   );
 }
