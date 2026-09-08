@@ -1,6 +1,3 @@
-// P0 最小切面输入：LLM 书写面（TS 风格子集）
-// 数据源 + 实体 + 逻辑（findTodos 过滤未完成项）
-
 @datasource('defaultDS')
 entity Todo {
   id: Integer @pk;
@@ -13,18 +10,39 @@ struct TodoInput {
   done: Boolean;
 }
 
-enum Priority {
-  LOW,
-  HIGH,
+@export
+logic findTodos(): List<Todo> {
+  return Todo.all;
 }
 
 @export
-logic findTodos(): List<Todo> {
-  result := new List<Todo>();
-  for (todo in Todo.all) {
-    if (todo.done === false) {
-      result.add(todo);
-    }
-  }
-  return result;
+logic createTodo(input: TodoInput): Todo {
+  todo := new Todo();
+  todo.title = input.title;
+  todo.done = input.done;
+  todo.save();
+  return todo;
+}
+
+@export
+logic updateTodo(id: Integer, input: TodoInput): Todo {
+  todo := Todo.get(id);
+  todo.title = input.title;
+  todo.done = input.done;
+  todo.save();
+  return todo;
+}
+
+@export
+logic deleteTodo(id: Integer): Boolean {
+  todo := Todo.get(id);
+  todo.delete();
+  return true;
+}
+
+interface TodoApi {
+  GET    '/api/todos'       -> findTodos
+  POST   '/api/todos'       -> createTodo
+  PUT    '/api/todos/{id}'  -> updateTodo
+  DELETE '/api/todos/{id}'  -> deleteTodo
 }
