@@ -191,3 +191,49 @@ interface TodoApi {
     );
   });
 });
+describe('parser/operators', () => {
+  it('parses full arithmetic with precedence', () => {
+    const app = parse(`
+entity T { id: Integer @pk; }
+@export
+logic calc(a: Integer, b: Integer): Integer {
+  x := a * b + 2;
+  y := a / b - 1;
+  if (a >= b && b > 0) { return x; }
+  return y;
+}
+`);
+    const body = app.logics[0].body;
+    const varDecls = body.filter((s) => s.kind === 'VarDecl');
+    // a * b + 2 → Binary(+, Binary(*, a, b), 2)：乘法优先于加法
+    const mul = (varDecls[0] as { init: { kind: string; left: unknown; operator: string } }).init;
+    expect(mul.kind).toBe('Binary');
+    if (mul.kind === 'Binary') {
+      expect(mul.operator).toBe('+');
+      const left = mul.left as { kind: string; operator: string };
+      expect(left.kind).toBe('Binary');
+      expect(left.operator).toBe('*');
+    }
+    // 除法 + 减法
+    const div = (varDecls[1] as { init: { kind: string; operator: string } }).init;
+    expect(div.kind).toBe('Binary');
+    if (div.kind === 'Binary') expect(div.operator).toBe('-');
+  });
+
+  it('parses where query arg as Binary(=)', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; }
+entity OrderItem { id: Integer @pk; orderId: Integer; }
+@export
+logic find(id: Integer): List<OrderItem> {
+  return OrderItem.where(orderId = id);
+}
+`);
+    const ret = app.logics[0].body.find((s) => s.kind === 'Return') as { value: { kind: string; args: unknown[] } };
+    expect(ret.value.kind).toBe('Call');
+    const call = ret.value as { callee: { prop: string }; args: { kind: string; operator: string }[] };
+    expect(call.callee.prop).toBe('where');
+    expect(call.args[0].kind).toBe('Binary');
+    expect(call.args[0].operator).toBe('=');
+  });
+});

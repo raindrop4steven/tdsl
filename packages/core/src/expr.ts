@@ -16,7 +16,20 @@ export type Expr =
   | LiteralExpr
   | {
       kind: 'Binary';
-      operator: '===' | '!==' | '&&' | '||' | '+' | '<' | '<=';
+      operator:
+        | '==='
+        | '!=='
+        | '&&'
+        | '||'
+        | '+'
+        | '-'
+        | '*'
+        | '/'
+        | '<'
+        | '<='
+        | '>'
+        | '>='
+        | '=';
       left: Expr;
       right: Expr;
     }

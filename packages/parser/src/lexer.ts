@@ -7,7 +7,7 @@ export interface Token {
   col: number;
 }
 
-const PUNCT_SINGLE = '{}()[];,:.=<>!+-@';
+const PUNCT_SINGLE = '{}()[];,:.=<>!+-*/@';
 
 /** 将 TDSL 文本切分为 token 流（保留行列，供错误定位） */
 export function tokenize(input: string): Token[] {
@@ -99,9 +99,9 @@ export function tokenize(input: string): Token[] {
       continue;
     }
 
-    // 双字符运算符 && || <= :=
+    // 双字符运算符 && || <= >= :=
     const two = input.slice(i, i + 2);
-    if (two === '&&' || two === '||' || two === '<=' || two === ':=') {
+    if (two === '&&' || two === '||' || two === '<=' || two === '>=' || two === ':=') {
       push('punct', two, startLine, startCol);
       i += 2;
       col += 2;

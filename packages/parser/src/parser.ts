@@ -345,18 +345,32 @@ class Parser {
 
   private parseRelational(): Expr {
     let left = this.parseAdditive();
-    while (this.peek().value === '<' || this.peek().value === '<=') {
-      const op = this.next().value as '<' | '<=';
+    while (
+      this.peek().value === '<' ||
+      this.peek().value === '<=' ||
+      this.peek().value === '>' ||
+      this.peek().value === '>='
+    ) {
+      const op = this.next().value as '<' | '<=' | '>' | '>=';
       left = { kind: 'Binary', operator: op, left, right: this.parseAdditive() };
     }
     return left;
   }
 
   private parseAdditive(): Expr {
+    let left = this.parseMultiplicative();
+    while (this.peek().value === '+' || this.peek().value === '-') {
+      const op = this.next().value as '+' | '-';
+      left = { kind: 'Binary', operator: op, left, right: this.parseMultiplicative() };
+    }
+    return left;
+  }
+
+  private parseMultiplicative(): Expr {
     let left = this.parsePostfix();
-    while (this.peek().value === '+') {
-      this.next();
-      left = { kind: 'Binary', operator: '+', left, right: this.parsePostfix() };
+    while (this.peek().value === '*' || this.peek().value === '/') {
+      const op = this.next().value as '*' | '/';
+      left = { kind: 'Binary', operator: op, left, right: this.parsePostfix() };
     }
     return left;
   }
@@ -371,9 +385,22 @@ class Parser {
       } else if (this.peek().value === '(') {
         this.next();
         const args: Expr[] = [];
-        while (this.peek().value !== ')') {
-          args.push(this.parseExpr());
-          if (this.peek().value === ',') this.next();
+        // where 查询特殊参数：Entity.where(field = value) → Binary('=', field, value)
+        const isWhere = e.kind === 'Member' && e.obj.kind === 'Ident' && e.prop === 'where';
+        if (isWhere) {
+          const field = this.parseExpr(); // 字段标识符
+          if (this.peek().value === '=') {
+            this.next();
+            const value = this.parseExpr();
+            args.push({ kind: 'Binary', operator: '=', left: field, right: value });
+          } else {
+            args.push(field);
+          }
+        } else {
+          while (this.peek().value !== ')') {
+            args.push(this.parseExpr());
+            if (this.peek().value === ',') this.next();
+          }
         }
         this.expect(')');
         e = { kind: 'Call', callee: e, args };
