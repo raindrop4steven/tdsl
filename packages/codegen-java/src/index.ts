@@ -9,7 +9,7 @@ import type {
   Statement,
   StructureNode,
 } from '@tdsl/core';
-import { cap, javaType } from './type-map';
+import { cap, javaType, typeNameFromPath } from './type-map';
 
 /** app 名转包名：com.<name> */
 function pkgOf(app: AppNode): string {
@@ -74,9 +74,11 @@ function collectUsedEntities(app: AppNode, logic: LogicNode): Map<string, Entity
         const callee = e.callee;
         if (callee.kind === 'Member') {
           if (callee.obj.kind === 'Ident') {
-            // Todo.get(id) 或 Todo.all —— 静态实体调用
+            // Todo.get(id) / Todo.all / Todo.where(...) —— 静态实体调用
             const entName = entityNameOfIdent(app, callee.obj.name);
-            if (entName && (callee.prop === 'get' || callee.prop === 'all')) add(entName);
+            if (entName && (callee.prop === 'get' || callee.prop === 'all' || callee.prop === 'where')) {
+              add(entName);
+            }
             // entity.save() / entity.delete() —— 实例方法
             const recvEnt = entityVars.get(callee.obj.name);
             if (recvEnt && (callee.prop === 'save' || callee.prop === 'delete')) add(recvEnt);
@@ -172,14 +174,15 @@ export function generateJava(app: AppNode): GeneratedFile[] {
   const files: GeneratedFile[] = [];
   const pkg = pkgOf(app);
   const entities = app.datasources.flatMap((ds) => ds.entities);
+  const whereFields = collectWhereFields(app);
 
   files.push(...scaffoldFiles(app));
   for (const ent of entities) {
     files.push(entityFile(pkg, ent));
-    files.push(repositoryFile(pkg, ent));
+    files.push(repositoryFile(pkg, ent, whereFields.get(ent.name) ?? []));
   }
   for (const s of app.structures) {
-    files.push(structureFile(pkg, s));
+    files.push(structureFile(app, s));
   }
   for (const logic of app.logics) {
     files.push(serviceFile(app, logic));
@@ -192,7 +195,8 @@ export function generateJava(app: AppNode): GeneratedFile[] {
 
 // ---------- Structure → POJO ----------
 
-function structureFile(pkg: string, s: StructureNode): GeneratedFile {
+function structureFile(app: AppNode, s: StructureNode): GeneratedFile {
+  const pkg = pkgOf(app);
   const fields = s.properties
     .map((p) => `  private ${javaType(p.type)} ${p.name};`)
     .join('\n');
@@ -205,10 +209,19 @@ function structureFile(pkg: string, s: StructureNode): GeneratedFile {
   public void set${C}(${t} ${p.name}) { this.${p.name} = ${p.name}; }`;
     })
     .join('\n\n');
+  // 结构字段引用实体类型（reference → entity）时补 entity import
+  const entityNames = app.datasources.flatMap((ds) => ds.entities).map((e) => e.name);
+  const referencesEntity = s.properties.some((p) => {
+    const t = p.type;
+    if (t.kind === 'reference') return entityNames.includes(t.path.split('.').pop() ?? '');
+    if (t.kind === 'generic') {
+      return t.args.some((a) => a.kind === 'reference' && entityNames.includes(a.path.split('.').pop() ?? ''));
+    }
+    return false;
+  });
   const content = `package ${pkg}.structure;
 
-${s.properties.length > 0 ? 'import java.util.*;\n' : ''}
-public class ${s.name} {
+${s.properties.length > 0 ? 'import java.util.*;\n' : ''}${referencesEntity ? `import ${pkg}.entity.*;\n` : ''}public class ${s.name} {
 
 ${fields}
 
@@ -305,9 +318,23 @@ public class ${cap(app.name)}Application {
 
 // ---------- Entity → JPA ----------
 
+/** SQL 保留字（H2 等），实体名撞车时用引号包裹表名 */
+const SQL_RESERVED = new Set([
+  'order', 'group', 'user', 'key', 'value', 'select', 'from', 'where', 'table',
+  'index', 'view', 'create', 'drop', 'alter', 'grant', 'union', 'all', 'and',
+  'or', 'not', 'null', 'primary', 'foreign', 'join', 'left', 'right', 'inner',
+  'full', 'on', 'as', 'by', 'to', 'in', 'is', 'like', 'between', 'exists',
+]);
+
+/** 表名：实体名撞 SQL 保留字 → 双引号包裹（H2 支持 quoted identifier），Java 字符串需转义 */
+function tableNameOf(ent: EntityNode): string {
+  const base = ent.table ?? ent.name.toLowerCase();
+  return SQL_RESERVED.has(base) ? `\\"${base}\\"` : base;
+}
+
 function entityFile(pkg: string, ent: EntityNode): GeneratedFile {
   const className = ent.name;
-  const table = ent.table ?? ent.name.toLowerCase();
+  const table = tableNameOf(ent);
   const fields = ent.properties
     .map((p) => {
       const lines: string[] = [];
@@ -351,18 +378,119 @@ ${gettersSetters}
   return { path: `src/main/java/${pkg.replaceAll('.', '/')}/entity/${className}.java`, content };
 }
 
-// ---------- Repository：每实体一个接口 ----------
+// ---------- Repository：每实体一个接口（含 where 派生查询） ----------
 
-function repositoryFile(pkg: string, ent: EntityNode): GeneratedFile {
+/** where 字段：字段名 + Java 类型 */
+interface WhereField {
+  field: string;
+  javaType: string;
+}
+
+/** 收集所有 logic 中的 Entity.where(field = value)，返回 实体名 → 查询字段列表 */
+function collectWhereFields(app: AppNode): Map<string, WhereField[]> {
+  const map = new Map<string, WhereField[]>();
+  const add = (entName: string, f: WhereField): void => {
+    const list = map.get(entName) ?? [];
+    if (!list.some((x) => x.field === f.field)) list.push(f);
+    map.set(entName, list);
+  };
+  for (const l of app.logics) {
+    forEachStmt(l.body, (st) => {
+      const scan = (e: Expr): void => {
+        if (
+          e.kind === 'Call' &&
+          e.callee.kind === 'Member' &&
+          e.callee.obj.kind === 'Ident' &&
+          e.callee.prop === 'where'
+        ) {
+          const entName = e.callee.obj.name;
+          const ent = findEntityByName(app, entName);
+          const cond = e.args[0];
+          if (ent && cond?.kind === 'Binary' && cond.operator === '=' && cond.left.kind === 'Ident') {
+            const fieldName = cond.left.name;
+            const prop = ent.properties.find((p) => p.name === fieldName);
+            if (prop) add(entName, { field: prop.name, javaType: javaType(prop.type) });
+          }
+        }
+        switch (e.kind) {
+          case 'Call':
+            scan(e.callee);
+            e.args.forEach(scan);
+            break;
+          case 'Member':
+            scan(e.obj);
+            break;
+          case 'New':
+            e.args.forEach(scan);
+            break;
+          case 'NewList':
+            e.items.forEach(scan);
+            break;
+          case 'Binary':
+            scan(e.left);
+            scan(e.right);
+            break;
+          case 'Group':
+            scan(e.expr);
+            break;
+          default:
+            break;
+        }
+      };
+      switch (st.kind) {
+        case 'VarDecl':
+          if (st.init) scan(st.init);
+          break;
+        case 'Assign':
+          scan(st.target);
+          scan(st.value);
+          break;
+        case 'Return':
+          if (st.value) scan(st.value);
+          break;
+        case 'If':
+          // 嵌套语句由 forEachStmt 递归访问，此处只扫表达式
+          scan(st.cond);
+          break;
+        case 'ForEach':
+          scan(st.container);
+          break;
+        case 'CallStmt':
+          scan(st.call);
+          break;
+      }
+    });
+  }
+  return map;
+}
+
+/** 遍历语句（含嵌套 If/ForEach） */
+function forEachStmt(stmts: Statement[], fn: (st: Statement) => void): void {
+  for (const st of stmts) {
+    fn(st);
+    if (st.kind === 'If') {
+      forEachStmt(st.then, fn);
+      if (st.else) forEachStmt(st.else, fn);
+    } else if (st.kind === 'ForEach') {
+      forEachStmt(st.body, fn);
+    }
+  }
+}
+
+function repositoryFile(pkg: string, ent: EntityNode, whereFields: WhereField[]): GeneratedFile {
   const idProp = ent.properties.find((p) => p.primary);
   const idType = idProp ? javaType(idProp.type) : 'Long';
+  const methods = whereFields
+    .map((w) => `  java.util.List<${ent.name}> findBy${cap(w.field)}(${w.javaType} ${w.field});`)
+    .join('\n');
+  const methodBlock = methods ? '\n' + methods + '\n' : '';
   const content = `package ${pkg}.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import ${pkg}.entity.${ent.name};
 
 public interface ${ent.name}Repository extends JpaRepository<${ent.name}, ${idType}> {
-}
+${methodBlock}}
 `;
   return {
     path: `src/main/java/${pkg.replaceAll('.', '/')}/repository/${ent.name}Repository.java`,
@@ -389,6 +517,12 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
 
   const returnType = logic.returns[0] ? javaType(logic.returns[0].type) : 'void';
 
+  // 写操作（save/delete）→ 方法加 @Transactional
+  const transactional = hasWriteOps(logic) ? '@Transactional\n  ' : '';
+  const transactionalImport = hasWriteOps(logic)
+    ? 'import org.springframework.transaction.annotation.Transactional;\n'
+    : '';
+
   // 方法参数签名 + 变量登记（参数在方法体可见）
   const methodParams = logic.params
     .map((p) => `${javaType(p.type)} ${p.name}`)
@@ -401,8 +535,11 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
 
   const imports = [
     'import org.springframework.stereotype.Service;',
+    ...(transactionalImport ? [transactionalImport.trim()] : []),
     ...(usedEntities.size > 0 ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
-    ...(logic.params.some((p) => p.type.kind === 'reference' && isStructure(app, p.type))
+    // 参数或返回类型引用 structure 时补 import
+    ...(logic.params.some((p) => p.type.kind === 'reference' && isStructure(app, p.type)) ||
+      logic.returns.some((r) => r.type.kind === 'reference' && isStructure(app, r.type))
       ? [`import ${pkg}.structure.*;`]
       : []),
   ].join('\n');
@@ -419,7 +556,7 @@ ${repoFields}
 ${ctorAssign}
   }
 
-  public ${returnType} ${logic.name}(${methodParams}) {
+  ${transactional}public ${returnType} ${logic.name}(${methodParams}) {
 ${body}
   }
 }
@@ -428,6 +565,70 @@ ${body}
     path: `src/main/java/${pkg.replaceAll('.', '/')}/service/${className}.java`,
     content,
   };
+}
+
+/** logic 是否含写操作（.save() / .delete() 调用）→ 需要事务 */
+function hasWriteOps(logic: LogicNode): boolean {
+  let found = false;
+  const scanExpr = (e: Expr): void => {
+    if (found) return;
+    if (
+      e.kind === 'Call' &&
+      e.callee.kind === 'Member' &&
+      (e.callee.prop === 'save' || e.callee.prop === 'delete')
+    ) {
+      found = true;
+      return;
+    }
+    switch (e.kind) {
+      case 'Call':
+        scanExpr(e.callee);
+        e.args.forEach(scanExpr);
+        break;
+      case 'Member':
+        scanExpr(e.obj);
+        break;
+      case 'New':
+        e.args.forEach(scanExpr);
+        break;
+      case 'NewList':
+        e.items.forEach(scanExpr);
+        break;
+      case 'Binary':
+        scanExpr(e.left);
+        scanExpr(e.right);
+        break;
+      case 'Group':
+        scanExpr(e.expr);
+        break;
+      default:
+        break;
+    }
+  };
+  forEachStmt(logic.body, (st) => {
+    switch (st.kind) {
+      case 'VarDecl':
+        if (st.init) scanExpr(st.init);
+        break;
+      case 'Assign':
+        scanExpr(st.target);
+        scanExpr(st.value);
+        break;
+      case 'Return':
+        if (st.value) scanExpr(st.value);
+        break;
+      case 'If':
+        scanExpr(st.cond);
+        break;
+      case 'ForEach':
+        scanExpr(st.container);
+        break;
+      case 'CallStmt':
+        scanExpr(st.call);
+        break;
+    }
+  });
+  return found;
 }
 
 /** TypeRef 是否指向 structure */
@@ -544,7 +745,7 @@ function genStatement(
   switch (st.kind) {
     case 'VarDecl': {
       const elemType = st.init?.kind === 'NewList' ? st.init.elem : undefined;
-      // 识别 Todo.get(id) 或 new Todo() 推断实体类型
+      // 识别 Todo.get(id) / new Todo() / new OrderDetail() 推断类型（实体或结构）
       const getInit = st.init;
       const inferredType =
         getInit?.kind === 'Call' &&
@@ -553,7 +754,7 @@ function genStatement(
         getInit.callee.prop === 'get'
           ? entityNameOfIdent(app, getInit.callee.obj.name)
           : getInit?.kind === 'New' && getInit.type.kind === 'reference'
-            ? entityNameOfIdent(app, getInit.type.path.split('.').pop() ?? '')
+            ? typeNameFromPath(getInit.type.path)
             : undefined;
       const typeStr = st.type
         ? javaType(st.type)
@@ -575,7 +776,13 @@ function genStatement(
       if (t.kind === 'Member' && t.obj.kind === 'Ident') {
         const varType = vars.get(t.obj.name);
         if (varType && !isValueType(varType)) {
-          return [`    ${t.obj.name}.set${cap(t.prop)}(${value});`];
+          let v = value;
+          // Decimal 字段赋值整数字面量 → BigDecimal.valueOf(...)
+          const fieldType = memberFieldType(app, vars, t.obj.name, t.prop);
+          if (fieldType === 'java.math.BigDecimal' && exprJavaType(app, st.value, entities, vars) !== 'java.math.BigDecimal') {
+            v = `java.math.BigDecimal.valueOf(${v})`;
+          }
+          return [`    ${t.obj.name}.set${cap(t.prop)}(${v});`];
         }
       }
       return [`    ${genExpr(app, st.target, entities, vars)} = ${value};`];
@@ -593,11 +800,21 @@ function genStatement(
       return lines;
     }
     case 'ForEach': {
-      const ent = findEntityForAll(app, st.container);
-      const itemType = ent ? ent.name : 'var';
-      if (ent) vars.set(st.item, ent.name);
+      const ent = findEntityForAll(app, st.container) ?? findEntityForWhere(app, st.container);
+      let itemType: string;
+      if (ent) {
+        itemType = ent.name;
+      } else {
+        // 结构 List 容器（如 input.items: List<OrderItemInput>）→ 元素类型
+        const ct = exprJavaType(app, st.container, entities, vars);
+        const m = ct?.match(/^java\.util\.List<(.+)>$/);
+        itemType = m ? m[1] : 'var';
+      }
+      vars.set(st.item, itemType);
       const containerStr = ent
-        ? `${repoVar(ent)}.findAll()`
+        ? isWhereCall(st.container)
+          ? genExpr(app, st.container, entities, vars)
+          : `${repoVar(ent)}.findAll()`
         : genExpr(app, st.container, entities, vars);
       const lines = [`    for (${itemType} ${st.item} : ${containerStr}) {`];
       lines.push(...genStatements(app, st.body, entities, vars));
@@ -613,6 +830,117 @@ function genStatement(
   }
 }
 
+// ---------- 表达式 Java 类型推断（Decimal 算术需要类型感知） ----------
+
+/** 推断表达式 Java 类型（尽力而为；无法推断返回 null） */
+function exprJavaType(
+  app: AppNode,
+  e: Expr,
+  entities: Map<string, EntityNode>,
+  vars: Map<string, string>,
+): string | null {
+  switch (e.kind) {
+    case 'Ident':
+      return vars.get(e.name) ?? null;
+    case 'Numeric':
+      return 'Long'; // 数字字面量默认 Integer→Long
+    case 'Bool':
+      return 'Boolean';
+    case 'String':
+      return 'String';
+    case 'Null':
+      return null;
+    case 'Member': {
+      if (e.obj.kind === 'Ident') {
+        return memberFieldType(app, vars, e.obj.name, e.prop);
+      }
+      return null;
+    }
+    case 'Call': {
+      if (e.callee.kind === 'Member' && e.callee.obj.kind === 'Ident') {
+        const entName = entityNameOfIdent(app, e.callee.obj.name);
+        if (entName && e.callee.prop === 'get') return entName;
+        if (entName && (e.callee.prop === 'all' || e.callee.prop === 'where')) {
+          return `java.util.List<${entName}>`;
+        }
+      }
+      return null;
+    }
+    case 'Binary': {
+      if (e.operator === '+' || e.operator === '-' || e.operator === '*') {
+        const lt = exprJavaType(app, e.left, entities, vars);
+        const rt = exprJavaType(app, e.right, entities, vars);
+        if (lt === 'java.math.BigDecimal' || rt === 'java.math.BigDecimal') return 'java.math.BigDecimal';
+        return 'Long';
+      }
+      return 'Boolean'; // 比较/逻辑
+    }
+    case 'Group':
+      return exprJavaType(app, e.expr, entities, vars);
+    default:
+      return null;
+  }
+}
+
+/** 变量某字段的 Java 类型（变量类型是实体或结构时查属性类型） */
+function memberFieldType(
+  app: AppNode,
+  vars: Map<string, string>,
+  varName: string,
+  prop: string,
+): string | null {
+  const typeName = vars.get(varName);
+  if (!typeName) return null;
+  return typeFieldType(app, typeName, prop);
+}
+
+/** 按类型名（实体/结构类名）查字段 Java 类型 */
+function typeFieldType(app: AppNode, typeName: string, prop: string): string | null {
+  const ent = findEntityByName(app, typeName);
+  if (ent) {
+    const p = ent.properties.find((x) => x.name === prop);
+    if (p) return javaType(p.type);
+  }
+  const st = app.structures.find((s) => s.name === typeName);
+  if (st) {
+    const p = st.properties.find((x) => x.name === prop);
+    if (p) return javaType(p.type);
+  }
+  return null;
+}
+
+/** 把表达式转为 BigDecimal：已是 BigDecimal 直接用，否则 BigDecimal.valueOf(...) */
+function toBigDecimal(
+  app: AppNode,
+  e: Expr,
+  entities: Map<string, EntityNode>,
+  vars: Map<string, string>,
+): string {
+  const t = exprJavaType(app, e, entities, vars);
+  const s = genExpr(app, e, entities, vars);
+  if (t === 'java.math.BigDecimal') return s;
+  return `java.math.BigDecimal.valueOf(${s})`;
+}
+
+/** 是否为 Entity.where(...) 调用 */
+function isWhereCall(e: Expr): boolean {
+  return (
+    e.kind === 'Call' &&
+    e.callee.kind === 'Member' &&
+    e.callee.obj.kind === 'Ident' &&
+    e.callee.prop === 'where'
+  );
+}
+
+/** 从 where 容器解析实体（Entity.where(...) → 实体） */
+function findEntityForWhere(app: AppNode, e: Expr): EntityNode | null {
+  if (e.kind !== 'Call' || e.callee.kind !== 'Member' || e.callee.obj.kind !== 'Ident' || e.callee.prop !== 'where') {
+    return null;
+  }
+  const name = entityNameOfIdent(app, e.callee.obj.name);
+  return name ? findEntityByName(app, name) : null;
+}
+
 function genExpr(
   app: AppNode,
   e: Expr,
@@ -623,6 +951,10 @@ function genExpr(
     case 'Ident':
       return e.name;
     case 'Member': {
+      // list.count → .size()
+      if (e.prop === 'count') {
+        return `${genExpr(app, e.obj, entities, vars)}.size()`;
+      }
       // 实体静态 X.all → findAll()
       if (e.obj.kind === 'Ident') {
         const entName = entityNameOfIdent(app, e.obj.name);
@@ -640,7 +972,7 @@ function genExpr(
     }
     case 'Call': {
       const callee = e.callee;
-      // 实体静态方法：Todo.all / Todo.get(id)
+      // 实体静态方法：Todo.all / Todo.get(id) / Todo.where(field = value)
       if (callee.kind === 'Member' && callee.obj.kind === 'Ident') {
         const entName = entityNameOfIdent(app, callee.obj.name);
         if (entName) {
@@ -653,6 +985,14 @@ function genExpr(
             const idArg = genExpr(app, e.args[0], entities, vars);
             return `${repo}.findById(${idArg}).orElseThrow()`;
           }
+          if (callee.prop === 'where') {
+            const cond = e.args[0];
+            if (cond?.kind === 'Binary' && cond.operator === '=' && cond.left.kind === 'Ident') {
+              const field = cond.left.name;
+              const value = genExpr(app, cond.right, entities, vars);
+              return `${repo}.findBy${cap(field)}(${value})`;
+            }
+          }
         }
         // 实体实例方法：entity.save() / entity.delete()
         const recvVar = vars.get(callee.obj.name);
@@ -662,6 +1002,11 @@ function genExpr(
             return `${repoVar(ent)}.${callee.prop}(${genExpr(app, callee.obj, entities, vars)})`;
           }
         }
+      }
+      // list.add(x)
+      if (callee.kind === 'Member' && callee.prop === 'add') {
+        const args = e.args.map((a) => genExpr(app, a, entities, vars)).join(', ');
+        return `${genExpr(app, callee.obj, entities, vars)}.add(${args})`;
       }
       const args = e.args.map((a) => genExpr(app, a, entities, vars)).join(', ');
       return `${genExpr(app, e.callee, entities, vars)}(${args})`;
@@ -688,6 +1033,14 @@ function genExpr(
       return 'null';
     case 'Binary': {
       const op = e.operator === '===' ? '==' : e.operator === '!==' ? '!=' : e.operator;
+      const lt = exprJavaType(app, e.left, entities, vars);
+      const rt = exprJavaType(app, e.right, entities, vars);
+      // Decimal 算术：+ → .add()、* → .multiply()、- → .subtract()（BigDecimal 不能用 Java 运算符）
+      if ((e.operator === '+' || e.operator === '*' || e.operator === '-') &&
+          (lt === 'java.math.BigDecimal' || rt === 'java.math.BigDecimal')) {
+        const m = e.operator === '+' ? 'add' : e.operator === '*' ? 'multiply' : 'subtract';
+        return `(${toBigDecimal(app, e.left, entities, vars)}.${m}(${toBigDecimal(app, e.right, entities, vars)}))`;
+      }
       return `(${genExpr(app, e.left, entities, vars)} ${op} ${genExpr(app, e.right, entities, vars)})`;
     }
     case 'Group':

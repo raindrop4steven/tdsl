@@ -150,3 +150,99 @@ describe('codegen-java CRUD', () => {
     expect(ctrl).toContain('createTodoService.createTodo(input)');
   });
 });
+describe('codegen-java order scenario', () => {
+  const ORDER_DSL = `
+@datasource('defaultDS')
+entity Order {
+  id: Integer @pk;
+  customer: String;
+  total: Decimal;
+}
+entity OrderItem {
+  id: Integer @pk;
+  orderId: Integer;
+  product: String;
+  price: Decimal;
+  qty: Integer;
+}
+struct OrderInput { customer: String; items: List<OrderItemInput>; }
+struct OrderItemInput { product: String; price: Decimal; qty: Integer; }
+struct OrderDetail { order: Order; items: List<OrderItem>; }
+@export
+logic createOrder(input: OrderInput): Order {
+  if (input.items.count === 0) { return null; }
+  order := new Order();
+  order.customer = input.customer;
+  order.total = 0;
+  order.save();
+  for (it in input.items) {
+    item := new OrderItem();
+    item.orderId = order.id;
+    item.product = it.product;
+    item.price = it.price;
+    item.qty = it.qty;
+    item.save();
+    order.total = order.total + it.price * it.qty;
+  }
+  order.save();
+  return order;
+}
+@export
+logic getOrderDetail(id: Integer): OrderDetail {
+  order := Order.get(id);
+  detail := new OrderDetail();
+  detail.order = order;
+  detail.items = OrderItem.where(orderId = id);
+  return detail;
+}
+@export
+logic deleteOrder(id: Integer): Boolean {
+  order := Order.get(id);
+  for (it in OrderItem.where(orderId = id)) { it.delete(); }
+  order.delete();
+  return true;
+}
+interface OrderApi {
+  GET    '/api/orders'      -> getOrderDetail
+  POST   '/api/orders'      -> createOrder
+  GET    '/api/orders/{id}' -> getOrderDetail
+  DELETE '/api/orders/{id}' -> deleteOrder
+}
+`;
+
+  it('generates @Transactional on write service', () => {
+    const files = generateJava(parse(ORDER_DSL));
+    const create = files.find((f) => f.path.endsWith('service/CreateOrderService.java'))!;
+    expect(create.content).toContain('@Transactional');
+    expect(create.content).toContain('import org.springframework.transaction.annotation.Transactional;');
+    const detail = files.find((f) => f.path.endsWith('service/GetOrderDetailService.java'))!;
+    expect(detail.content).not.toContain('@Transactional'); // 只读不标事务
+  });
+
+  it('generates where-derived findBy in repository', () => {
+    const files = generateJava(parse(ORDER_DSL));
+    const repo = files.find((f) => f.path.endsWith('repository/OrderItemRepository.java'))!;
+    expect(repo.content).toContain('java.util.List<OrderItem> findByOrderId(Long orderId);');
+  });
+
+  it('generates Decimal arithmetic (add/multiply) not Java operators', () => {
+    const files = generateJava(parse(ORDER_DSL));
+    const create = files.find((f) => f.path.endsWith('service/CreateOrderService.java'))!.content;
+    expect(create).toContain('.add(');
+    expect(create).toContain('.multiply(');
+    expect(create).toContain('BigDecimal.valueOf');
+  });
+
+  it('quotes SQL-reserved table name (order)', () => {
+    const files = generateJava(parse(ORDER_DSL));
+    const order = files.find((f) => f.path.endsWith('entity/Order.java'))!.content;
+    expect(order).toContain('@Table(name = "\\"order\\"")');
+  });
+
+  it('imports structure in service for return type', () => {
+    const files = generateJava(parse(ORDER_DSL));
+    const detail = files.find((f) => f.path.endsWith('service/GetOrderDetailService.java'))!.content;
+    expect(detail).toContain('import com.todo.structure.*;');
+    expect(detail).toContain('orderItemRepository.findByOrderId(id)');
+  });
+});
