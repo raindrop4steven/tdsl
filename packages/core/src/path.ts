@@ -44,6 +44,12 @@ export function collectPaths(app: AppNode): PathEntry[] {
       entries.push({ path: `app.logics.${l.name}.returns[${i}]`, node: r });
     });
   }
+  for (const itf of app.interfaces) {
+    entries.push({ path: `app.interfaces.${itf.name}`, node: itf });
+    itf.endpoints.forEach((ep, i) => {
+      entries.push({ path: `app.interfaces.${itf.name}.endpoints[${i}]`, node: ep });
+    });
+  }
   return entries;
 }
 

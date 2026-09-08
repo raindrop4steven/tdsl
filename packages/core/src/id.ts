@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
-
+// 全局 crypto.randomUUID：Node 18+ 与浏览器均可用（环境无关，供编译服务/playground 复用）
 export function createId(): string {
-  return randomUUID();
+  return crypto.randomUUID();
 }
 
 /** 创建带 kind + id 的最小节点（具体节点由各构造函数扩展字段） */

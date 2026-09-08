@@ -60,6 +60,7 @@ function sampleApp(): AppNode {
     structures: [struct],
     enums: [],
     logics: [logic],
+    interfaces: [],
   };
 }
 

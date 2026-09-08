@@ -24,6 +24,7 @@ export interface AppNode extends BaseNode {
   structures: StructureNode[];
   enums: EnumNode[];
   logics: LogicNode[];
+  interfaces: InterfaceNode[];
 }
 
 /** 数据源：聚合实体 */
@@ -97,6 +98,22 @@ export interface ReturnNode extends BaseNode {
   type: TypeRef;
 }
 
+/** 接口：REST 契约，聚合端点 */
+export interface InterfaceNode extends BaseNode {
+  kind: 'Interface';
+  name: string;
+  endpoints: EndpointNode[];
+}
+
+/** 端点：一个 REST 方法，绑定到某个 Logic */
+export interface EndpointNode extends BaseNode {
+  kind: 'Endpoint';
+  name: string;                       // 方法名（可由 logicRef 派生）
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  path: string;                       // 如 /api/todos、/api/todos/{id}
+  logicRef?: string;                  // 绑定的 Logic nodePath
+}
+
 export type AnyNode =
   | AppNode
   | DataSourceNode
@@ -108,7 +125,9 @@ export type AnyNode =
   | EnumItemNode
   | LogicNode
   | ParamNode
-  | ReturnNode;
+  | ReturnNode
+  | InterfaceNode
+  | EndpointNode;
 
 export type NodeKind = AnyNode['kind'];
 
