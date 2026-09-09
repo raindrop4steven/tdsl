@@ -111,22 +111,64 @@ describe('parser/parse', () => {
     expect(() => parse('entity Todo { a: Missing; }')).toThrow(/cannot resolve type 'Missing'/);
   });
 
-  it('rejects duplicate names across datasources', () => {
+  it('allows same-name entities across datasources (M1 scope)', () => {
+    const src = `
+@datasource('erp')
+entity Order { id: Integer @pk; }
+@datasource('crm')
+entity Order { id: Integer @pk; }
+`;
+    const app = parse(src);
+    expect(app.datasources).toHaveLength(2);
+    // 跨源同名实体 → 各自 nodePath 不同
+    const paths = app.datasources.flatMap((ds) => ds.entities.map((e) => e.name));
+    expect(paths).toEqual(['Order', 'Order']);
+  });
+
+  it('rejects duplicate names within same datasource', () => {
     const src = `
 @datasource('ds1')
 entity Todo { id: Integer @pk; }
-@datasource('ds2')
+@datasource('ds1')
 entity Todo { id: Integer @pk; }
 `;
-    expect(() => parse(src)).toThrow(/duplicate type name 'Todo'/);
+    expect(() => parse(src)).toThrow(/duplicate entity 'Todo' in datasource 'ds1'/);
   });
 
-  it('rejects duplicate names across concepts', () => {
+  it('rejects duplicate names across concepts (structure vs entity)', () => {
     const src = `
 entity Todo { id: Integer @pk; }
 struct Todo { id: Integer; }
 `;
     expect(() => parse(src)).toThrow(/duplicate type name 'Todo'/);
+  });
+
+  it('links qualified reference ds.Entity to full nodePath', () => {
+    const src = `
+@datasource('erp')
+entity Order { id: Integer @pk; }
+@datasource('crm')
+entity Order { id: Integer @pk; }
+struct Shipment { erpOrder: erp.Order; crmOrder: crm.Order; }
+`;
+    const app = parse(src);
+    const s = app.structures[0];
+    const t0 = s.properties[0].type;
+    const t1 = s.properties[1].type;
+    expect(t0.kind).toBe('reference');
+    if (t0.kind === 'reference') expect(t0.path).toBe('app.datasources.erp.entities.Order');
+    if (t1.kind === 'reference') expect(t1.path).toBe('app.datasources.crm.entities.Order');
+  });
+
+  it('rejects ambiguous short name across datasources without qualification', () => {
+    const src = `
+@datasource('erp')
+entity Order { id: Integer @pk; }
+@datasource('crm')
+entity Order { id: Integer @pk; }
+struct Shipment { o: Order; }
+`;
+    expect(() => parse(src)).toThrow(/ambiguous type 'Order'/);
   });
 
   it('parses entity without datasource into defaultDS', () => {
@@ -229,11 +271,174 @@ logic find(id: Integer): List<OrderItem> {
   return OrderItem.where(orderId = id);
 }
 `);
-    const ret = app.logics[0].body.find((s) => s.kind === 'Return') as { value: { kind: string; args: unknown[] } };
+    const ret = app.logics[0].body.find((s) => s.kind === 'Return') as {
+      value: { kind: string; args: unknown[] };
+    };
     expect(ret.value.kind).toBe('Call');
-    const call = ret.value as { callee: { prop: string }; args: { kind: string; operator: string }[] };
+    const call = ret.value as unknown as { callee: { prop: string }; args: { kind: string; operator: string }[] };
     expect(call.callee.prop).toBe('where');
     expect(call.args[0].kind).toBe('Binary');
     expect(call.args[0].operator).toBe('=');
+  });
+});
+
+describe('parser/page (M4 View)', () => {
+  const PAGE_DSL = `
+entity Order { id: Integer @pk; customer: String; total: Decimal; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+@export
+logic deleteOrder(id: Integer): Boolean { return true; }
+interface OrderApi {
+  GET    '/api/orders'      -> listOrders
+  DELETE '/api/orders/{id}' -> deleteOrder
+}
+page OrderList {
+  <table dataSource={useQuery('listOrders')}>
+    <column field="id" />
+    <column field="customer" />
+    <button text="删除" action={useMutation('deleteOrder', row.id)} />
+  </table>
+  <button text="新增" action={navigate('OrderCreate')} />
+}
+page OrderCreate { }
+`;
+
+  it('parses page with JSX-subset elements and bindings', () => {
+    const app = parse(PAGE_DSL);
+    expect(app.views).toHaveLength(2);
+    const list = app.views[0];
+    expect(list.name).toBe('OrderList');
+    expect(list.viewKind).toBe('page');
+    // table > column
+    const table = list.elements[0];
+    expect(table.type).toBe('table');
+    expect(table.children.filter((c) => c.type === 'column')).toHaveLength(2);
+    // 行内按钮绑定 useMutation
+    const delBtn = table.children.find((c) => c.type === 'button');
+    expect(delBtn?.bindings[0].name).toBe('useMutation');
+    expect(delBtn?.bindings[0].target).toBe('app.logics.deleteOrder');
+    // 页级按钮 navigate
+    const navBtn = list.elements[1];
+    expect(navBtn.bindings[0].name).toBe('navigate');
+    expect(navBtn.bindings[0].target).toBe('OrderCreate');
+    // 顶层 button 的 text 属性
+    expect(navBtn.props['text']).toBe('新增');
+  });
+
+  it('binds useQuery logicRef to nodePath', () => {
+    const app = parse(PAGE_DSL);
+    const table = app.views[0].elements[0];
+    const q = table.bindings.find((b) => b.name === 'useQuery');
+    expect(q?.target).toBe('app.logics.listOrders');
+  });
+
+  it('rejects dangling logic in page binding', () => {
+    expect(() =>
+      parse(`
+entity Order { id: Integer @pk; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+page X { <table dataSource={useQuery('nope')}><column field="id" /></table> }
+`),
+    ).toThrow(/cannot resolve logic 'nope'/);
+  });
+
+  it('rejects dangling page in navigate', () => {
+    expect(() =>
+      parse(`
+entity Order { id: Integer @pk; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+page X { <button action={navigate('Nope')} /> }
+`),
+    ).toThrow(/cannot resolve page 'Nope'/);
+  });
+});
+
+describe('parser/M6 service + component', () => {
+  const M6_DSL = `
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+@service(kind = 'dubbo', group = 'order-center', version = '1.0.0')
+service UserService {
+  getUser(id: Integer): Order;
+}
+@service(kind = 'bean', jar = 'com.example:order-sdk:1.0')
+service OrderSdk {
+  createOrder(input: Order): Order;
+}
+@service(kind = 'http', baseUrl = 'http://erp-center')
+service ErpApi {
+  GET '/api/orders/{id}' -> getOrder(id: Integer): Order;
+}
+interface OrderApi {
+  GET '/api/orders' -> listOrders
+}
+component ECharts {
+  pkg: 'echarts-for-react';
+  defaultProps: { option: Json; style: Json };
+  events: ['onClick'];
+}
+`;
+
+  it('parses dubbo/bean/http services with operations', () => {
+    const app = parse(M6_DSL);
+    expect(app.services).toHaveLength(3);
+    const dubbo = app.services[0];
+    expect(dubbo.kind_).toBe('dubbo');
+    expect(dubbo.config['group']).toBe('order-center');
+    expect(dubbo.operations[0].name).toBe('getUser');
+    expect(dubbo.operations[0].params[0].name).toBe('id');
+    const http = app.services[2];
+    expect(http.kind_).toBe('http');
+    expect(http.operations[0].method).toBe('GET');
+    expect(http.operations[0].path).toBe('/api/orders/{id}');
+  });
+
+  it('binds service operation type refs to nodePaths', () => {
+    const app = parse(M6_DSL);
+    const dubbo = app.services[0];
+    expect(dubbo.operations[0].returns[0].type.kind === 'reference' ? dubbo.operations[0].returns[0].type.path : '').toContain('app.datasources');
+  });
+
+  it('parses component registration', () => {
+    const app = parse(M6_DSL);
+    expect(app.components).toHaveLength(1);
+    const c = app.components[0];
+    expect(c.name).toBe('ECharts');
+    expect(c.pkg).toBe('echarts-for-react');
+    expect(c.defaultProps).toContain('option');
+    expect(c.events).toContain('onClick');
+  });
+
+  it('rejects service without kind in @service', () => {
+    expect(() =>
+      parse(`
+service X { getUser(id: Integer): Order; }
+entity Order { id: Integer @pk; }
+`),
+    ).toThrow(/@service\(kind/);
+  });
+
+  it('rejects service with unknown kind', () => {
+    expect(() =>
+      parse(`
+@service(kind = 'grpc')
+service X { getUser(id: Integer): Order; }
+entity Order { id: Integer @pk; }
+`),
+    ).toThrow(/requires @service\(kind/);
+  });
+
+  it('rejects component without pkg', () => {
+    expect(() =>
+      parse(`
+component X {
+  events: ['onClick'];
+}
+`),
+    ).toThrow(/requires pkg/);
   });
 });

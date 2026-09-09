@@ -1,6 +1,11 @@
 import {
+  buildTypeSymbolTable,
   createNode,
+  isAmbiguousEntity,
+  resolveQualified,
+  resolveShort,
   type AppNode,
+  type BindingNode,
   type DataSourceNode,
   type EntityNode,
   type EntityPropertyNode,
@@ -12,10 +17,16 @@ import {
   type LogicNode,
   type ParamNode,
   type ReturnNode,
+  type ServiceNode,
+  type ServiceOperationNode,
+  type ComponentNode,
   type Statement,
   type StructureNode,
   type StructurePropertyNode,
   type TypeRef,
+  type TypeSymbolTable,
+  type ViewElementNode,
+  type ViewNode,
 } from '@tdsl/core';
 import { tokenize, type Token } from './lexer';
 
@@ -92,11 +103,15 @@ class Parser {
       enums: [],
       logics: [],
       interfaces: [],
+      views: [],
+      services: [],
+      components: [],
     };
     let currentDs: DataSourceNode | null = null;
+    let pendingServiceConfig: Record<string, string> | null = null;
 
     while (this.peek().type !== 'eof') {
-      // 顶层注解：@datasource('name') 声明/切换当前数据源；其余（@export 等）跳过
+      // 顶层注解：@datasource('name') 声明/切换当前数据源；@service(...) 暂存配置；其余（@export 等）跳过
       if (this.peek().value === '@') {
         this.next();
         const ann = this.expectIdent();
@@ -104,8 +119,14 @@ class Parser {
           this.expect('(');
           const dsName = this.expectString();
           this.expect(')');
-          currentDs = { ...createNode('DataSource'), name: dsName, entities: [] };
-          app.datasources.push(currentDs);
+          // 同名数据源复用（后续 entity 追加到同一数据源）
+          currentDs = app.datasources.find((d) => d.name === dsName) ?? null;
+          if (!currentDs) {
+            currentDs = { ...createNode('DataSource'), name: dsName, entities: [] };
+            app.datasources.push(currentDs);
+          }
+        } else if (ann === 'service') {
+          pendingServiceConfig = this.parseServiceConfig();
         }
         continue;
       }
@@ -126,11 +147,127 @@ class Parser {
         app.logics.push(this.parseLogic());
       } else if (kw === 'interface') {
         app.interfaces.push(this.parseInterface());
+      } else if (kw === 'page') {
+        app.views.push(this.parsePage());
+      } else if (kw === 'service') {
+        const cfg = pendingServiceConfig ?? {};
+        pendingServiceConfig = null;
+        app.services.push(this.parseService(cfg));
+      } else if (kw === 'component') {
+        app.components.push(this.parseComponent());
       } else {
         this.fail(`unexpected '${kw}' at top level`);
       }
     }
     return app;
+  }
+
+  /** @service(kind = 'dubbo', group = 'x', version = '1.0.0') → Record<string,string> */
+  private parseServiceConfig(): Record<string, string> {
+    const cfg: Record<string, string> = {};
+    this.expect('(');
+    while (this.peek().value !== ')') {
+      const key = this.expectIdent();
+      this.expect('=');
+      const t = this.peek();
+      if (t.type === 'string') cfg[key] = this.next().value;
+      else if (t.type === 'number') cfg[key] = this.next().value;
+      else this.fail(`expected string/number value for '${key}'`);
+      if (this.peek().value === ',') this.next();
+    }
+    this.expect(')');
+    return cfg;
+  }
+
+  /** service Name { op; op; } —— dubbo/bean/http 三种 kind 共用签名体 */
+  private parseService(config: Record<string, string>): ServiceNode {
+    this.expect('service');
+    const name = this.expectIdent();
+    const kind = config['kind'] as ServiceNode['kind_'] | undefined;
+    if (!kind || (kind !== 'dubbo' && kind !== 'bean' && kind !== 'http')) {
+      this.fail(`service '${name}' requires @service(kind = 'dubbo'|'bean'|'http')`);
+    }
+    this.expect('{');
+    const operations: ServiceOperationNode[] = [];
+    while (this.peek().value !== '}') {
+      operations.push(this.parseServiceOperation(kind));
+    }
+    this.expect('}');
+    return { ...createNode('Service'), name, kind_: kind, config, operations };
+  }
+
+  /** 操作体：http 形态 METHOD 'path' -> name(args): ret; 其余 name(args): ret; */
+  private parseServiceOperation(kind: ServiceNode['kind_']): ServiceOperationNode {
+    let method: ServiceOperationNode['method'];
+    let path: string | undefined;
+    const t = this.peek();
+    if (
+      kind === 'http' &&
+      t.type === 'ident' &&
+      (t.value === 'GET' || t.value === 'POST' || t.value === 'PUT' || t.value === 'DELETE')
+    ) {
+      method = this.next().value as ServiceOperationNode['method'];
+      path = this.expectString();
+      this.expect('-');
+      this.expect('>');
+    }
+    const name = this.expectIdent();
+    this.expect('(');
+    const params: ParamNode[] = [];
+    while (this.peek().value !== ')') {
+      const pname = this.expectIdent();
+      this.expect(':');
+      params.push({ ...createNode('Param'), name: pname, type: this.parseTypeRef() });
+      if (this.peek().value === ',') this.next();
+    }
+    this.expect(')');
+    this.expect(':');
+    const retType = this.parseTypeRef();
+    const returns: ReturnNode[] = [{ ...createNode('Return'), type: retType }];
+    this.expect(';');
+    return { ...createNode('ServiceOperation'), name, params, returns, method, path };
+  }
+
+  /** component Name { pkg: 'x'; defaultProps: {...}; events: [...] } */
+  private parseComponent(): ComponentNode {
+    this.expect('component');
+    const name = this.expectIdent();
+    this.expect('{');
+    let pkg = '';
+    const defaultProps: string[] = [];
+    const events: string[] = [];
+    while (this.peek().value !== '}') {
+      const key = this.expectIdent();
+      this.expect(':');
+      if (key === 'pkg') {
+        pkg = this.expectString();
+        this.expect(';');
+      } else if (key === 'defaultProps') {
+        this.expect('{');
+        while (this.peek().value !== '}') {
+          const pname = this.expectIdent();
+          this.expect(':');
+          this.parseTypeRef(); // props 类型先解析占位，本切面只取字段名
+          if (this.peek().value === ';') this.next();
+          defaultProps.push(pname);
+        }
+        this.expect('}');
+        if (this.peek().value === ';') this.next();
+      } else if (key === 'events') {
+        this.expect('[');
+        while (this.peek().value !== ']') {
+          events.push(this.expectString());
+          if (this.peek().value === ',') this.next();
+        }
+        this.expect(']');
+        if (this.peek().value === ';') this.next();
+      } else {
+        this.fail(`unknown component field '${key}'`);
+      }
+    }
+    this.expect('}');
+    if (!pkg) this.fail(`component '${name}' requires pkg`);
+    return { ...createNode('Component'), name, pkg, defaultProps, events };
   }
 
   private parseEntity(): EntityNode {
@@ -240,6 +377,72 @@ class Parser {
     }
     this.expect('}');
     return { ...createNode('Interface'), name, endpoints };
+  }
+
+  /** page Name { <el ...>...</el> } —— JSX 子集，解析为 ViewNode */
+  private parsePage(): ViewNode {
+    this.expect('page');
+    const name = this.expectIdent();
+    this.expect('{');
+    const elements: ViewElementNode[] = [];
+    while (this.peek().value !== '}') {
+      if (this.peek().value !== '<') {
+        this.fail(`expected '<' in page body but got '${this.peek().value}'`);
+      }
+      elements.push(this.parseViewElement());
+    }
+    this.expect('}');
+    return { ...createNode('View'), name, viewKind: 'page', elements };
+  }
+
+  /** JSX 子集元素：<tag attr={expr} attr="str"> children </tag> 或 <tag ... /> */
+  private parseViewElement(): ViewElementNode {
+    this.expect('<');
+    const type = this.expectIdent();
+    const props: Record<string, Expr | string> = {};
+    const bindings: BindingNode[] = [];
+    // 属性：attr="str" | attr={expr}
+    while (this.peek().value !== '>' && this.peek().value !== '/') {
+      const attrName = this.expectIdent();
+      this.expect('=');
+      if (this.peek().value === '{') {
+        this.next();
+        const e = this.parseExpr();
+        this.expect('}');
+        props[attrName] = e;
+        // 提取 useQuery/useMutation/navigate 绑定
+        const binding = extractBinding(e);
+        if (binding) bindings.push(binding);
+      } else {
+        props[attrName] = this.expectString();
+      }
+    }
+    const children: ViewElementNode[] = [];
+    if (this.peek().value === '/') {
+      this.next();
+      this.expect('>');
+    } else {
+      this.expect('>');
+      while (this.peek().value !== '<' && this.peek().value !== '<eof>') {
+        // 文本节点（如按钮文字）跳过；遇到 < 进子元素
+        this.next();
+      }
+      while (this.peek().value === '<' && this.peekAfter().value !== '/') {
+        children.push(this.parseViewElement());
+      }
+      // 闭合标签 </tag>
+      this.expect('<');
+      this.expect('/');
+      const closeTag = this.expectIdent();
+      if (closeTag !== type) this.fail(`mismatched closing tag '${closeTag}', expected '${type}'`);
+      this.expect('>');
+    }
+    return { ...createNode('ViewElement'), type, props, bindings, children };
+  }
+
+  private peekAfter(): Token {
+    const n = this.pos + 1;
+    return this.tokens[Math.min(n, this.tokens.length - 1)];
   }
 
   private parseStatements(): Statement[] {
@@ -386,7 +589,11 @@ class Parser {
         this.next();
         const args: Expr[] = [];
         // where 查询特殊参数：Entity.where(field = value) → Binary('=', field, value)
-        const isWhere = e.kind === 'Member' && e.obj.kind === 'Ident' && e.prop === 'where';
+        // where 查询特殊参数：Entity.where(field = value) / erp.Entity.where(...) → Binary('=', field, value)
+        const isWhere =
+          e.kind === 'Member' &&
+          e.prop === 'where' &&
+          (e.obj.kind === 'Ident' || (e.obj.kind === 'Member' && e.obj.obj.kind === 'Ident'));
         if (isWhere) {
           const field = this.parseExpr(); // 字段标识符
           if (this.peek().value === '=') {
@@ -499,20 +706,42 @@ class Parser {
         return { kind: 'generic', name: t, args: [arg] };
       }
       default:
-        // 引用类型：此处为短名，link 阶段绑定为 nodePath
+        // 引用类型：短名（Order）或限定名（erp.Order），link 阶段绑定为 nodePath
+        if (this.peek().value === '.') {
+          this.next();
+          const ent = this.expectIdent();
+          return { kind: 'reference', path: `${t}.${ent}` };
+        }
         return { kind: 'reference', path: t };
     }
   }
 }
 
-// ---------- link：短名 → nodePath ----------
+// ---------- link：短名 → nodePath（分层作用域：实体→数据源，结构/枚举/逻辑/接口→全局） ----------
 
 function linkApp(app: AppNode): void {
-  const nameToPath = new Map<string, string>();
+  const table = buildTypeSymbolTable(app);
 
-  // 短名即全局命名空间：重名（跨概念/跨数据源）一律报错，禁止歧义
-  const declareName = (name: string, path: string): void => {
-    const existing = nameToPath.get(name);
+  // 同数据源内重名检查（buildTypeSymbolTable 已保证跨源同名进各自 scope）
+  for (const [dsName, scope] of table.dataSources) {
+    // scope 是每数据源独立 Map，天然同源唯一（重复声明会覆盖，需检测）
+    const seen = new Set<string>();
+    for (const ent of app.datasources.find((d) => d.name === dsName)?.entities ?? []) {
+      if (seen.has(ent.name)) {
+        throw new TdslSyntaxError(
+          `duplicate entity '${ent.name}' in datasource '${dsName}'`,
+          0,
+          0,
+        );
+      }
+      seen.add(ent.name);
+    }
+  }
+
+  // 全局概念重名检查（structure/enum/logic/interface 短名全局唯一；且不得与全局唯一实体冲突）
+  const globalSeen = new Map<string, string>();
+  const declareGlobal = (name: string, path: string): void => {
+    const existing = globalSeen.get(name);
     if (existing !== undefined && existing !== path) {
       throw new TdslSyntaxError(
         `duplicate type name '${name}': ${existing} vs ${path}`,
@@ -520,28 +749,28 @@ function linkApp(app: AppNode): void {
         0,
       );
     }
-    nameToPath.set(name, path);
+    globalSeen.set(name, path);
   };
-
-  for (const ds of app.datasources) {
-    for (const ent of ds.entities) {
-      declareName(ent.name, `app.datasources.${ds.name}.entities.${ent.name}`);
+  // 全局唯一实体已占用 global 名（跨源同名实体不在 global，无冲突）
+  for (const [name, path] of table.global) {
+    if (path.startsWith('app.datasources.')) globalSeen.set(name, path);
+  }
+  for (const s of app.structures) declareGlobal(s.name, `app.structures.${s.name}`);
+  for (const en of app.enums) declareGlobal(en.name, `app.enums.${en.name}`);
+  for (const l of app.logics) declareGlobal(l.name, `app.logics.${l.name}`);
+  for (const itf of app.interfaces) declareGlobal(itf.name, `app.interfaces.${itf.name}`);
+  for (const s of app.services) declareGlobal(s.name, `app.services.${s.name}`);
+  for (const c of app.components) declareGlobal(c.name, `app.components.${c.name}`);
+  for (const c of app.components) {
+    if (!c.pkg) {
+      throw new TdslSyntaxError(`component '${c.name}' requires pkg`, 0, 0);
     }
-  }
-  for (const s of app.structures) {
-    declareName(s.name, `app.structures.${s.name}`);
-  }
-  for (const en of app.enums) {
-    declareName(en.name, `app.enums.${en.name}`);
-  }
-  for (const l of app.logics) {
-    nameToPath.set(l.name, `app.logics.${l.name}`);
   }
 
   // 接口端点：绑定 logicRef 短名 → Logic nodePath
   for (const itf of app.interfaces) {
     for (const ep of itf.endpoints) {
-      const full = nameToPath.get(ep.logicRef ?? '');
+      const full = table.global.get(ep.logicRef ?? '');
       if (!full || !full.startsWith('app.logics.')) {
         throw new TdslSyntaxError(`cannot resolve logic '${ep.logicRef}'`, 0, 0);
       }
@@ -549,31 +778,38 @@ function linkApp(app: AppNode): void {
     }
   }
 
-  const linkTypeRef = (tr: TypeRef): void => {
+  // ctxDs：当前数据源上下文（实体属性遍历时传入，供短名优先解析到本数据源）
+  const linkTypeRef = (tr: TypeRef, ctxDs?: string): void => {
     if (tr.kind === 'reference') {
-      const full = nameToPath.get(tr.path);
-      if (!full) {
-        throw new TdslSyntaxError(`cannot resolve type '${tr.path}'`, 0, 0);
-      }
+      const full = resolveTypeRef(table, tr.path, ctxDs);
       tr.path = full;
     } else if (tr.kind === 'generic') {
-      tr.args.forEach(linkTypeRef);
+      tr.args.forEach((a) => linkTypeRef(a, ctxDs));
     }
   };
 
   for (const ds of app.datasources) {
     for (const ent of ds.entities) {
-      ent.properties.forEach((p) => linkTypeRef(p.type));
+      ent.properties.forEach((p) => linkTypeRef(p.type, ds.name));
     }
   }
   for (const s of app.structures) {
     s.properties.forEach((p) => linkTypeRef(p.type));
+  }
+  for (const s of app.services) {
+    for (const op of s.operations) {
+      op.params.forEach((p) => linkTypeRef(p.type));
+      op.returns.forEach((r) => linkTypeRef(r.type));
+    }
   }
   for (const l of app.logics) {
     l.params.forEach((p) => linkTypeRef(p.type));
     l.returns.forEach((r) => linkTypeRef(r.type));
     linkStatements(l.body);
   }
+
+  // 页面 binding：useQuery/useMutation → logic nodePath；navigate → 页面名校验
+  linkViews(app, table);
 
   function linkStatements(stmts: Statement[]): void {
     for (const st of stmts) {
@@ -637,4 +873,72 @@ function linkApp(app: AppNode): void {
         break;
     }
   }
+}
+
+/** 解析 TypeRef 引用为完整 nodePath（支持短名 / ds.Entity 限定名 / 已是 nodePath） */
+function resolveTypeRef(table: TypeSymbolTable, ref: string, ctxDs?: string): string {
+  // 已是完整 nodePath（程序化构建的 AST 再 link）→ 直接通过
+  if (ref.startsWith('app.')) return ref;
+
+  // 限定名 dsName.EntityName
+  if (ref.includes('.')) {
+    const dot = ref.indexOf('.');
+    const dsName = ref.slice(0, dot);
+    const entName = ref.slice(dot + 1);
+    const full = resolveQualified(table, dsName, entName);
+    if (!full) {
+      throw new TdslSyntaxError(`cannot resolve type '${ref}'`, 0, 0);
+    }
+    return full;
+  }
+
+  // 短名：优先当前数据源，其次全局
+  const full = resolveShort(table, ref, ctxDs);
+  if (!full) {
+    // 跨源歧义（多个数据源同名实体）但未限定 → 提示用限定名
+    if (isAmbiguousEntity(table, ref)) {
+      throw new TdslSyntaxError(
+        `ambiguous type '${ref}': exists in multiple datasources, use 'dsName.${ref}'`,
+        0,
+        0,
+      );
+    }
+    throw new TdslSyntaxError(`cannot resolve type '${ref}'`, 0, 0);
+  }
+  return full;
+}
+
+/** 从表达式提取 useQuery/useMutation/navigate 绑定（props 里的 {useQuery('logic')} 形态） */
+function extractBinding(e: Expr): BindingNode | null {
+  if (
+    e.kind === 'Call' &&
+    e.callee.kind === 'Ident' &&
+    (e.callee.name === 'useQuery' || e.callee.name === 'useMutation' || e.callee.name === 'navigate')
+  ) {
+    const target = e.args[0]?.kind === 'String' ? e.args[0].value : '';
+    return { ...createNode('Binding'), name: e.callee.name, target, args: e.args.slice(1) };
+  }
+  return null;
+}
+
+/** 链接页面 binding：useQuery/useMutation → logic nodePath；navigate → 页面名校验 */
+function linkViews(app: AppNode, table: TypeSymbolTable): void {
+  const linkElement = (el: ViewElementNode): void => {
+    for (const b of el.bindings) {
+      if (b.name === 'useQuery' || b.name === 'useMutation') {
+        const full = table.global.get(b.target);
+        if (!full || !full.startsWith('app.logics.')) {
+          throw new TdslSyntaxError(`cannot resolve logic '${b.target}' in view binding`, 0, 0);
+        }
+        b.target = full;
+      } else if (b.name === 'navigate') {
+        const page = app.views.find((v) => v.name === b.target);
+        if (!page) {
+          throw new TdslSyntaxError(`cannot resolve page '${b.target}' in navigate`, 0, 0);
+        }
+      }
+    }
+    el.children.forEach(linkElement);
+  };
+  for (const v of app.views) v.elements.forEach(linkElement);
 }

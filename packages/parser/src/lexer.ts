@@ -43,12 +43,13 @@ export function tokenize(input: string): Token[] {
     const startLine = line;
     const startCol = col;
 
-    // 字符串字面量 '...'
-    if (ch === "'") {
+    // 字符串字面量 '...' 或 "..."
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
       let s = '';
       i++;
       col++;
-      while (i < input.length && input[i] !== "'") {
+      while (i < input.length && input[i] !== quote) {
         if (input[i] === '\n') {
           line++;
           col = 1;
@@ -57,7 +58,7 @@ export function tokenize(input: string): Token[] {
         i++;
         col++;
       }
-      if (input[i] !== "'") {
+      if (input[i] !== quote) {
         throw new Error(`unterminated string at ${startLine}:${startCol}`);
       }
       i++;
@@ -78,10 +79,10 @@ export function tokenize(input: string): Token[] {
       continue;
     }
 
-    // 标识符 / 关键字
-    if (/[A-Za-z_]/.test(ch)) {
+    // 标识符 / 关键字（$ 前缀用于 $route/$data 等绑定占位符）
+    if (/[A-Za-z_$]/.test(ch)) {
       let s = '';
-      while (i < input.length && /[A-Za-z0-9_]/.test(input[i])) {
+      while (i < input.length && /[A-Za-z0-9_$]/.test(input[i])) {
         s += input[i];
         i++;
         col++;
