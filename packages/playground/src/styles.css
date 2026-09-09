@@ -1,0 +1,67 @@
+/* TDSL Playground 布局与组件样式（暗色，演示观感） */
+.app { display: flex; flex-direction: column; height: 100%; }
+
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px; background: #252526; border-bottom: 1px solid #333;
+}
+.logo { font-weight: 700; color: #4ec9b0; font-size: 15px; }
+.topbar select { background: #2d2d30; color: #d4d4d4; border: 1px solid #444; padding: 4px 8px; border-radius: 4px; }
+.topbar-hint { color: #888; font-size: 12px; }
+
+.main { flex: 1; display: flex; min-height: 0; }
+.editor-pane { flex: 1; min-width: 0; border-right: 1px solid #333; }
+.right-pane { width: 46%; min-width: 420px; display: flex; flex-direction: column; background: #1e1e1e; }
+
+.tabs { display: flex; background: #252526; border-bottom: 1px solid #333; }
+.tab-btn {
+  padding: 8px 16px; background: transparent; color: #999; border: none;
+  border-bottom: 2px solid transparent; cursor: pointer; font-size: 13px;
+}
+.tab-btn:hover { color: #d4d4d4; }
+.tab-btn.active { color: #fff; border-bottom-color: #4ec9b0; }
+.tab-btn.error { color: #f48771; }
+
+.tab-content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.tab-body { padding: 10px 14px; overflow: auto; font-size: 13px; line-height: 1.7; }
+.tab-body.ok { color: #4ec9b0; }
+.tab-body.muted { color: #777; }
+
+/* 诊断 */
+.diag-count { color: #999; margin-bottom: 6px; }
+.diag-item { padding: 6px 0; border-bottom: 1px solid #2a2a2a; }
+.diag-badge {
+  display: inline-block; background: #5a1d1d; color: #f48771; font-size: 11px;
+  padding: 1px 7px; border-radius: 8px; margin-right: 8px;
+}
+
+/* AST 折叠树 */
+.ast { font-family: Consolas, monospace; font-size: 12.5px; }
+.json-line { padding: 1px 0; white-space: nowrap; }
+.json-line.clickable { cursor: pointer; }
+.json-line.clickable:hover { background: #2a2a2a; }
+.json-arrow { color: #666; display: inline-block; width: 14px; }
+.json-key { color: #9cdcfe; }
+.json-str { color: #ce9178; }
+.json-num { color: #b5cea8; }
+.json-muted { color: #666; }
+
+/* 文件树 + 预览 */
+.files-layout { flex: 1; display: flex; min-height: 0; }
+.file-tree { width: 240px; border-right: 1px solid #333; overflow: auto; padding: 8px 0; }
+.dir-label { color: #dcb67a; font-size: 12px; padding: 4px 12px; }
+.file-item { color: #ccc; font-size: 13px; padding: 4px 12px 4px 26px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-item:hover { background: #2a2a2a; }
+.file-item.selected { background: #094771; color: #fff; }
+.file-preview { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.preview-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: #252526; border-bottom: 1px solid #333; }
+.preview-path { color: #999; font-size: 12px; font-family: Consolas, monospace; }
+.copy-btn { background: #2d2d30; color: #4ec9b0; border: 1px solid #444; padding: 3px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.copy-btn:hover { border-color: #4ec9b0; }
+.preview-code { flex: 1; overflow: auto; padding: 10px 14px; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d4; white-space: pre; }
+
+/* 状态栏 */
+.statusbar {
+  padding: 5px 14px; background: #007acc; color: #fff; font-size: 12.5px;
+}
+.statusbar .error { color: #fff; }

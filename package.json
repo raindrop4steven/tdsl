@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit",
+    "playground": "npm run dev -w @tdsl/playground",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit && tsc -p packages/playground --noEmit",
     "slice": "npm run slice -w todo-app"
   }
 }

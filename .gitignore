@@ -5,3 +5,4 @@ examples/todo-app/generated/
 .omo/
 .codegraph/
 .playwright-mcp/
+packages/*/dist/
