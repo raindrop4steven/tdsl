@@ -29,7 +29,9 @@ export type Expr =
         | '<='
         | '>'
         | '>='
-        | '=';
+        | '='
+        | 'like'
+        | 'in';
       left: Expr;
       right: Expr;
     }
