@@ -37,6 +37,7 @@ export function javaType(tr: TypeRef): string {
     case 'generic':
       if (tr.name === 'List') return `java.util.List<${javaType(tr.args[0] ?? { kind: 'primitive', builtin: 'String' })}>`;
       if (tr.name === 'Map') return `java.util.Map<String, ${javaType(tr.args[0] ?? { kind: 'primitive', builtin: 'String' })}>`;
+      if (tr.name === 'Page') return `org.springframework.data.domain.Page<${javaType(tr.args[0] ?? { kind: 'primitive', builtin: 'String' })}>`;
       return `java.util.List<${javaType(tr.args[0] ?? { kind: 'primitive', builtin: 'String' })}>`;
     case 'db':
       return 'java.math.BigDecimal';

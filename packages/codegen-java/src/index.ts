@@ -91,6 +91,12 @@ function collectUsedEntities(app: AppNode, logic: LogicNode): Map<string, Entity
       case 'Call': {
         const callee = e.callee;
         if (callee.kind === 'Member') {
+          // 实体查询链（where 多条件 / orderBy / page / limit / groupBy / aggregate）→ 收集实体
+          const spec = querySpecOf(app, e);
+          if (spec) {
+            const sent = findEntityByName(app, spec.entity);
+            if (sent) add(spec.entity);
+          }
           // Todo.get(id) / Todo.all / Todo.where(...) / erp.Order.all —— 静态实体调用
           const entName = entityNameOfReceiver(app, callee.obj);
           if (entName && (callee.prop === 'get' || callee.prop === 'all' || callee.prop === 'where')) {
@@ -260,12 +266,12 @@ export function generateJava(app: AppNode): GeneratedFile[] {
   const files: GeneratedFile[] = [];
   const pkg = pkgOf(app);
   const entities = app.datasources.flatMap((ds) => ds.entities);
-  const whereFields = collectWhereFields(app);
+  const querySpecs = collectQuerySpecs(app);
 
   files.push(...scaffoldFiles(app));
   for (const ent of entities) {
     files.push(entityFile(pkg, ent));
-    files.push(repositoryFile(pkg, ent, whereFields.get(ent.name) ?? []));
+    files.push(repositoryFile(pkg, ent, querySpecs.get(ent.name) ?? []));
   }
   for (const s of app.structures) {
     files.push(structureFile(app, s));
@@ -542,64 +548,77 @@ ${gettersSetters}
   return { path: `src/main/java/${pkg.replaceAll('.', '/')}/entity/${className}.java`, content };
 }
 
-// ---------- Repository：每实体一个接口（含 where 派生查询） ----------
+// ---------- Repository：每实体一个接口（含 where/链式/聚合查询） ----------
 
-/** where 字段：字段名 + Java 类型 */
-interface WhereField {
-  field: string;
-  javaType: string;
+/** where 条件运算符（M2） */
+type WhereOp = '=' | '>=' | '<=' | '>' | '<' | 'like' | 'in';
+
+/** 条件值来源：param=逻辑参数变量；literal=数组字面量；other=其他表达式 */
+type ValueKind = 'param' | 'literal' | 'other';
+
+/** 查询规格：一个实体上的一种查询形态（条件集 + 排序 + 分页/聚合），去重后映射一个 Repository 方法 */
+interface QuerySpec {
+  entity: string;
+  /** 展平条件（逗号/&& = AND；|| = OR，按树序展平） */
+  conditions: Array<{
+    field: string;
+    op: WhereOp;
+    value: Expr;
+    valueKind: ValueKind;
+    /** 与前一个条件的连接：'and'（逗号/&&）或 'or'（||） */
+    connector: 'and' | 'or';
+  }>;
+  orderBy: Array<{ field: string; dir: 'asc' | 'desc' }>;
+  pageable: boolean;
+  limit?: number;
+  aggregate?: { fn: 'sum' | 'avg' | 'max' | 'min' | 'count'; field?: string };
+  groupBy?: string[];
 }
 
-/** 收集所有 logic 中的 Entity.where(field = value)，返回 实体名 → 查询字段列表 */
-function collectWhereFields(app: AppNode): Map<string, WhereField[]> {
-  const map = new Map<string, WhereField[]>();
-  const add = (entName: string, f: WhereField): void => {
-    const list = map.get(entName) ?? [];
-    if (!list.some((x) => x.field === f.field)) list.push(f);
-    map.set(entName, list);
+/** 收集所有 logic 中实体查询形态 → 实体名 → QuerySpec 列表（去重） */
+function collectQuerySpecs(app: AppNode): Map<string, QuerySpec[]> {
+  const map = new Map<string, QuerySpec[]>();
+  const add = (spec: QuerySpec): void => {
+    const list = map.get(spec.entity) ?? [];
+    if (!list.some((s) => sameSpec(s, spec))) list.push(spec);
+    map.set(spec.entity, list);
+  };
+  const scan = (e: Expr): void => {
+    // 查询链整体收集一次：收集后不再递归 callee（链的内部节点已是本 spec 的一部分）
+    const isChain = e.kind === 'Call' && querySpecOf(app, e) !== null;
+    if (isChain) {
+      const spec = querySpecOf(app, e);
+      if (spec) add(spec);
+      e.args.forEach(scan);
+      return;
+    }
+    switch (e.kind) {
+      case 'Call':
+        scan(e.callee);
+        e.args.forEach(scan);
+        break;
+      case 'Member':
+        scan(e.obj);
+        break;
+      case 'New':
+        e.args.forEach(scan);
+        break;
+      case 'NewList':
+        e.items.forEach(scan);
+        break;
+      case 'Binary':
+        scan(e.left);
+        scan(e.right);
+        break;
+      case 'Group':
+        scan(e.expr);
+        break;
+      default:
+        break;
+    }
   };
   for (const l of app.logics) {
     forEachStmt(l.body, (st) => {
-      const scan = (e: Expr): void => {
-        if (
-          e.kind === 'Call' &&
-          e.callee.kind === 'Member' &&
-          e.callee.prop === 'where'
-        ) {
-          const entName = entityNameOfReceiver(app, e.callee.obj);
-          const ent = entName ? findEntityByName(app, entName) : null;
-          const cond = e.args[0];
-          if (ent && entName && cond?.kind === 'Binary' && cond.operator === '=' && cond.left.kind === 'Ident') {
-            const fieldName = cond.left.name;
-            const prop = ent.properties.find((p) => p.name === fieldName);
-            if (prop) add(entName, { field: prop.name, javaType: javaType(prop.type) });
-          }
-        }
-        switch (e.kind) {
-          case 'Call':
-            scan(e.callee);
-            e.args.forEach(scan);
-            break;
-          case 'Member':
-            scan(e.obj);
-            break;
-          case 'New':
-            e.args.forEach(scan);
-            break;
-          case 'NewList':
-            e.items.forEach(scan);
-            break;
-          case 'Binary':
-            scan(e.left);
-            scan(e.right);
-            break;
-          case 'Group':
-            scan(e.expr);
-            break;
-          default:
-            break;
-        }
-      };
       switch (st.kind) {
         case 'VarDecl':
           if (st.init) scan(st.init);
@@ -612,7 +631,6 @@ function collectWhereFields(app: AppNode): Map<string, WhereField[]> {
           if (st.value) scan(st.value);
           break;
         case 'If':
-          // 嵌套语句由 forEachStmt 递归访问，此处只扫表达式
           scan(st.cond);
           break;
         case 'ForEach':
@@ -625,6 +643,118 @@ function collectWhereFields(app: AppNode): Map<string, WhereField[]> {
     });
   }
   return map;
+}
+
+/** 两个 QuerySpec 是否等价（条件/排序/分页/聚合/分组完全一致） */
+function sameSpec(a: QuerySpec, b: QuerySpec): boolean {
+  if (a.entity !== b.entity || a.pageable !== b.pageable || a.limit !== b.limit) return false;
+  if ((a.aggregate?.fn ?? '') !== (b.aggregate?.fn ?? '') || (a.aggregate?.field ?? '') !== (b.aggregate?.field ?? '')) return false;
+  if (JSON.stringify(a.groupBy ?? []) !== JSON.stringify(b.groupBy ?? [])) return false;
+  if (a.conditions.length !== b.conditions.length || a.orderBy.length !== b.orderBy.length) return false;
+  for (let i = 0; i < a.conditions.length; i++) {
+    const x = a.conditions[i];
+    const y = b.conditions[i];
+    if (x.field !== y.field || x.op !== y.op || x.connector !== y.connector || x.valueKind !== y.valueKind) return false;
+  }
+  for (let i = 0; i < a.orderBy.length; i++) {
+    if (a.orderBy[i].field !== b.orderBy[i].field || a.orderBy[i].dir !== b.orderBy[i].dir) return false;
+  }
+  return true;
+}
+
+/** 从表达式提取实体查询规格（递归识别 where/aggregate 及链式 orderBy/page/limit/groupBy） */
+function querySpecOf(app: AppNode, e: Expr): QuerySpec | null {
+  if (e.kind !== 'Call' || e.callee.kind !== 'Member') return null;
+  const m = e.callee;
+  const entName = entityNameOfReceiver(app, m.obj);
+  const ent = entName ? findEntityByName(app, entName) : null;
+  if (ent && m.prop === 'where') {
+    const conditions = extractConditions(app, ent, e.args);
+    return { entity: ent.name, conditions, orderBy: [], pageable: false };
+  }
+  if (ent && m.prop === 'aggregate') {
+    const agg = extractAggregate(app, ent, e.args);
+    if (!agg) return null;
+    return { entity: ent.name, conditions: [], orderBy: [], pageable: false, aggregate: agg };
+  }
+  // 链式方法：.orderBy / .page / .limit / .groupBy（接收者是查询调用）
+  if (m.prop === 'orderBy' || m.prop === 'page' || m.prop === 'limit' || m.prop === 'groupBy') {
+    const base = querySpecOf(app, m.obj);
+    if (!base) return null;
+    const spec: QuerySpec = { ...base, orderBy: [...base.orderBy] };
+    if (m.prop === 'orderBy') {
+      spec.orderBy = extractOrderBy(e.args);
+    } else if (m.prop === 'page') {
+      spec.pageable = true;
+      delete spec.limit;
+    } else if (m.prop === 'limit') {
+      spec.pageable = true;
+      spec.limit = e.args[0]?.kind === 'Numeric' ? e.args[0].value : undefined;
+    } else if (m.prop === 'groupBy') {
+      spec.groupBy = e.args.filter((a) => a.kind === 'Ident').map((a) => (a as { name: string }).name);
+    }
+    return spec;
+  }
+  return null;
+}
+
+/** 从 where 参数提取条件列表（逗号/&& = AND；|| = OR，树序展平） */
+function extractConditions(app: AppNode, ent: EntityNode, args: Expr[]): QuerySpec['conditions'] {
+  const conds: QuerySpec['conditions'] = [];
+  const fieldJavaType = (name: string): string => {
+    const prop = ent.properties.find((p) => p.name === name);
+    return prop ? javaType(prop.type) : 'String';
+  };
+  const visit = (c: Expr, connector: 'and' | 'or'): void => {
+    if (c.kind === 'Binary' && (c.operator === '&&' || c.operator === '||')) {
+      visit(c.left, c.operator === '&&' ? 'and' : 'or');
+      visit(c.right, c.operator === '&&' ? 'and' : 'or');
+    } else if (
+      c.kind === 'Binary' &&
+      (c.operator === '=' || c.operator === '>=' || c.operator === '<=' || c.operator === '>' || c.operator === '<' || c.operator === 'like' || c.operator === 'in') &&
+      c.left.kind === 'Ident'
+    ) {
+      const field = c.left.name;
+      const valueKind: ValueKind =
+        c.operator === 'in'
+          ? c.right.kind === 'NewList'
+            ? 'literal'
+            : c.right.kind === 'Ident'
+              ? 'param'
+              : 'other'
+          : c.right.kind === 'Ident'
+            ? 'param'
+            : 'other';
+      conds.push({ field, op: c.operator as WhereOp, value: c.right, valueKind, connector });
+    }
+  };
+  args.forEach((a) => visit(a, 'and')); // 逗号分隔 = AND
+  return conds;
+}
+
+/** 从 aggregate 参数提取聚合规格：sum(total) / count() */
+function extractAggregate(app: AppNode, ent: EntityNode, args: Expr[]): QuerySpec['aggregate'] {
+  const a = args[0];
+  if (a?.kind !== 'Call' || a.callee.kind !== 'Ident') return undefined;
+  const fn = a.callee.name;
+  if (fn !== 'sum' && fn !== 'avg' && fn !== 'max' && fn !== 'min' && fn !== 'count') return undefined;
+  const field = a.args[0]?.kind === 'Ident' ? a.args[0].name : undefined;
+  if (!field && fn !== 'count') return undefined;
+  return { fn, field };
+}
+
+/** 从 orderBy 参数提取排序：[field, 'asc'|'desc'|缺省, ...] */
+function extractOrderBy(args: Expr[]): Array<{ field: string; dir: 'asc' | 'desc' }> {
+  const out: Array<{ field: string; dir: 'asc' | 'desc' }> = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.kind !== 'Ident') continue;
+    const dirArg = args[i + 1];
+    const dir: 'asc' | 'desc' = dirArg?.kind === 'String' && dirArg.value === 'desc' ? 'desc' : 'asc';
+    out.push({ field: a.name, dir });
+    if (dirArg?.kind === 'String') i++;
+  }
+  return out;
 }
 
 /** 遍历语句（含嵌套 If/ForEach） */
@@ -640,12 +770,91 @@ function forEachStmt(stmts: Statement[], fn: (st: Statement) => void): void {
   }
 }
 
-function repositoryFile(pkg: string, ent: EntityNode, whereFields: WhereField[]): GeneratedFile {
+/** 条件运算符 → Spring Data 派生方法名后缀 */
+function opSuffix(op: WhereOp): string {
+  switch (op) {
+    case '=':
+      return '';
+    case '>=':
+      return 'GreaterThanEqual';
+    case '<=':
+      return 'LessThanEqual';
+    case '>':
+      return 'GreaterThan';
+    case '<':
+      return 'LessThan';
+    case 'like':
+      return 'Like';
+    case 'in':
+      return 'In';
+  }
+}
+
+/** 派生方法名：findBy{Field}{Suffix}[And|Or...]OrderBy{Field}{Dir}；limit → findTop{n}By... */
+function derivedMethodName(ent: EntityNode, spec: QuerySpec): string {
+  let name = spec.limit !== undefined ? `findTop${spec.limit}By` : 'findBy';
+  spec.conditions.forEach((c, i) => {
+    if (i > 0) name += c.connector === 'or' ? 'Or' : 'And';
+    name += cap(c.field) + opSuffix(c.op);
+  });
+  for (const o of spec.orderBy) {
+    name += `OrderBy${cap(o.field)}${o.dir === 'desc' ? 'Desc' : 'Asc'}`;
+  }
+  return name;
+}
+
+/** 条件参数 Java 类型：in 用集合类型，其余用字段类型 */
+function condParamJavaType(ent: EntityNode, c: QuerySpec['conditions'][number]): string {
+  const prop = ent.properties.find((p) => p.name === c.field);
+  const base = prop ? javaType(prop.type) : 'String';
+  if (c.op === 'in') {
+    return `java.util.Collection<${base}>`;
+  }
+  return base;
+}
+
+/** 聚合函数 → JPQL 函数 + Java 返回类型 */
+function aggJpql(fn: 'sum' | 'avg' | 'max' | 'min' | 'count', field: string | undefined, alias: string): { expr: string; ret: string } {
+  switch (fn) {
+    case 'count':
+      return field ? { expr: `COUNT(${alias}.${field})`, ret: 'Long' } : { expr: `COUNT(${alias})`, ret: 'Long' };
+    case 'sum':
+    case 'avg':
+      return { expr: `${fn.toUpperCase()}(${alias}.${field})`, ret: 'java.math.BigDecimal' };
+    case 'max':
+    case 'min':
+      return { expr: `${fn.toUpperCase()}(${alias}.${field})`, ret: 'java.math.BigDecimal' };
+  }
+}
+
+/** 单条 QuerySpec → Repository 方法声明 */
+function repoMethod(ent: EntityNode, spec: QuerySpec): string {
+  const alias = ent.name.charAt(0).toLowerCase();
+  // 聚合（@Query JPQL）
+  if (spec.aggregate) {
+    const agg = aggJpql(spec.aggregate.fn, spec.aggregate.field, alias);
+    if (spec.groupBy && spec.groupBy.length > 0) {
+      const sel = [...spec.groupBy.map((f) => `${alias}.${f}`), agg.expr].join(', ');
+      const grp = spec.groupBy.map((f) => `${alias}.${f}`).join(', ');
+      const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}By${spec.groupBy.map((f) => cap(f)).join('And')}`;
+      return `  @org.springframework.data.jpa.repository.Query("SELECT ${sel} FROM ${ent.name} ${alias} GROUP BY ${grp}")\n  java.util.List<Object[]> ${methodName}();`;
+    }
+    const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}`;
+    return `  @org.springframework.data.jpa.repository.Query("SELECT ${agg.expr} FROM ${ent.name} ${alias}")\n  ${agg.ret} ${methodName}();`;
+  }
+  // 派生查询
+  const name = derivedMethodName(ent, spec);
+  const params = spec.conditions.map((c) => `${condParamJavaType(ent, c)} ${c.field}`);
+  // limit 返回 List；page 返回 Page
+  const ret = spec.pageable && spec.limit === undefined ? `org.springframework.data.domain.Page<${ent.name}>` : `java.util.List<${ent.name}>`;
+  if (spec.pageable) params.push('org.springframework.data.domain.Pageable pageable');
+  return `  ${ret} ${name}(${params.join(', ')});`;
+}
+
+function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[]): GeneratedFile {
   const idProp = ent.properties.find((p) => p.primary);
   const idType = idProp ? javaType(idProp.type) : 'Long';
-  const methods = whereFields
-    .map((w) => `  java.util.List<${ent.name}> findBy${cap(w.field)}(${w.javaType} ${w.field});`)
-    .join('\n');
+  const methods = specs.map((s) => repoMethod(ent, s)).join('\n');
   const methodBlock = methods ? '\n' + methods + '\n' : '';
   const content = `package ${pkg}.repository;
 
@@ -980,8 +1189,31 @@ function genStatement(
       }
       return [`    ${genExpr(app, st.target, entities, vars)} = ${value};`];
     }
-    case 'Return':
+    case 'Return': {
+      // groupBy 聚合：List<Object[]> → List<Map<String, Object>>（行序=groupBy 字段 + 聚合列）
+      const spec = st.value ? querySpecOf(app, st.value) : null;
+      if (spec?.aggregate && spec.groupBy && spec.groupBy.length > 0 && st.value) {
+        const ent = findEntityByName(app, spec.entity);
+        if (ent) {
+          const repo = repoVar(ent);
+          const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}By${spec.groupBy.map((f) => cap(f)).join('And')}`;
+          const keys = [...spec.groupBy, spec.aggregate.field ? `${spec.aggregate.fn}(${spec.aggregate.field})` : `count`];
+          const puts = keys
+            .map((k, i) => `      m.put("${k}", row[${i}]);`)
+            .join('\n');
+          return [
+            `    java.util.List<java.util.Map<String, Object>> result = new java.util.ArrayList<>();`,
+            `    for (Object[] row : ${repo}.${methodName}()) {`,
+            `      java.util.Map<String, Object> m = new java.util.HashMap<>();`,
+            puts,
+            `      result.add(m);`,
+            `    }`,
+            `    return result;`,
+          ];
+        }
+      }
       return [`    return ${st.value ? genExpr(app, st.value, entities, vars) : ''};`];
+    }
     case 'If': {
       const lines = [`    if (${genExpr(app, st.cond, entities, vars)}) {`];
       const thenScope = createVarScope(vars);
@@ -1007,10 +1239,8 @@ function genStatement(
         itemType = m ? m[1] : 'var';
       }
       bodyScope.vars.set(st.item, itemType);
-      const containerStr = ent
-        ? isWhereCall(st.container)
-          ? genExpr(app, st.container, entities, vars)
-          : `${repoVar(ent)}.findAll()`
+      const containerStr = findEntityForAll(app, st.container)
+        ? `${repoVar(ent!)}.findAll()`
         : genExpr(app, st.container, entities, vars);
       const lines = [`    for (${itemType} ${st.item} : ${containerStr}) {`];
       lines.push(...genStatements(app, st.body, entities, bodyScope));
@@ -1054,6 +1284,20 @@ function exprJavaType(
     }
     case 'Call': {
       if (e.callee.kind === 'Member') {
+        // 实体查询链（where/orderBy/page/limit/groupBy/aggregate）→ 按规格推导返回类型
+        const spec = querySpecOf(app, e);
+        if (spec) {
+          const ent = findEntityByName(app, spec.entity);
+          if (ent) {
+            if (spec.aggregate) {
+              if (spec.groupBy && spec.groupBy.length > 0) return `java.util.List<java.util.Map<String, Object>>`;
+              // 聚合标量返回类型：count → Long；sum/avg/max/min → BigDecimal
+              return spec.aggregate.fn === 'count' ? 'Long' : 'java.math.BigDecimal';
+            }
+            if (spec.pageable) return `org.springframework.data.domain.Page<${ent.name}>`;
+            return `java.util.List<${ent.name}>`;
+          }
+        }
         const entName = entityNameOfReceiver(app, e.callee.obj);
         const ent = entName ? findEntityByName(app, entName) : null;
         if (ent && e.callee.prop === 'get') return ent.name;
@@ -1129,13 +1373,55 @@ function isWhereCall(e: Expr): boolean {
   );
 }
 
-/** 从 where 容器解析实体（Entity.where(...) / erp.Order.where(...) → 实体） */
+/** 从 where/查询链容器解析实体（Entity.where(...) / Entity.where(...).orderBy(...) / aggregate 等 → 实体） */
 function findEntityForWhere(app: AppNode, e: Expr): EntityNode | null {
-  if (e.kind !== 'Call' || e.callee.kind !== 'Member' || e.callee.prop !== 'where') {
-    return null;
+  const spec = querySpecOf(app, e);
+  if (!spec) return null;
+  return findEntityByName(app, spec.entity);
+}
+
+/** 生成实体查询调用：repo.findBy...(params) / repo.findBy...(params, Pageable) / repo.sumTotal() / repo.sumTotalByCustomer() */
+function genQueryCall(
+  app: AppNode,
+  e: Expr,
+  spec: QuerySpec,
+  ent: EntityNode,
+  entities: Map<string, EntityNode>,
+  vars: VarScope,
+): string {
+  const repo = repoVar(ent);
+  // 聚合
+  if (spec.aggregate) {
+    if (spec.groupBy && spec.groupBy.length > 0) {
+      const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}By${spec.groupBy.map((f) => cap(f)).join('And')}`;
+      return `${repo}.${methodName}()`;
+    }
+    const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}`;
+    return `${repo}.${methodName}()`;
   }
-  const name = entityNameOfReceiver(app, e.callee.obj);
-  return name ? findEntityByName(app, name) : null;
+  // 派生查询
+  const methodName = derivedMethodName(ent, spec);
+  const args = spec.conditions.map((c) => {
+    const v = genExpr(app, c.value, entities, vars);
+    // 字段是 BigDecimal 且值非 BigDecimal（字面量/整型）→ BigDecimal.valueOf(...)
+    const prop = ent.properties.find((p) => p.name === c.field);
+    const fieldJava = prop ? javaType(prop.type) : null;
+    if (fieldJava === 'java.math.BigDecimal' && exprJavaType(app, c.value, entities, vars) !== 'java.math.BigDecimal') {
+      return `java.math.BigDecimal.valueOf(${v})`;
+    }
+    return v;
+  });
+  if (spec.pageable) {
+    if (spec.limit !== undefined) {
+      args.push(`org.springframework.data.domain.PageRequest.of(0, ${spec.limit})`);
+    } else if (e.kind === 'Call' && e.callee.kind === 'Member' && e.callee.prop === 'page' && e.args.length >= 2) {
+      // .page(n, size) —— n/size 是最外层 page 调用的参数（DSL Integer → Java Long，转 int）
+      const n = genExpr(app, e.args[0], entities, vars);
+      const size = genExpr(app, e.args[1], entities, vars);
+      args.push(`org.springframework.data.domain.PageRequest.of(${n}.intValue(), ${size}.intValue())`);
+    }
+  }
+  return `${repo}.${methodName}(${args.join(', ')})`;
 }
 
 function genExpr(
@@ -1179,6 +1465,12 @@ function genExpr(
       const callee = e.callee;
       // 实体静态方法：Todo.all / Todo.get(id) / Todo.where(...) / erp.Order.all
       if (callee.kind === 'Member') {
+        // 实体查询链（where 多条件 / orderBy / page / limit / groupBy / aggregate）→ Repository 方法调用
+        const spec = querySpecOf(app, e);
+        if (spec) {
+          const ent = findEntityByName(app, spec.entity);
+          if (ent) return genQueryCall(app, e, spec, ent, entities, vars);
+        }
         const entName = entityNameOfReceiver(app, callee.obj);
         if (entName) {
           const ent = findEntityByName(app, entName)!;
@@ -1189,14 +1481,6 @@ function genExpr(
           if (callee.prop === 'get') {
             const idArg = genExpr(app, e.args[0], entities, vars);
             return `${repo}.findById(${idArg}).orElseThrow()`;
-          }
-          if (callee.prop === 'where') {
-            const cond = e.args[0];
-            if (cond?.kind === 'Binary' && cond.operator === '=' && cond.left.kind === 'Ident') {
-              const field = cond.left.name;
-              const value = genExpr(app, cond.right, entities, vars);
-              return `${repo}.findBy${cap(field)}(${value})`;
-            }
           }
         }
         // 实体实例方法：entity.save() / entity.delete()

@@ -366,3 +366,98 @@ interface OrderApi { GET '/api/orders' -> listOrders }
     expect(pom).not.toContain('openfeign');
   });
 });
+
+describe('codegen-java M2 查询语言', () => {
+  const M2_DSL = `
+@datasource('d')
+entity Order {
+  id: Integer @pk;
+  customer: String;
+  total: Decimal;
+  status: String;
+}
+@export
+logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+  return Order.where(customer like '%' + customer + '%', total >= minTotal);
+}
+logic topOrders(): List<Order> {
+  return Order.where(total > 0).orderBy(total desc).limit(10);
+}
+logic pageOrders(n: Integer, size: Integer): Page<Order> {
+  return Order.where(total > 0).orderBy(total desc).page(n, size);
+}
+logic orderStats(): Decimal {
+  return Order.aggregate(sum(total));
+}
+logic sumByCustomer(): List<Map<Object>> {
+  return Order.aggregate(sum(total)).groupBy(customer);
+}
+logic inQuery(statuses: List<String>): List<Order> {
+  return Order.where(status in statuses);
+}
+interface OrderApi {
+  GET '/api/orders/search' -> searchOrders
+  GET '/api/orders/top'    -> topOrders
+  GET '/api/orders/page'   -> pageOrders
+  GET '/api/orders/stats'  -> orderStats
+}
+`;
+
+  it('derives multi-condition AND method name with op suffixes', () => {
+    const files = generateJava(parse(M2_DSL));
+    const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
+    expect(repo).toContain('java.util.List<Order> findByCustomerLikeAndTotalGreaterThanEqual(String customer, java.math.BigDecimal total);');
+  });
+
+  it('generates limit() with Pageable returning List', () => {
+    const files = generateJava(parse(M2_DSL));
+    const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
+    expect(repo).toContain('java.util.List<Order> findTop10ByTotalGreaterThanOrderByTotalDesc(java.math.BigDecimal total, org.springframework.data.domain.Pageable pageable);');
+    const svc = files.find((f) => f.path.endsWith('service/TopOrdersService.java'))!.content;
+    expect(svc).toContain('PageRequest.of(0, 10)');
+  });
+
+  it('generates page() returning Page<T> with Pageable', () => {
+    const files = generateJava(parse(M2_DSL));
+    const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
+    expect(repo).toContain('org.springframework.data.domain.Page<Order> findByTotalGreaterThanOrderByTotalDesc(java.math.BigDecimal total, org.springframework.data.domain.Pageable pageable);');
+    const svc = files.find((f) => f.path.endsWith('service/PageOrdersService.java'))!.content;
+    expect(svc).toContain('PageRequest.of(n.intValue(), size.intValue())');
+    expect(svc).toContain('org.springframework.data.domain.Page<Order> pageOrders(');
+  });
+
+  it('generates @Query aggregate scalar (sum)', () => {
+    const files = generateJava(parse(M2_DSL));
+    const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
+    expect(repo).toContain('@org.springframework.data.jpa.repository.Query("SELECT SUM(o.total) FROM Order o")');
+    expect(repo).toContain('java.math.BigDecimal sumTotal();');
+    const svc = files.find((f) => f.path.endsWith('service/OrderStatsService.java'))!.content;
+    expect(svc).toContain('orderRepository.sumTotal()');
+  });
+
+  it('generates @Query groupBy returning List<Object[]> and Service assembles Map', () => {
+    const files = generateJava(parse(M2_DSL));
+    const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
+    expect(repo).toContain('@org.springframework.data.jpa.repository.Query("SELECT o.customer, SUM(o.total) FROM Order o GROUP BY o.customer")');
+    expect(repo).toContain('java.util.List<Object[]> sumTotalByCustomer();');
+    const svc = files.find((f) => f.path.endsWith('service/SumByCustomerService.java'))!.content;
+    expect(svc).toContain('java.util.List<java.util.Map<String, Object>> sumByCustomer()');
+    expect(svc).toContain('m.put("customer", row[0]);');
+    expect(svc).toContain('m.put("sum(total)", row[1]);');
+    expect(svc).toContain('orderRepository.sumTotalByCustomer()');
+  });
+
+  it('maps Page type in service return (javaType Page branch)', () => {
+    const files = generateJava(parse(M2_DSL));
+    const svc = files.find((f) => f.path.endsWith('service/PageOrdersService.java'))!.content;
+    expect(svc).toContain('org.springframework.data.domain.Page<Order> pageOrders(');
+    const ctl = files.find((f) => f.path.endsWith('controller/OrderApiController.java'))!.content;
+    expect(ctl).toContain('org.springframework.data.domain.Page<Order> pageOrders(');
+  });
+
+  it('generates in-condition with Collection param', () => {
+    const files = generateJava(parse(M2_DSL));
+    const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
+    expect(repo).toContain('java.util.List<Order> findByStatusIn(java.util.Collection<String> status);');
+  });
+});
