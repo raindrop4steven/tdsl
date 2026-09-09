@@ -2,6 +2,7 @@
 
 > 面向对象：在本仓库工作的 AI 编码助手（及新加入的开发者）。
 > 深入学习项目请读 `docs/70_教程/06_项目Tour-功能全景.md`（基于最新代码的功能全景 + 逐包源码导读）。
+> 跨会话状态（决策历史/踩坑/用户偏好）见根目录 `memory.md`——每次重要节点后主动追加维护。
 
 ## 1. 项目定位
 
@@ -14,7 +15,7 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
                   (@tdsl/parser)  (@tdsl/core)  (@tdsl/typecheck) └─ codegen-react ──▶ Vite+React 工程（vite build ✓）
 ```
 
-## 2. 当前进度（2026-09 实测，132 单测全绿）
+## 2. 当前进度（2026-09 实测，139 单测全绿）
 
 | 里程碑 | 状态 |
 |--------|------|
@@ -25,7 +26,8 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 | M4 View 声明层（`page` + JSX 子集、useQuery/useMutation/navigate、多页面路由、antd 映射） | ✅ |
 | M6 外部能力（`service` dubbo/bean/http → 注入；`component` npm 组件注册） | ✅ |
 | M2 查询语言（where 复合条件、orderBy/page/limit、aggregate+groupBy） | ✅ |
-| P2 LLM Prompt Pack（示例矩阵/prompt 组装/诊断修复闭环，`packages/llm`，12 单测） | ✅ |
+| P2 LLM Prompt Pack（示例矩阵/prompt 组装/诊断修复闭环，`packages/llm`，13 单测） | ✅ |
+| P2 Playground（浏览器试验台：Monaco + 实时诊断/AST/双端代码，`packages/playground`，6 单测） | ✅ |
 | M3 逻辑补全+typecheck 加深 / M5 数据完整性 / P2 llm·cli·playground | ⬜ 未开始 |
 
 设计文档：`docs/dev/12~19`（各里程碑）；总路线：`docs/dev/14`；项目级设计：`docs/10_设计/设计总览.md`。
@@ -44,10 +46,10 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 ## 4. 常用命令
 
 ```bash
-npm test              # 六包 vitest（132 个用例）
-npm run typecheck     # 五包 tsc --noEmit
+npm test              # 七包 vitest（139 个用例）
+npm run typecheck     # 七包 tsc --noEmit
 npm run slice         # 端到端：todo.tdsl → parse → typecheck → 双端 codegen → mvn compile + vite build
-npm run slice -w todo-app   # 同上（工作区内直接跑）
+npm run playground    # 浏览器试验台：http://localhost:5173（左编辑 TDSL，右看诊断/AST/双端代码）
 ```
 
 ## 5. 目录速查
@@ -60,6 +62,7 @@ packages/
   codegen-java/    # generateJava：脚手架/Entity/Repository(QuerySpec 机制)/Structure/Service(@Transactional)/Controller/Feign
   codegen-react/   # generateReact：脚手架 + M4 真生成(api/hooks/pages/router，antd 组件映射)
   llm/             # Prompt Pack：examples.ts(示例矩阵，单测锁定可编译性)/prompt.ts(五层组装)/repair.ts(诊断回流修复)
+  playground/      # 浏览器试验台：pipeline.ts(compile 纯函数管线) + Monaco 编辑器 + 四面板（诊断/AST/Java/React）
 examples/todo-app/
   todo.tdsl        # ★最佳样本：订单场景，一个文件覆盖全部已完成能力
   scripts/slice.ts # 端到端驱动（66 行）

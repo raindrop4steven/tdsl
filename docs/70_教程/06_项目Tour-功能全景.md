@@ -41,14 +41,16 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ ok
 | **M6 外部能力** | `service`（dubbo/bean/http → `@DubboReference`/`@Autowired`/`@FeignClient`）+ `component`（npm 三方组件注册与页面引用） | ✅ | dev/17 |
 | **M2 查询语言** | where 复合条件（多条件 AND、`=/>=/<=/>/</like/in`、`&&/\|\|` 组合）、`.orderBy()`/`.page()`/`.limit()` 链式、`.aggregate()` 聚合 + `.groupBy()` | ✅ | dev/18 |
 | **P2 LLM Prompt Pack** | 示例矩阵（5 领域样例，单测锁定可编译性）、五层 prompt 组装（角色/速查/示例/需求/输出契约）、诊断回流修复闭环（parse 行列 + typecheck nodePath → 人话化） | ✅ | dev/19 |
+| **P2 Playground** | 浏览器试验台：Monaco 本地打包（离线安全）+ TDSL 专用高亮，实时诊断/AST/Java/React 四面板，300ms 防抖自动编译 | ✅ | dev/20 |
 
-**实测数据**：132 个单测全绿（core 5 / parser 37 / typecheck 32 / codegen-java 28 / codegen-react 18 / llm 12）；
-`npm run slice` 一键跑通 parse→typecheck→codegen→`mvn compile` + `vite build`。
+**实测数据**：139 个单测全绿（core 5 / parser 37 / typecheck 32 / codegen-java 28 / codegen-react 18 / llm 13 / playground 6）；
+`npm run slice` 一键跑通 parse→typecheck→codegen→`mvn compile` + `vite build`；
+`npm run playground` 打开浏览器试验台。
 
 ### 尚未完成（演进方向）
 - **M3** 逻辑语言补全 + 类型检查加深（现在 typecheck 对变量/成员是"宽松放行"策略，见 §6.3）
 - **M5** 数据完整性（软删/乐观锁/级联深化）
-- **P2 平台化（续）**：llm 接入真实 LLM API 与评测基准、CLI、playground、编译服务常驻（见 dev/14 路线规划、dev/19 §7）
+- **P2 平台化（续）**：真实 LLM 接入与评测基准、CLI、编译服务常驻（见 dev/14 路线规划、dev/19 §7；playground 已提前完成）
 
 ---
 
@@ -89,6 +91,10 @@ packages/
     src/examples.ts    (★ 示例矩阵：5 领域样例，单测锁定可编译性，永不腐烂)
     src/prompt.ts      (五层 prompt 组装：角色/速查/示例/需求/输出契约)
     src/repair.ts      (诊断回流修复：validateTdsl/repairPrompt/humanizePath)
+  playground/          # 浏览器试验台（演示优先，零后端零 API key）
+    src/pipeline.ts    (compile：parse→typecheck→双端 generate，与 slice 同路径)
+    src/App.tsx        (布局编排 + 300ms 防抖)
+    src/tdsl-language.ts (Monaco 本地打包 + TDSL monarch 高亮)
 examples/todo-app/
   todo.tdsl          # ★最佳学习样本：一个文件覆盖全部已完成能力
   scripts/slice.ts   # 端到端驱动（66 行，读它就懂数据流）
