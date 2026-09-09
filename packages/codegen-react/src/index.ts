@@ -531,7 +531,7 @@ function buildUrlExpr(path: string, pathVars: string[]): string {
     const isVar = seg.startsWith('{') && seg.endsWith('}');
     if (isVar) {
       const name = seg.slice(1, -1);
-      expr += `' + ${name} + '`;
+      expr += `/' + ${name} + '`;
     } else {
       expr += `/${seg}`;
     }
@@ -1067,15 +1067,22 @@ function routerFile(app: AppNode): GeneratedFile {
       return `  <Route path="${path}" element={<${v.name} />} />`;
     })
     .join('\n');
+  // 根路径重定向到第一个页面，避免打开 / 时空白
+  const firstView = app.views[0];
+  const firstRoute = firstView
+    ? routePathOf(firstView) + (hasRouteParam(firstView.elements) ? '/:id' : '')
+    : null;
+  const redirect = firstRoute ? `  <Route path="/" element={<Navigate to="${firstRoute}" replace />} />\n` : '';
   const imports = app.views.map((v) => `import ${v.name} from './pages/${v.name}';`).join('\n');
+  const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
   const content = `// 自动生成：页面路由（TDSL page）
 import { Routes, Route } from 'react-router-dom';
-${imports}
+${navImport}${imports}
 
 export default function App() {
   return (
     <Routes>
-${routes}
+${redirect}${routes}
     </Routes>
   );
 }

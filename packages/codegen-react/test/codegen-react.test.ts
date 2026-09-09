@@ -133,12 +133,25 @@ page OrderDetail {
     expect(app).toContain('<Route path="/order-detail/:id" element={<OrderDetail />} />');
   });
 
+  it('generates root path redirect so / is not blank', () => {
+    const files = generateReact(parse(PAGE_DSL));
+    const app = files.find((f) => f.path === 'src/App.tsx')!.content;
+    expect(app).toContain("import { Navigate } from 'react-router-dom';");
+    expect(app).toContain('<Route path="/" element={<Navigate to="/order-list" replace />} />');
+  });
+
   it('generates api.ts with fetch wrappers and type imports', () => {
     const files = generateReact(parse(PAGE_DSL));
     const api = files.find((f) => f.path === 'src/api.ts')!.content;
     expect(api).toContain("import type { Order, OrderInput, OrderDetail } from './types';");
     expect(api).toContain('export function listOrders(): Promise<Array<Order>>');
     expect(api).toContain("method: 'DELETE'");
+  });
+
+  it('builds path-variable URLs with slash before the var', () => {
+    const files = generateReact(parse(PAGE_DSL));
+    const api = files.find((f) => f.path === 'src/api.ts')!.content;
+    expect(api).toContain("API + '/api/orders/' + id");
   });
 
   it('generates hooks.ts with useQuery/useMutation', () => {
