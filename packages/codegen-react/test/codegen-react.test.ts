@@ -133,6 +133,14 @@ page OrderDetail {
     expect(app).toContain('<Route path="/order-detail/:id" element={<OrderDetail />} />');
   });
 
+  it('injects antd dependency and reset.css when views exist', () => {
+    const files = generateReact(parse(PAGE_DSL));
+    const pkg = files.find((f) => f.path === 'package.json')!.content;
+    expect(pkg).toContain('"antd": "^5.0.0"');
+    const main = files.find((f) => f.path === 'src/main.tsx')!.content;
+    expect(main).toContain("import 'antd/dist/reset.css';");
+  });
+
   it('generates root path redirect so / is not blank', () => {
     const files = generateReact(parse(PAGE_DSL));
     const app = files.find((f) => f.path === 'src/App.tsx')!.content;
@@ -170,6 +178,16 @@ page OrderDetail {
     expect(list).toContain("nav('/order-create')");
   });
 
+  it('renders antd Table with data-driven columns', () => {
+    const files = generateReact(parse(PAGE_DSL));
+    const list = files.find((f) => f.path === 'src/pages/OrderList.tsx')!.content;
+    expect(list).toContain("import { Table, Button } from 'antd';");
+    expect(list).toContain('<Table');
+    expect(list).toContain('dataIndex: \'id\'');
+    expect(list).toContain('pagination={false}');
+    expect(list).toContain('rowKey="id"');
+  });
+
   it('generates form page with repeat rows and submit mutation', () => {
     const files = generateReact(parse(PAGE_DSL));
     const create = files.find((f) => f.path === 'src/pages/OrderCreate.tsx')!.content;
@@ -177,15 +195,16 @@ page OrderDetail {
     expect(create).toContain('useState');
     expect(create).toContain("useState<OrderItemInput[]>");
     expect(create).toContain('mCreateOrder.mutate({ customer, items })');
-    expect(create).toContain('type="submit"');
+    expect(create).toContain('htmlType="submit"');
+    expect(create).toContain("import { Input, Button } from 'antd';");
   });
 
-  it('generates detail page with $route.id → Number(id)', () => {
+  it('renders detail page with antd Descriptions', () => {
     const files = generateReact(parse(PAGE_DSL));
     const detail = files.find((f) => f.path === 'src/pages/OrderDetail.tsx')!.content;
-    expect(detail).toContain("import { useParams } from 'react-router-dom';");
-    expect(detail).toContain('Number(id)');
-    expect(detail).toContain('const { id } = useParams();');
+    expect(detail).toContain('<Descriptions');
+    expect(detail).toContain('<Descriptions.Item label="order.customer">');
+    expect(detail).toContain("import { Descriptions } from 'antd';");
   });
 
   it('main.tsx wraps BrowserRouter when views exist', () => {

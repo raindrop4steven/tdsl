@@ -84,6 +84,8 @@ function projectFiles(app: AppNode): GeneratedFile[] {
   const name = `${app.name}-react`;
   const hasViews = app.views.length > 0;
   const routerDep = hasViews ? `,\n    "react-router-dom": "^6.30.0"` : '';
+  // antd：页面声明（M4）默认 UI 组件库，提供样式
+  const antdDep = hasViews ? `,\n    "antd": "^5.0.0"` : '';
   // 第三方组件依赖（component 注册的 pkg）
   const compDeps = app.components
     .map((c) => `,\n    "${c.pkg}": "*"`)
@@ -91,6 +93,7 @@ function projectFiles(app: AppNode): GeneratedFile[] {
   const mainContent = hasViews
     ? `import React from 'react';
 import ReactDOM from 'react-dom';
+import 'antd/dist/reset.css';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 
@@ -129,7 +132,7 @@ ReactDOM.render(
   },
   "dependencies": {
     "react": "17.0.2",
-    "react-dom": "17.0.2"${routerDep}${compDeps}
+    "react-dom": "17.0.2"${antdDep}${routerDep}${compDeps}
   },
   "devDependencies": {
     "@types/react": "^17.0.10",
@@ -639,6 +642,11 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   for (const comp of collectUsedComponents(app, v)) {
     imports.push(`import ${comp.name} from '${comp.pkg}';`);
   }
+  // 页面用到的 antd 组件 → import { Table, Button } from 'antd'
+  const antdNames = collectAntdComponents(v);
+  if (antdNames.length > 0) {
+    imports.push(`import { ${antdNames.join(', ')} } from 'antd';`);
+  }
 
   const hooksInit: string[] = [];
   // 先声明路由/导航（query 参数可能引用 $route.id → Number(id)）
@@ -859,52 +867,81 @@ function collectUsedComponents(app: AppNode, v: ViewNode): ComponentNode[] {
   return [...found.values()];
 }
 
-/** table dataSource={useQuery('x')} → 表格 + 列 */
+/** 内置元素类型 → antd 组件名（table/button/form/input/detail → 对应 UI 组件） */
+const ANTD_OF: Record<string, string> = {
+  table: 'Table',
+  button: 'Button',
+  input: 'Input',
+  detail: 'Descriptions',
+};
+
+/** 页面用到哪些 antd 组件（去重、保持稳定顺序） */
+function collectAntdComponents(v: ViewNode): string[] {
+  const found = new Set<string>();
+  const visit = (els: ViewElementNode[]): void => {
+    for (const el of els) {
+      const name = ANTD_OF[el.type];
+      if (name) found.add(name);
+      visit(el.children);
+    }
+  };
+  visit(v.elements);
+  // Set 遍历顺序 = 插入序，稳定
+  return [...found];
+}
+
+/** table dataSource={useQuery('x')} → antd Table + 数据驱动 columns */
 function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
   const qBinding = el.bindings.find((b) => b.name === 'useQuery');
   const dataVar = qBinding ? queryVars.get(qBinding.target)! : 'data';
   const columns = el.children.filter((c) => c.type === 'column');
-  const colHeaders = columns.map((c) => `<th>${String(c.props.field ?? '')}</th>`).join('\n');
-  const colCells = columns.map((c) => `<td>{row.${String(c.props.field ?? '')}}</td>`).join('\n');
-  // 行内按钮（table 直接子 button）
+  const colDefs = columns.map(
+    (c) => `    { title: '${String(c.props.field ?? '')}', dataIndex: '${String(c.props.field ?? '')}' }`,
+  );
+  // 行内按钮（table 直接子 button）→ 操作列 render
   const rowButtons = el.children.filter((c) => c.type === 'button');
-  const rowBtnTd =
-    rowButtons.length > 0
-      ? `<td>${rowButtons.map((b) => genButton(app, b, queryVars)).join(' ')}</td>`
-      : '';
-  return `<div style={{ marginBottom: 16 }}>
-  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-    <thead><tr>${colHeaders}${rowButtons.length > 0 ? '<th>操作</th>' : ''}</tr></thead>
-    <tbody>
-      {${dataVar}.data?.map((row) => (
-        <tr key={row.${String(el.children.find((c) => c.type === 'column')?.props.field ?? 'id')}}>
-          ${colCells}${rowBtnTd}
-        </tr>
-      ))}
-    </tbody>
-  </table>
-</div>`;
+  const opCol = rowButtons.length > 0
+    ? `,\n    { title: '操作', key: 'op', render: (_, row) => (<>\n${rowButtons.map((b) => `      ${genButton(app, b, queryVars, { row: true })}`).join('\n')}\n    </>) }`
+    : '';
+  const dataSource = `${dataVar}.data ?? []`;
+  const rowKey = String(columns[0]?.props.field ?? 'id');
+  return `<Table
+  dataSource={${dataSource}}
+  rowKey="${rowKey}"
+  pagination={false}
+  columns={[
+${colDefs.join(',\n')}${opCol}
+  ]}
+/>`;
 }
 
-/** button action={useMutation(...)} / action={navigate(...)} */
-function genButton(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
+/** button action={useMutation(...)} / action={navigate(...)} → antd Button */
+function genButton(
+  app: AppNode,
+  el: ViewElementNode,
+  queryVars: Map<string, string>,
+  opts?: { row?: boolean },
+): string {
   const label = el.props['text'] ? String(el.props['text']) : '确定';
+  const isRow = opts?.row ?? false;
   const navB = el.bindings.find((b) => b.name === 'navigate');
   if (navB) {
     const routeBase = navB.target.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
     if (navB.args.length > 0) {
       const argExpr = genBindingArg(navB.args[0], false);
-      return `<button onClick={() => nav('/${routeBase}/' + ${argExpr})}>${label}</button>`;
+      return `<Button type="primary" onClick={() => nav('/${routeBase}/' + ${argExpr})}>${label}</Button>`;
     }
-    return `<button onClick={() => nav('/${routeBase}')}>${label}</button>`;
+    return `<Button type="primary" onClick={() => nav('/${routeBase}')}>${label}</Button>`;
   }
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
   if (mutB) {
     const varname = `m${cap(logicNameOf(mutB.target))}`;
+    // 行内按钮的 arg 是 row 引用（row.id）→ 直接透传；页面级 mutation 传实际参数
     const callArgs = mutB.args.length > 0 ? mutB.args.map((a) => genBindingArg(a, false)).join(', ') : '';
-    return `<button onClick={() => ${varname}.mutate(${callArgs})}>${label}</button>`;
+    const danger = label.includes('删') ? ' danger' : '';
+    return `<Button${danger} onClick={() => ${varname}.mutate(${callArgs})}>${label}</Button>`;
   }
-  return `<button>${label}</button>`;
+  return `<Button>${label}</Button>`;
 }
 
 /** form submit={useMutation('x')} → 表单 + 输入（state 已在 pageFile 顶部提升，此处只出 JSX） */
@@ -916,7 +953,7 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
   const inputEls = inputs
     .map((i) => {
       const f = String(i.props.field ?? '');
-      return `<label>${f}: <input value={${f}} onChange={(e) => set${cap(f)}(e.target.value)} /></label>`;
+      return `<div><label>${f}: <Input value={${f}} onChange={(e) => set${cap(f)}(e.target.value)} /></label></div>`;
     })
     .join('\n');
   // repeat 明细行
@@ -931,7 +968,7 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
           const num = itemStruct?.properties.find((p) => p.name === f)?.type.kind === 'primitive' &&
             (itemStruct?.properties.find((p) => p.name === f)?.type as { builtin?: string })?.builtin !== 'String';
           const convert = num ? 'Number(e.target.value)' : 'e.target.value';
-          return `<input placeholder="${f}" value={row.${f}} onChange={(e) => { const next = [...${field}]; next[i] = { ...next[i], ${f}: ${convert} }; set${cap(field)}(next); }} />`;
+          return `<Input placeholder="${f}" value={row.${f}} onChange={(e) => { const next = [...${field}]; next[i] = { ...next[i], ${f}: ${convert} }; set${cap(field)}(next); }} />`;
         })
         .join('\n');
       const defaultObj = subInputs
@@ -946,10 +983,10 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
   {${field}.map((row, i) => (
     <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
       ${rowEls}
-      <button onClick={() => set${cap(field)}(${field}.filter((_, j) => j !== i))}>删</button>
+      <Button danger size="small" onClick={() => set${cap(field)}(${field}.filter((_, j) => j !== i))}>删</Button>
     </div>
   ))}
-  <button onClick={() => set${cap(field)}([...${field}, { ${defaultObj} }])}>+ 添加明细</button>
+  <Button size="small" onClick={() => set${cap(field)}([...${field}, { ${defaultObj} }])}>+ 添加明细</Button>
 </div>`;
     })
     .join('\n');
@@ -959,7 +996,7 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
   return `<form onSubmit={(e) => { e.preventDefault(); ${varname}.mutate(${bodyObj}); }}>
   ${inputEls}
   ${repeatEls}
-  <button type="submit">提交</button>
+  <Button type="primary" htmlType="submit">提交</Button>
 </form>`;
 }
 
@@ -1038,23 +1075,26 @@ function collectFormStateLines(app: AppNode, v: ViewNode): string[] {
 /** text field="x" → <span>{data.x}</span> */
 function genText(el: ViewElementNode): string {
   const f = String(el.props.field ?? '');
-  return `<div>${f}: {data?.${f}}</div>`;
+  const safePath = f.split('.').map((seg) => `?.${seg}`).join('');
+  return `<span>{data${safePath}}</span>`;
 }
 
-/** detail dataSource={useQuery('x')} → 详情块 */
+/** detail dataSource={useQuery('x')} → antd Descriptions 详情块 */
 function genDetail(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
   const qBinding = el.bindings.find((b) => b.name === 'useQuery');
   const dataVar = qBinding ? queryVars.get(qBinding.target)! : 'data';
   const texts = el.children.filter((c) => c.type === 'text');
-  const textEls = texts
+  const itemEls = texts
     .map((t) => {
       const f = String(t.props.field ?? '');
-      return `<div>${f}: {${dataVar}.data?.${f}}</div>`;
+      // 字段路径安全化：order.customer → data?.order?.customer（每段都加 ?.）
+      const safePath = f.split('.').map((seg) => `?.${seg}`).join('');
+      return `    <Descriptions.Item label="${f}">{${dataVar}.data${safePath}}</Descriptions.Item>`;
     })
     .join('\n');
-  return `<div style={{ marginBottom: 16 }}>
-  ${textEls}
-</div>`;
+  return `<Descriptions bordered size="small" column={1}>
+${itemEls}
+</Descriptions>`;
 }
 
 // ---------- App.tsx：路由表 ----------
