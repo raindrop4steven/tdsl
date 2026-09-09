@@ -120,9 +120,9 @@ export function check(app: AppNode): CheckResult {
   const diagnostics: Diagnostic[] = [];
   const ownerPath = (owner: BaseNode): string => nodePathOf(app, owner) ?? 'app';
 
-  // 1. 悬空引用：所有 reference 必须能 resolve
+  // 1. 悬空引用：所有 reference 必须能 resolve（Object 内建兜底放行）
   forEachTypeRef(app, (tr, owner) => {
-    if (tr.kind === 'reference' && !resolve(app, tr.path)) {
+    if (tr.kind === 'reference' && tr.path !== 'Object' && !resolve(app, tr.path)) {
       diagnostics.push({
         path: ownerPath(owner),
         message: `悬空引用: ${tr.path}`,
@@ -307,12 +307,12 @@ function checkEntityCalls(
             }
           }
         }
-        // 静态实体方法：Todo.get / Todo.all / Todo.where / erp.Order.all
+        // 静态实体方法：Todo.get / Todo.all / Todo.where / erp.Order.all / Order.aggregate
         if (callee.kind === 'Member') {
           const recvName = receiverOf(callee.obj);
           const method = callee.prop;
           const entity = recvName ? resolveEntity(app, recvName) : null;
-          if (entity) {
+          if (entity && recvName) {
             if (method === 'get' && e.args.length !== 1) {
               diagnostics.push({
                 path: ownerPath(owner),
@@ -320,31 +320,41 @@ function checkEntityCalls(
                 severity: 'error',
               });
             } else if (method === 'where') {
-              // Entity.where(field = value)：校验字段存在 + 值是字段可赋类型
-              const cond = e.args[0];
-              if (cond?.kind !== 'Binary' || cond.operator !== '=') {
+              // Entity.where(cond, ...)：逗号 = AND；cond 叶子 = field op value，支持 && / || 组合
+              if (e.args.length === 0) {
                 diagnostics.push({
                   path: ownerPath(owner),
-                  message: `${recvName}.where() 参数必须是 field = value 形式`,
+                  message: `${recvName}.where() 至少需要一个条件`,
                   severity: 'error',
                 });
-              } else if (cond.left.kind === 'Ident') {
-                const fieldName = cond.left.name;
-                const field = entity.properties.find((p) => p.name === fieldName);
-                if (!field) {
-                  diagnostics.push({
-                    path: ownerPath(owner),
-                    message: `实体 ${recvName} 无字段 ${fieldName}`,
-                    severity: 'error',
-                  });
-                }
               }
-            } else if (method !== 'get' && method !== 'all' && method !== 'where') {
+              for (const cond of e.args) {
+                checkWhereCond(entity, recvName, cond, owner, diagnostics, ownerPath);
+              }
+            } else if (method === 'aggregate') {
+              // Entity.aggregate(sum(total)) / aggregate(count())
+              if (e.args.length === 0) {
+                diagnostics.push({
+                  path: ownerPath(owner),
+                  message: `${recvName}.aggregate() 至少需要一个聚合函数（sum/avg/max/min/count）`,
+                  severity: 'error',
+                });
+              }
+              for (const a of e.args) {
+                checkAggregateArg(entity, recvName, a, owner, diagnostics, ownerPath);
+              }
+            } else if (method !== 'get' && method !== 'all' && method !== 'where' && method !== 'aggregate') {
               diagnostics.push({
                 path: ownerPath(owner),
                 message: `实体 ${recvName} 无方法 ${method}`,
                 severity: 'error',
               });
+            }
+          } else if (callee.obj.kind === 'Call') {
+            // 实体查询链：Order.where(...).orderBy(...).page(...) / .limit(n) / .groupBy(...)
+            const chainEntity = entityQueryChainOf(app, callee.obj);
+            if (chainEntity) {
+              checkChainMethod(chainEntity, receiverOfChain(app, callee.obj), method, e.args, owner, diagnostics, ownerPath);
             }
           }
         }
@@ -503,4 +513,246 @@ function isListExpr(app: AppNode, e: Expr): boolean {
   // 变量 / 成员（如 input.items、list）无法在此精确推导 → 放行，避免误报
   if (e.kind === 'Ident' || e.kind === 'Member') return true;
   return false; // 字面量等明确非 List
+}
+
+/** where 条件运算符白名单（叶子形态） */
+const WHERE_BINARY_OPS = new Set(['=', '>=', '<=', '>', '<', 'like', 'in']);
+
+/** 链式查询方法白名单 */
+const CHAIN_METHODS = new Set(['orderBy', 'page', 'limit', 'groupBy']);
+
+/** 聚合函数白名单 */
+const AGG_FNS = new Set(['sum', 'avg', 'max', 'min', 'count']);
+
+/**
+ * where 复合条件校验（递归）：
+ * - 叶子：field op value，op ∈ =/>=/<=/>/</like/in
+ * - 组合：&& / ||（左右递归）
+ * - 校验：左侧是字段 Ident 且实体存在该字段
+ */
+function checkWhereCond(
+  entity: EntityNode,
+  recvName: string,
+  cond: Expr,
+  owner: BaseNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  if (cond.kind !== 'Binary') {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `${recvName}.where() 条件必须是 field op value 形式（op: = >= <= > < like in）`,
+      severity: 'error',
+    });
+    return;
+  }
+  // && / || 组合 → 左右递归
+  if (cond.operator === '&&' || cond.operator === '||') {
+    checkWhereCond(entity, recvName, cond.left, owner, diagnostics, ownerPath);
+    checkWhereCond(entity, recvName, cond.right, owner, diagnostics, ownerPath);
+    return;
+  }
+  if (!WHERE_BINARY_OPS.has(cond.operator)) {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `${recvName}.where() 不支持运算符 '${cond.operator}'（允许: = >= <= > < like in）`,
+      severity: 'error',
+    });
+    return;
+  }
+  if (cond.left.kind !== 'Ident') {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `${recvName}.where() 条件左侧必须是字段名`,
+      severity: 'error',
+    });
+    return;
+  }
+  const fieldName = cond.left.name;
+  if (!entity.properties.some((p) => p.name === fieldName)) {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `实体 ${recvName} 无字段 ${fieldName}`,
+      severity: 'error',
+    });
+  }
+}
+
+/** 聚合参数校验：Entity.aggregate(sum(total)) / count()；fn ∈ sum/avg/max/min/count */
+function checkAggregateArg(
+  entity: EntityNode,
+  recvName: string,
+  a: Expr,
+  owner: BaseNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  if (a.kind !== 'Call' || a.callee.kind !== 'Ident') {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `${recvName}.aggregate() 参数必须是 sum(f)/avg(f)/max(f)/min(f)/count(f)/count()`,
+      severity: 'error',
+    });
+    return;
+  }
+  const fn = a.callee.name;
+  if (!AGG_FNS.has(fn)) {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `${recvName}.aggregate() 不支持聚合函数 '${fn}'（允许: sum/avg/max/min/count）`,
+      severity: 'error',
+    });
+    return;
+  }
+  // count() 可无参；带参必须字段存在
+  if (a.args.length === 0) {
+    if (fn !== 'count') {
+      diagnostics.push({
+        path: ownerPath(owner),
+        message: `${recvName}.aggregate(${fn}()) 需要 1 个字段参数`,
+        severity: 'error',
+      });
+    }
+    return;
+  }
+  if (a.args.length > 1) {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `${recvName}.aggregate(${fn}()) 最多 1 个字段参数`,
+      severity: 'error',
+    });
+    return;
+  }
+  const arg = a.args[0];
+  if (arg.kind !== 'Ident') {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `${recvName}.aggregate(${fn}()) 参数必须是字段名`,
+      severity: 'error',
+    });
+    return;
+  }
+  if (!entity.properties.some((p) => p.name === arg.name)) {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `实体 ${recvName} 无字段 ${arg.name}`,
+      severity: 'error',
+    });
+  }
+}
+
+/**
+ * 实体查询链接收者提取：Order.where(...) / Order.aggregate(...) / erp.Order.where(...) → 实体；
+ * Order.where(...).orderBy(...) → 沿链向上找起点
+ */
+function entityQueryChainOf(app: AppNode, e: Expr): EntityNode | null {
+  if (e.kind === 'Call') {
+    const head = e.callee;
+    if (head.kind === 'Member' && (head.prop === 'where' || head.prop === 'aggregate')) {
+      const recv = receiverOf(head.obj);
+      return recv ? resolveEntity(app, recv) : null;
+    }
+    if (head.kind === 'Member' && CHAIN_METHODS.has(head.prop)) {
+      return entityQueryChainOf(app, head.obj);
+    }
+  }
+  return null;
+}
+
+/** 链式方法接收者字符串（校验信息用）：Order / erp.Order */
+function receiverOfChain(app: AppNode, e: Expr): string | null {
+  if (e.kind === 'Call') {
+    const head = e.callee;
+    if (head.kind === 'Member' && (head.prop === 'where' || head.prop === 'aggregate')) {
+      return receiverOf(head.obj);
+    }
+    if (head.kind === 'Member' && CHAIN_METHODS.has(head.prop)) {
+      return receiverOfChain(app, head.obj);
+    }
+  }
+  return null;
+}
+
+/** 链式方法参数校验：orderBy(field asc|desc, ...) / page(n, size) / limit(n) / groupBy(field, ...) */
+function checkChainMethod(
+  entity: EntityNode,
+  recvName: string | null,
+  method: string,
+  args: Expr[],
+  owner: BaseNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  const name = recvName ?? '实体';
+  const fieldOf = (e: Expr): string | null => (e.kind === 'Ident' ? e.name : null);
+  const hasField = (e: Expr): boolean => {
+    const f = fieldOf(e);
+    return f !== null && entity.properties.some((p) => p.name === f);
+  };
+  if (method === 'orderBy') {
+    // [field, 'asc'|'desc', ...]（方向可省）
+    if (args.length === 0) {
+      diagnostics.push({
+        path: ownerPath(owner),
+        message: `${name}.orderBy() 至少需要一个字段`,
+        severity: 'error',
+      });
+    }
+    for (let i = 0; i < args.length; i += 2) {
+      if (!hasField(args[i])) {
+        diagnostics.push({
+          path: ownerPath(owner),
+          message: `${name}.orderBy() 字段 '${fieldOf(args[i]) ?? args[i].kind}' 不存在`,
+          severity: 'error',
+        });
+      }
+      const dir = args[i + 1];
+      if (dir && (dir.kind !== 'String' || (dir.value !== 'asc' && dir.value !== 'desc'))) {
+        diagnostics.push({
+          path: ownerPath(owner),
+          message: `${name}.orderBy() 方向必须是 asc 或 desc`,
+          severity: 'error',
+        });
+      }
+    }
+  } else if (method === 'page') {
+    if (args.length !== 2) {
+      diagnostics.push({
+        path: ownerPath(owner),
+        message: `${name}.page() 需要 2 个参数（页码, 每页条数）`,
+        severity: 'error',
+      });
+    }
+  } else if (method === 'limit') {
+    if (args.length !== 1) {
+      diagnostics.push({
+        path: ownerPath(owner),
+        message: `${name}.limit() 需要 1 个参数（条数）`,
+        severity: 'error',
+      });
+    }
+  } else if (method === 'groupBy') {
+    if (args.length === 0) {
+      diagnostics.push({
+        path: ownerPath(owner),
+        message: `${name}.groupBy() 至少需要一个字段`,
+        severity: 'error',
+      });
+    }
+    for (const a of args) {
+      if (!hasField(a)) {
+        diagnostics.push({
+          path: ownerPath(owner),
+          message: `${name}.groupBy() 字段 '${fieldOf(a) ?? a.kind}' 不存在`,
+          severity: 'error',
+        });
+      }
+    }
+  } else {
+    diagnostics.push({
+      path: ownerPath(owner),
+      message: `实体 ${name} 查询链无方法 ${method}`,
+      severity: 'error',
+    });
+  }
 }

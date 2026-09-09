@@ -404,3 +404,132 @@ page P {
     expect(r.diagnostics.some((d) => d.message.includes('未知页面组件类型'))).toBe(true);
   });
 });
+
+describe('typecheck/M2 查询语言', () => {
+  it('passes where 多条件 + 链式 + aggregate + groupBy', () => {
+    const app = parse(`
+@datasource('d')
+entity Order {
+  id: Integer @pk;
+  customer: String;
+  total: Decimal;
+  status: String;
+}
+@export
+logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+  return Order.where(customer like '%' + customer + '%', total >= minTotal);
+}
+logic topOrders(): List<Order> {
+  return Order.where(total > 0).orderBy(total desc).limit(10);
+}
+logic pageOrders(n: Integer, size: Integer): Page<Order> {
+  return Order.where(total > 0).orderBy(total desc).page(n, size);
+}
+logic orderStats(): Decimal {
+  return Order.aggregate(sum(total));
+}
+logic sumByCustomer(): List<Map<Object>> {
+  return Order.aggregate(sum(total)).groupBy(customer);
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects where 字段不存在', () => {
+    const app = parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+@export
+logic bad(): List<Order> {
+  return Order.where(totalX > 0);
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('无字段 totalX'))).toBe(true);
+  });
+
+  it('rejects where 非法运算符（parser 层）', () => {
+    expect(() =>
+      parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+@export
+logic bad(): List<Order> {
+  return Order.where(total === 0);
+}
+`),
+    ).toThrow(/field op value/);
+  });
+
+  it('rejects orderBy 字段不存在', () => {
+    const app = parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+@export
+logic bad(): List<Order> {
+  return Order.where(total > 0).orderBy(customerX asc);
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('不存在') && d.message.includes('customerX'))).toBe(true);
+  });
+
+  it('rejects page 参数个数错误', () => {
+    const app = parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+@export
+logic bad(): Page<Order> {
+  return Order.where(total > 0).page(1);
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('.page() 需要 2 个参数'))).toBe(true);
+  });
+
+  it('rejects aggregate 非法函数', () => {
+    const app = parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+@export
+logic bad(): Decimal {
+  return Order.aggregate(mean(total));
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes("不支持聚合函数 'mean'"))).toBe(true);
+  });
+
+  it('rejects groupBy 字段不存在', () => {
+    const app = parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; customer: String; }
+@export
+logic bad(): List<Map<Object>> {
+  return Order.aggregate(sum(total)).groupBy(customerX);
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('不存在') && d.message.includes('customerX'))).toBe(true);
+  });
+
+  it('rejects 实体查询链上未知方法', () => {
+    const app = parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+@export
+logic bad(): List<Order> {
+  return Order.where(total > 0).frobnicate();
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('查询链无方法'))).toBe(true);
+  });
+});
