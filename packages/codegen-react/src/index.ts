@@ -42,8 +42,16 @@ function tsType(tr: TypeRef): string {
       }
       break;
     case 'reference':
+      // Object：Map<Object> 泛型兜底 → Record<string, unknown>（类型内建，不进 types 导出）
+      if (nameFromPath(tr.path) === 'Object') return 'Record<string, unknown>';
       return nameFromPath(tr.path);
     case 'generic':
+      if (tr.name === 'Map') {
+        return `Record<string, ${tsType(tr.args[0] ?? { kind: 'primitive', builtin: 'String' })}>`;
+      }
+      if (tr.name === 'Page') {
+        return `{ content: Array<${tsType(tr.args[0] ?? { kind: 'primitive', builtin: 'String' })}>; totalElements: number }`;
+      }
       return `Array<${tsType(tr.args[0] ?? { kind: 'primitive', builtin: 'String' })}>`;
     case 'db':
       return 'number';
@@ -468,31 +476,44 @@ ${funcs.join('\n')}
   return { path: 'src/api.ts', content };
 }
 
-/** 收集 TypeRef 引用的实体/结构名 */
+/** 收集 TypeRef 引用的实体/结构名（Object 内建，跳过） */
 function collectTypeNames(tr: TypeRef, out: Set<string>): void {
-  if (tr.kind === 'reference') out.add(nameFromPath(tr.path));
-  else if (tr.kind === 'generic') tr.args.forEach((a) => collectTypeNames(a, out));
+  if (tr.kind === 'reference') {
+    const n = nameFromPath(tr.path);
+    if (n !== 'Object') out.add(n);
+  } else if (tr.kind === 'generic') tr.args.forEach((a) => collectTypeNames(a, out));
 }
 
 function apiFunction(app: AppNode, itf: InterfaceNode, ep: EndpointNode): string {
   const logicName = ep.logicRef?.split('.').pop() ?? ep.name;
   const logic = app.logics.find((l) => l.name === logicName);
   const retType = logic?.returns[0] ? tsType(logic.returns[0].type) : 'void';
-  // path 变量（{id}）→ 参数；其余 logic 参数 → 请求体（struct/entity 用 body）
+  // path 变量（{id}）→ URL 参数；其余 logic 参数 → GET 走 query string，POST/PUT 走 body
   const pathVars = ep.path.match(/\{(\w+)\}/g)?.map((m) => m.slice(1, -1)) ?? [];
-  const bodyParams = (logic?.params ?? []).filter((p) => !pathVars.includes(p.name));
+  const queryParams = (logic?.params ?? []).filter((p) => !pathVars.includes(p.name));
+  const method = ep.method;
   const params: string[] = [
     ...pathVars.map((n) => {
       const p = logic?.params.find((pp) => pp.name === n);
       return `${n}: ${p ? tsType(p.type) : 'number'}`;
     }),
-    ...(bodyParams.length > 0 ? bodyParams.map((p) => `body: ${tsType(p.type)}`) : []),
+    ...(method === 'GET'
+      ? queryParams.map((p) => `${p.name}: ${tsType(p.type)}`)
+      : queryParams.length > 0
+        ? queryParams.map((p) => `body: ${tsType(p.type)}`)
+        : []),
   ];
-  // URL：/api/orders/{id} → API + '/api/orders/' + id
-  const urlExpr = buildUrlExpr(ep.path, pathVars);
-  const method = ep.method;
+  // URL：/api/orders/{id} → API + '/api/orders/' + id；GET 追加 query string
+  let urlExpr = buildUrlExpr(ep.path, pathVars);
+  if (method === 'GET' && queryParams.length > 0) {
+    const qs = queryParams.map((p, i) => {
+      const sep = i === 0 ? '?' : '&';
+      return ` + '${sep}${p.name}=' + encodeURIComponent(String(${p.name}))`;
+    });
+    urlExpr = urlExpr + qs.join('');
+  }
   const hasBody = method === 'POST' || method === 'PUT';
-  const bodyExpr = hasBody && bodyParams.length > 0 ? 'body' : undefined;
+  const bodyExpr = hasBody && queryParams.length > 0 ? 'body' : undefined;
   const reqObj = `{
       method: '${method}',
       headers: { 'Content-Type': 'application/json' },
