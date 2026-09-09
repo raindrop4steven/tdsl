@@ -3,10 +3,13 @@ import {
   resolve,
   type AppNode,
   type BaseNode,
+  type BindingNode,
   type EntityNode,
   type Expr,
+  type ServiceNode,
   type Statement,
   type TypeRef,
+  type ViewElementNode,
 } from '@tdsl/core';
 
 export interface Diagnostic {
@@ -37,6 +40,12 @@ function forEachTypeRef(app: AppNode, fn: (tr: TypeRef, owner: BaseNode) => void
   }
   for (const s of app.structures) {
     s.properties.forEach((p) => visit(p.type, p));
+  }
+  for (const s of app.services) {
+    for (const op of s.operations) {
+      op.params.forEach((p) => visit(p.type, p));
+      op.returns.forEach((r) => visit(r.type, r));
+    }
   }
   for (const l of app.logics) {
     l.params.forEach((p) => visit(p.type, p));
@@ -171,7 +180,99 @@ export function check(app: AppNode): CheckResult {
     });
   }
 
+  // 4.5. 外部服务：kind 合法；http 操作必须带 method + path；调用方校验在 checkEntityCalls 内
+  for (const s of app.services) {
+    if (!s.kind_ || (s.kind_ !== 'dubbo' && s.kind_ !== 'bean' && s.kind_ !== 'http')) {
+      diagnostics.push({
+        path: ownerPath(s),
+        message: `外部服务 ${s.name} 的 kind 必须为 dubbo|bean|http`,
+        severity: 'error',
+      });
+    }
+    if (s.kind_ === 'http') {
+      for (const op of s.operations) {
+        if (!op.method || !op.path) {
+          diagnostics.push({
+            path: ownerPath(op),
+            message: `http 服务 ${s.name} 的操作 ${op.name} 必须声明 METHOD 'path'`,
+            severity: 'error',
+          });
+        }
+      }
+    }
+  }
+  // 4.6. 第三方组件：pkg 非空
+  for (const c of app.components) {
+    if (!c.pkg) {
+      diagnostics.push({
+        path: ownerPath(c),
+        message: `组件 ${c.name} 必须声明 pkg`,
+        severity: 'error',
+      });
+    }
+  }
+
+  // 5. View：组件类型 + binding 解析
+  for (const v of app.views) {
+    checkView(app, v.elements, diagnostics, ownerPath);
+  }
+
   return { ok: diagnostics.length === 0, diagnostics };
+}
+
+/** 已知 ViewElement 组件类型 */
+const KNOWN_VIEW_TYPES = new Set([
+  'table', 'column', 'button', 'form', 'input', 'repeat', 'text', 'detail',
+]);
+
+/** View 校验：组件类型已知 + useQuery/useMutation 逻辑存在 + navigate 页面存在 */
+function checkView(
+  app: AppNode,
+  elements: ViewElementNode[],
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  for (const el of elements) {
+    const isBuiltin = KNOWN_VIEW_TYPES.has(el.type);
+    const isComponent = app.components.some((c) => c.name === el.type);
+    if (!isBuiltin && !isComponent) {
+      diagnostics.push({
+        path: ownerPath(el),
+        message: `未知页面组件类型 '${el.type}'`,
+        severity: 'error',
+      });
+    }
+    for (const b of el.bindings) {
+      checkBinding(app, b, diagnostics, ownerPath);
+    }
+    if (el.children.length > 0) checkView(app, el.children, diagnostics, ownerPath);
+  }
+}
+
+/** binding 校验：useQuery/useMutation → logic 存在；navigate → 页面存在 */
+function checkBinding(
+  app: AppNode,
+  b: BindingNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  if (b.name === 'useQuery' || b.name === 'useMutation') {
+    if (!resolve(app, b.target)) {
+      diagnostics.push({
+        path: ownerPath(b),
+        message: `页面绑定 ${b.name} 悬空逻辑引用: ${b.target}`,
+        severity: 'error',
+      });
+    }
+  } else if (b.name === 'navigate') {
+    if (!app.views.some((v) => v.name === b.target)) {
+      diagnostics.push({
+        path: ownerPath(b),
+        message: `页面绑定 navigate 悬空页面: ${b.target}`,
+        severity: 'error',
+      });
+    }
+  }
 }
 
 /** 实体方法调用校验：Todo.get(id)、entity.save()、entity.delete() */
@@ -186,11 +287,31 @@ function checkEntityCalls(
     switch (e.kind) {
       case 'Call': {
         const callee = e.callee;
-        // Todo.get(id) / Todo.all / Todo.where(...) —— 静态实体方法
-        if (callee.kind === 'Member' && callee.obj.kind === 'Ident') {
-          const recvName = callee.obj.name;
+        // 外部服务调用：userService.getUser(id) → 接收者小驼峰命中已声明 service
+        if (callee.kind === 'Member') {
+          const svc = serviceByVarName(app, callee.obj);
+          if (svc) {
+            const op = svc.operations.find((o) => o.name === callee.prop);
+            if (!op) {
+              diagnostics.push({
+                path: ownerPath(owner),
+                message: `外部服务 ${svc.name} 无方法 ${callee.prop}`,
+                severity: 'error',
+              });
+            } else if (op.params.length !== e.args.length) {
+              diagnostics.push({
+                path: ownerPath(owner),
+                message: `外部服务 ${svc.name}.${callee.prop}() 需要 ${op.params.length} 个参数，实际 ${e.args.length}`,
+                severity: 'error',
+              });
+            }
+          }
+        }
+        // 静态实体方法：Todo.get / Todo.all / Todo.where / erp.Order.all
+        if (callee.kind === 'Member') {
+          const recvName = receiverOf(callee.obj);
           const method = callee.prop;
-          const entity = resolveEntity(app, recvName);
+          const entity = recvName ? resolveEntity(app, recvName) : null;
           if (entity) {
             if (method === 'get' && e.args.length !== 1) {
               diagnostics.push({
@@ -226,8 +347,9 @@ function checkEntityCalls(
               });
             }
           }
-        } else if (callee.kind === 'Member') {
-          // entity.save() / entity.delete() —— 实例方法
+        }
+        // 实例方法：entity.save() / entity.delete()；list.add(x)（接收者非实体名时）
+        if (callee.kind === 'Member') {
           const method = callee.prop;
           if (method === 'save' || method === 'delete') {
             if (e.args.length !== 0) {
@@ -310,28 +432,62 @@ function checkEntityCalls(
 }
 
 function resolveEntity(app: AppNode, name: string): EntityNode | null {
-  for (const ds of app.datasources) {
-    for (const ent of ds.entities) {
-      if (ent.name === name) return ent;
-    }
+  // 限定名 dsName.EntityName（erp.Order）
+  if (name.includes('.')) {
+    const dot = name.indexOf('.');
+    const dsName = name.slice(0, dot);
+    const entName = name.slice(dot + 1);
+    const ds = app.datasources.find((d) => d.name === dsName);
+    return ds?.entities.find((e) => e.name === entName) ?? null;
+  }
+  // 短名：全局唯一才可解析（跨源同名需限定名）
+  const hits = app.datasources.flatMap((ds) => ds.entities).filter((e) => e.name === name);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** 表达式接收者（Ident 或数据源限定名 Member）→ service 短名小驼峰变量名匹配（UserService → userService） */
+function serviceByVarName(app: AppNode, e: Expr): ServiceNode | null {
+  if (e.kind !== 'Ident') return null;
+  const varName = e.name;
+  return app.services.find((s) => {
+    const lower = s.name.charAt(0).toLowerCase() + s.name.slice(1);
+    return lower === varName;
+  }) ?? null;
+}
+
+/** 从表达式取实体查询的接收者名：Order.all → 'Order'；erp.Order.all → 'erp.Order'；非实体查询返回 null */
+function entityQueryOf(app: AppNode, e: Expr): string | null {
+  // erp.Order.all → Member(Member(Ident('erp'),'Order'),'all')
+  if (e.kind === 'Member' && e.prop === 'all') {
+    const recv = receiverOf(e.obj);
+    if (recv && resolveEntity(app, recv)) return recv;
+    return null;
+  }
+  // Order.where(...) / erp.Order.where(...) → Call(Member(recv,'where'),[...])
+  if (e.kind === 'Call' && e.callee.kind === 'Member' && e.callee.prop === 'where') {
+    const recv = receiverOf(e.callee.obj);
+    if (recv && resolveEntity(app, recv)) return recv;
+    return null;
   }
   return null;
 }
 
-/** 判断表达式是否为实体查询（Entity.all 或 Entity.where(...)），返回实体名或 null */
-function entityQueryOf(app: AppNode, e: Expr): string | null {
-  if (e.kind === 'Member' && e.obj.kind === 'Ident' && e.prop === 'all') {
-    return resolveEntity(app, e.obj.name) ? e.obj.name : null;
-  }
+/** 实体查询接收者名：Ident → 短名；Member(Ident,prop) 且 Ident 是数据源 → 限定名；否则 null */
+function receiverOf(e: Expr): string | null {
+  if (e.kind === 'Ident') return e.name;
   if (
-    e.kind === 'Call' &&
-    e.callee.kind === 'Member' &&
-    e.callee.obj.kind === 'Ident' &&
-    e.callee.prop === 'where'
+    e.kind === 'Member' &&
+    e.obj.kind === 'Ident' &&
+    isDataSourceName(e.obj.name)
   ) {
-    return resolveEntity(app, e.callee.obj.name) ? e.callee.obj.name : null;
+    return `${e.obj.name}.${e.prop}`;
   }
   return null;
+}
+
+/** 是否数据源名 */
+function isDataSourceName(name: string): boolean {
+  return true; // 无法静态判定，交给 resolveEntity 限定名解析兜底
 }
 
 /** 取表达式最底层的标识符名（x / x.y / x.y.z → 'x'），非标识符基座返回 null */

@@ -52,6 +52,9 @@ describe('typecheck', () => {
       enums: [],
       logics: [],
       interfaces: [],
+      views: [],
+      services: [],
+      components: [],
     };
     const r = check(app);
     expect(r.ok).toBe(false);
@@ -189,5 +192,215 @@ logic bad(): List<Todo> {
     const r = check(app);
     expect(r.ok).toBe(false);
     expect(r.diagnostics.some((d) => d.message.includes('ForEach 容器'))).toBe(true);
+  });
+});
+
+describe('typecheck/M1 namespace', () => {
+  it('resolves qualified entity in expression (erp.Order.all)', () => {
+    const app = parse(`
+@datasource('erp')
+entity Order { id: Integer @pk; }
+@datasource('crm')
+entity Order { id: Integer @pk; }
+@export
+logic listErp(): List<erp.Order> {
+  return erp.Order.all;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects unknown qualified entity method', () => {
+    const app = parse(`
+@datasource('erp')
+entity Order { id: Integer @pk; }
+@export
+logic bad(): List<erp.Order> {
+  return erp.Order.nope();
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('无方法'))).toBe(true);
+  });
+
+  it('ForEach over qualified where query', () => {
+    const app = parse(`
+@datasource('erp')
+entity Order { id: Integer @pk; }
+@datasource('erp')
+entity OrderItem { id: Integer @pk; orderId: Integer; }
+@export
+logic del(id: Integer): Boolean {
+  for (it in erp.OrderItem.where(orderId = id)) { it.delete(); }
+  return true;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('typecheck/M4 view', () => {
+  it('passes valid page with bindings', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+@export
+logic deleteOrder(id: Integer): Boolean { return true; }
+interface OrderApi {
+  GET    '/api/orders'      -> listOrders
+  DELETE '/api/orders/{id}' -> deleteOrder
+}
+page OrderList {
+  <table dataSource={useQuery('listOrders')}>
+    <column field="id" />
+    <button text="删" action={useMutation('deleteOrder', row.id)} />
+  </table>
+  <button text="新增" action={navigate('OrderCreate')} />
+}
+page OrderCreate { }
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects unknown view element type', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+page X { <fancy dataSource={useQuery('listOrders')} /> }
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('未知页面组件类型'))).toBe(true);
+  });
+
+  it('rejects dangling binding logic', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+page X { <table dataSource={useQuery('listOrders')}><column field="id" /></table> }
+`);
+    // 程序化改坏 binding target 测 typecheck 兜底
+    app.views[0].elements[0].bindings[0].target = 'app.logics.missing';
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('悬空逻辑引用'))).toBe(true);
+  });
+
+it('rejects dangling navigate page', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+page X { <button text="a" action={navigate('Y')} /> }
+page Y { }
+`);
+    // navigate 绑定改坏（parser 已校验合法，测 typecheck 兜底）
+    app.views[0].elements[0].bindings[0].target = 'Nope';
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('悬空页面'))).toBe(true);
+  });
+});
+
+describe('typecheck/M6 service + component', () => {
+  it('passes valid service plus logic calls', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic createOrder(input: Order): Order {
+  return userService.createOrder(input);
+}
+@service(kind = 'dubbo', group = 'order-center')
+service UserService {
+  createOrder(input: Order): Order;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects unknown service method', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic createOrder(input: Order): Order {
+  return userService.nope(input);
+}
+@service(kind = 'dubbo')
+service UserService {
+  createOrder(input: Order): Order;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('无方法 nope'))).toBe(true);
+  });
+
+  it('rejects service call with wrong arg count', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic createOrder(input: Order): Order {
+  return userService.createOrder();
+}
+@service(kind = 'dubbo')
+service UserService {
+  createOrder(input: Order): Order;
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('需要 1 个参数'))).toBe(true);
+  });
+
+  it('rejects http service operation without method/path', () => {
+    const app = parse(`
+@service(kind = 'http')
+service ErpApi {
+  getOrder(id: Integer): Order;
+}
+entity Order { id: Integer @pk; }
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes("必须声明 METHOD 'path'"))).toBe(true);
+  });
+
+  it('passes component-referenced view element', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+component ECharts {
+  pkg: 'echarts-for-react';
+  defaultProps: { option: Json; style: Json };
+}
+page P {
+  <ECharts option={null} dataSource={useQuery('listOrders')} />
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects unregistered view element type', () => {
+    const app = parse(`
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+page P {
+  <Nope dataSource={useQuery('listOrders')} />
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('未知页面组件类型'))).toBe(true);
   });
 });
