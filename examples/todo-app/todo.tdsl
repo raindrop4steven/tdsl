@@ -6,6 +6,7 @@ entity Order {
   id: Integer @pk;
   customer: String;
   total: Decimal;
+  status: String;
 }
 
 entity OrderItem {
@@ -83,6 +84,38 @@ interface OrderApi {
   POST   '/api/orders'      -> createOrder
   GET    '/api/orders/{id}' -> getOrderDetail
   DELETE '/api/orders/{id}' -> deleteOrder
+  GET    '/api/orders/search'        -> searchOrders
+  GET    '/api/orders/top'           -> topOrders
+  GET    '/api/orders/page'          -> pageOrders
+  GET    '/api/orders/stats'         -> orderStats
+  GET    '/api/orders/sum-by-customer' -> sumByCustomer
+}
+
+// ---- M2：查询语言（where 复合条件 / 排序 / 分页 / 聚合） ----
+
+@export
+logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+  return Order.where(customer like '%' + customer + '%', total >= minTotal);
+}
+
+@export
+logic topOrders(): List<Order> {
+  return Order.where(total > 0).orderBy(total desc).limit(10);
+}
+
+@export
+logic pageOrders(n: Integer, size: Integer): Page<Order> {
+  return Order.where(total > 0).orderBy(total desc).page(n, size);
+}
+
+@export
+logic orderStats(): Decimal {
+  return Order.aggregate(sum(total));
+}
+
+@export
+logic sumByCustomer(): List<Map<Object>> {
+  return Order.aggregate(sum(total)).groupBy(customer);
 }
 
 // ---- M4：page 声明式前端（列表/创建/详情） ----
