@@ -84,3 +84,35 @@ interface OrderApi {
   GET    '/api/orders/{id}' -> getOrderDetail
   DELETE '/api/orders/{id}' -> deleteOrder
 }
+
+// ---- M4：page 声明式前端（列表/创建/详情） ----
+
+page OrderList {
+  <table dataSource={useQuery('listOrders')}>
+    <column field="id" />
+    <column field="customer" />
+    <column field="total" />
+    <button text="详情" action={navigate('OrderDetail', row.id)} />
+    <button text="删除" action={useMutation('deleteOrder', row.id)} />
+  </table>
+  <button text="新增订单" action={navigate('OrderCreate')} />
+}
+
+page OrderCreate {
+  <form submit={useMutation('createOrder')}>
+    <input field="customer" />
+    <repeat field="items">
+      <input field="product" />
+      <input field="price" />
+      <input field="qty" />
+    </repeat>
+    <button text="提交" />
+  </form>
+}
+
+page OrderDetail {
+  <detail dataSource={useQuery('getOrderDetail', $route.id)}>
+    <text field="order.customer" />
+    <text field="order.total" />
+  </detail>
+}
