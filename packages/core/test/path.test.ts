@@ -61,6 +61,9 @@ function sampleApp(): AppNode {
     enums: [],
     logics: [logic],
     interfaces: [],
+    views: [],
+    services: [],
+    components: [],
   };
 }
 

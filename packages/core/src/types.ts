@@ -25,6 +25,9 @@ export interface AppNode extends BaseNode {
   enums: EnumNode[];
   logics: LogicNode[];
   interfaces: InterfaceNode[];
+  views: ViewNode[];
+  services: ServiceNode[];
+  components: ComponentNode[];
 }
 
 /** 数据源：聚合实体 */
@@ -114,6 +117,60 @@ export interface EndpointNode extends BaseNode {
   logicRef?: string;                  // 绑定的 Logic nodePath
 }
 
+/** 页面/视图：前端页面声明（page 关键字 → ViewNode） */
+export interface ViewNode extends BaseNode {
+  kind: 'View';
+  name: string;
+  viewKind: 'page' | 'dialog' | 'block';   // 本切面先支持 page
+  elements: ViewElementNode[];
+}
+
+/** 页面元素：组件树节点 */
+export interface ViewElementNode extends BaseNode {
+  kind: 'ViewElement';
+  type: string;                            // 'table'|'column'|'button'|'form'|'input'|'repeat'|'text'|'detail'
+  props: Record<string, Expr | string>;    // field/value/action/submit/dataSource 等
+  bindings: BindingNode[];                 // useQuery/useMutation/navigate 提取后的绑定
+  children: ViewElementNode[];
+}
+
+/** 数据绑定：页面元素与 logic/页面 的连接 */
+export interface BindingNode extends BaseNode {
+  kind: 'Binding';
+  name: string;                            // 'useQuery'|'useMutation'|'navigate'
+  target: string;                          // logic 短名（link 后 nodePath）/ 页面名
+  args: Expr[];
+}
+
+/** 外部服务：dubbo/bean/http 三种 kind，logic 内可像本地方法调用 */
+export interface ServiceNode extends BaseNode {
+  kind: 'Service';
+  name: string;
+  kind_: 'dubbo' | 'bean' | 'http';
+  /** dubbo: group/version；bean: bean/jar；http: baseUrl/timeout */
+  config: Record<string, string>;
+  operations: ServiceOperationNode[];
+}
+
+/** 外部服务操作：与 Logic 签名同构；http 形态带 method + path */
+export interface ServiceOperationNode extends BaseNode {
+  kind: 'ServiceOperation';
+  name: string;
+  params: ParamNode[];
+  returns: ReturnNode[];
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  path?: string;
+}
+
+/** 第三方前端组件注册：pkg npm 包名，ViewElement.type 引用 */
+export interface ComponentNode extends BaseNode {
+  kind: 'Component';
+  name: string;
+  pkg: string;
+  defaultProps: string[];
+  events: string[];
+}
+
 export type AnyNode =
   | AppNode
   | DataSourceNode
@@ -127,7 +184,13 @@ export type AnyNode =
   | ParamNode
   | ReturnNode
   | InterfaceNode
-  | EndpointNode;
+  | EndpointNode
+  | ViewNode
+  | ViewElementNode
+  | BindingNode
+  | ServiceNode
+  | ServiceOperationNode
+  | ComponentNode;
 
 export type NodeKind = AnyNode['kind'];
 

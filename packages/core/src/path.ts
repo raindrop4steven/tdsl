@@ -50,6 +50,21 @@ export function collectPaths(app: AppNode): PathEntry[] {
       entries.push({ path: `app.interfaces.${itf.name}.endpoints[${i}]`, node: ep });
     });
   }
+  for (const v of app.views) {
+    entries.push({ path: `app.views.${v.name}`, node: v });
+    v.elements.forEach((el, i) => {
+      entries.push({ path: `app.views.${v.name}.elements[${i}]`, node: el });
+    });
+  }
+  for (const s of app.services) {
+    entries.push({ path: `app.services.${s.name}`, node: s });
+    s.operations.forEach((op, i) => {
+      entries.push({ path: `app.services.${s.name}.operations[${i}]`, node: op });
+    });
+  }
+  for (const c of app.components) {
+    entries.push({ path: `app.components.${c.name}`, node: c });
+  }
   return entries;
 }
 
