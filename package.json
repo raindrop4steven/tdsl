@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit",
     "slice": "npm run slice -w todo-app"
   }
 }

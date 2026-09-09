@@ -4,3 +4,4 @@ examples/todo-app/generated/
 .DS_Store
 .omo/
 .codegraph/
+.playwright-mcp/
