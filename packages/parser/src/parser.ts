@@ -587,28 +587,7 @@ class Parser {
         e = { kind: 'Member', obj: e, prop };
       } else if (this.peek().value === '(') {
         this.next();
-        const args: Expr[] = [];
-        // where 查询特殊参数：Entity.where(field = value) → Binary('=', field, value)
-        // where 查询特殊参数：Entity.where(field = value) / erp.Entity.where(...) → Binary('=', field, value)
-        const isWhere =
-          e.kind === 'Member' &&
-          e.prop === 'where' &&
-          (e.obj.kind === 'Ident' || (e.obj.kind === 'Member' && e.obj.obj.kind === 'Ident'));
-        if (isWhere) {
-          const field = this.parseExpr(); // 字段标识符
-          if (this.peek().value === '=') {
-            this.next();
-            const value = this.parseExpr();
-            args.push({ kind: 'Binary', operator: '=', left: field, right: value });
-          } else {
-            args.push(field);
-          }
-        } else {
-          while (this.peek().value !== ')') {
-            args.push(this.parseExpr());
-            if (this.peek().value === ',') this.next();
-          }
-        }
+        const args = this.parseCallArgs(e);
         this.expect(')');
         e = { kind: 'Call', callee: e, args };
       } else {
@@ -616,6 +595,120 @@ class Parser {
       }
     }
     return e;
+  }
+
+  /** 依赖调用点形态分派实参解析：where 复合条件 / 链式方法 / 普通表达式 */
+  private parseCallArgs(e: Expr): Expr[] {
+    // Entity.where(...) / erp.Entity.where(...) → where 复合条件参数
+    if (e.kind === 'Member' && e.prop === 'where' && this.isEntityReceiver(e.obj)) {
+      return this.parseWhereArgs();
+    }
+    // 链式方法：.orderBy(field asc|desc, ...) / .page(n, size) / .limit(n) / .groupBy(field, ...)
+    if (e.kind === 'Member' && this.isQueryChainMethod(e.prop) && this.isQueryChain(e.obj)) {
+      return this.parseChainMethodArgs(e.prop);
+    }
+    // 普通参数
+    const args: Expr[] = [];
+    while (this.peek().value !== ')') {
+      args.push(this.parseExpr());
+      if (this.peek().value === ',') this.next();
+    }
+    return args;
+  }
+
+  /** 实体静态接收者：Order / erp.Order */
+  private isEntityReceiver(o: Expr): boolean {
+    return o.kind === 'Ident' || (o.kind === 'Member' && o.obj.kind === 'Ident');
+  }
+
+  /** 链式查询方法名 */
+  private isQueryChainMethod(prop: string): boolean {
+    return prop === 'orderBy' || prop === 'page' || prop === 'limit' || prop === 'groupBy';
+  }
+
+  /** 是否为实体查询链（本方法之前已产生实体查询调用）：Order.where(…)/erp.Order.where(…)/后续链 */
+  private isQueryChain(o: Expr): boolean {
+    if (o.kind === 'Call' && o.callee.kind === 'Member') {
+      const m = o.callee;
+      if (m.prop === 'where' && this.isEntityReceiver(m.obj)) return true;
+      if (this.isQueryChainMethod(m.prop) && this.isQueryChain(m.obj)) return true;
+    }
+    return false;
+  }
+
+  /** where 复合条件参数：逗号分隔多个条件（AND），支持 &&/|| 组合；条件 = field op value */
+  private parseWhereArgs(): Expr[] {
+    const args: Expr[] = [];
+    while (this.peek().value !== ')') {
+      args.push(this.parseWhereCond());
+      if (this.peek().value === ',') this.next();
+    }
+    if (args.length === 0) this.fail('where() 至少需要一个条件');
+    return args;
+  }
+
+  /** 单个 where 条件：布尔组合 of 基本条件（field op value） */
+  private parseWhereCond(): Expr {
+    let left = this.parseWherePrimary();
+    while (this.peek().value === '&&' || this.peek().value === '||') {
+      const op = this.next().value as '&&' | '||';
+      const right = this.parseWherePrimary();
+      left = { kind: 'Binary', operator: op, left, right };
+    }
+    return left;
+  }
+
+  /** 基本条件：field op value；op ∈ =/>=/<=/>/</like/in；field 必须是标识符（不让 parseExpr 吞掉比较符） */
+  private parseWherePrimary(): Expr {
+    const field: Expr = { kind: 'Ident', name: this.expectIdent() };
+    const peeked = this.peek();
+    let operator: string | null = null;
+    // 标点运算符
+    if (peeked.value === '=' || peeked.value === '>=' || peeked.value === '<=' || peeked.value === '>' || peeked.value === '<') {
+      operator = this.next().value;
+    } else if (peeked.type === 'ident' && (peeked.value === 'like' || peeked.value === 'in')) {
+      // like / in 是标识符形态的运算符
+      operator = this.next().value;
+    }
+    if (!operator) {
+      this.fail(`where 条件必须是 field op value 形式（op: = >= <= > < like in），遇到 '${peeked.value}'`);
+    }
+    const value = this.parseValueExpr();
+    return { kind: 'Binary', operator: operator as '=' | '>=' | '<=' | '>' | '<' | 'like' | 'in', left: field, right: value };
+  }
+
+  /** 条件右值：表达式，但不能吞掉 &&/||/逗号/右括号（用 add 层，不含比较/逻辑） */
+  private parseValueExpr(): Expr {
+    return this.parseAdditive();
+  }
+
+  /** 链式方法参数：orderBy → [field, 'asc'|'desc', ...]；page/limit → 数值；groupBy → 字段列表 */
+  private parseChainMethodArgs(prop: string): Expr[] {
+    const args: Expr[] = [];
+    if (prop === 'orderBy') {
+      while (this.peek().value !== ')') {
+        const field = this.parseExpr(); // 字段标识符
+        const dir = this.peek();
+        if (dir.type === 'ident') {
+          if (dir.value === 'asc' || dir.value === 'desc') {
+            this.next();
+            args.push(field, { kind: 'String', value: dir.value });
+          } else {
+            // field 后跟标识符但非 asc/desc → 语法错误（orderBy 方向只允许 asc|desc）
+            this.fail(`orderBy 方向必须是 asc 或 desc，遇到 '${dir.value}'`);
+          }
+        } else {
+          args.push(field); // 默认 asc，方向留 typecheck/codegen 补
+        }
+        if (this.peek().value === ',') this.next();
+      }
+    } else {
+      while (this.peek().value !== ')') {
+        args.push(this.parseExpr());
+        if (this.peek().value === ',') this.next();
+      }
+    }
+    return args;
   }
 
   private parsePrimary(): Expr {
@@ -657,6 +750,19 @@ class Parser {
     if (t.value === 'null') {
       this.next();
       return { kind: 'Null' };
+    }
+    // 数组字面量 [...]（M2：用于 in 条件右值）→ NewList，元素类型按首项推断
+    if (t.value === '[') {
+      this.next();
+      const items: Expr[] = [];
+      while (this.peek().value !== ']') {
+        items.push(this.parseValueExpr());
+        if (this.peek().value === ',') this.next();
+      }
+      this.expect(']');
+      const elem: TypeRef =
+        items.length > 0 ? literalTypeOf(items[0]) : { kind: 'primitive', builtin: 'String' };
+      return { kind: 'NewList', elem, items };
     }
     if (t.type === 'string') {
       this.next();
@@ -781,6 +887,8 @@ function linkApp(app: AppNode): void {
   // ctxDs：当前数据源上下文（实体属性遍历时传入，供短名优先解析到本数据源）
   const linkTypeRef = (tr: TypeRef, ctxDs?: string): void => {
     if (tr.kind === 'reference') {
+      // Object：Map<Object> 泛型兜底类型，内建放行（映射 Java java.lang.Object）
+      if (tr.path === 'Object') return;
       const full = resolveTypeRef(table, tr.path, ctxDs);
       tr.path = full;
     } else if (tr.kind === 'generic') {
@@ -941,4 +1049,11 @@ function linkViews(app: AppNode, table: TypeSymbolTable): void {
     el.children.forEach(linkElement);
   };
   for (const v of app.views) v.elements.forEach(linkElement);
+}
+/** 数组字面量元素类型推断：按首项字面量形态 → primitive TypeRef；其他表达式 → String 兜底（真实类型由 typecheck 纠正） */
+function literalTypeOf(e: Expr): TypeRef {
+  if (e.kind === 'Numeric') return { kind: 'primitive', builtin: 'Integer' };
+  if (e.kind === 'String') return { kind: 'primitive', builtin: 'String' };
+  if (e.kind === 'Bool') return { kind: 'primitive', builtin: 'Boolean' };
+  return { kind: 'primitive', builtin: 'String' };
 }

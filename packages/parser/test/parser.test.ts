@@ -442,3 +442,160 @@ component X {
     ).toThrow(/requires pkg/);
   });
 });
+
+describe('parser/M2 查询语言', () => {
+  const M2_DSL = `
+@datasource('defaultDS')
+entity Order {
+  id: Integer @pk;
+  customer: String;
+  total: Decimal;
+  status: String;
+}
+
+logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+  return Order.where(customer like '%' + customer + '%', total >= minTotal);
+}
+logic topOrders(): List<Order> {
+  return Order.where(total > 0).orderBy(total desc).limit(10);
+}
+logic pageOrders(n: Integer, size: Integer): Page<Order> {
+  return Order.where(total > 0).orderBy(total desc).page(n, size);
+}
+logic orderStats(): Decimal {
+  return Order.aggregate(sum(total));
+}
+logic sumByCustomer(): List<Map<Object>> {
+  return Order.aggregate(sum(total)).groupBy(customer);
+}
+logic statusCount(): List<Order> {
+  return Order.where(status in ['A', 'B']);
+}
+logic orQuery(): List<Order> {
+  return Order.where(total > 100 || status = 'C');
+}
+`;
+
+  it('parses where 多条件（逗号 = AND）+ like/>= 运算符', () => {
+    const app = parse(M2_DSL);
+    const body = app.logics[0].body;
+    const ret = body.find((s) => s.kind === 'Return');
+    if (!ret || ret.kind !== 'Return' || !ret.value) throw new Error('no return');
+    const call = ret.value;
+    expect(call.kind).toBe('Call');
+    if (call.kind !== 'Call') return;
+    expect(call.args).toHaveLength(2);
+    const c0 = call.args[0];
+    expect(c0).toMatchObject({ kind: 'Binary', operator: 'like' });
+    const c1 = call.args[1];
+    expect(c1).toMatchObject({ kind: 'Binary', operator: '>=', left: { kind: 'Ident', name: 'total' } });
+  });
+
+  it('parses 链式 .orderBy().limit() → 嵌套 Call(Member(...))', () => {
+    const app = parse(M2_DSL);
+    const ret = app.logics[1].body.find((s) => s.kind === 'Return');
+    if (!ret || ret.kind !== 'Return' || !ret.value) throw new Error('no return');
+    // 最外层是 limit 调用
+    const outer = ret.value;
+    expect(outer.kind).toBe('Call');
+    if (outer.kind !== 'Call') return;
+    expect(outer.callee).toMatchObject({ kind: 'Member', prop: 'limit' });
+    expect(outer.args[0]).toMatchObject({ kind: 'Numeric', value: 10 });
+    // 中层 orderBy：方向 desc → String 字面量
+    if (outer.callee.kind !== 'Member') return;
+    const mid = outer.callee.obj;
+    expect(mid.kind).toBe('Call');
+    if (mid.kind !== 'Call') return;
+    expect(mid.callee).toMatchObject({ kind: 'Member', prop: 'orderBy' });
+    expect(mid.args).toEqual([
+      { kind: 'Ident', name: 'total' },
+      { kind: 'String', value: 'desc' },
+    ]);
+  });
+
+  it('parses .page(n, size) 链式', () => {
+    const app = parse(M2_DSL);
+    const ret = app.logics[2].body.find((s) => s.kind === 'Return');
+    if (!ret || ret.kind !== 'Return' || !ret.value) throw new Error('no return');
+    const outer = ret.value;
+    expect(outer.kind).toBe('Call');
+    if (outer.kind !== 'Call') return;
+    expect(outer.callee).toMatchObject({ kind: 'Member', prop: 'page' });
+    expect(outer.args).toHaveLength(2);
+  });
+
+  it('parses aggregate(sum(total)) 与 .groupBy()', () => {
+    const app = parse(M2_DSL);
+    // orderStats: Order.aggregate(sum(total))
+    const ret3 = app.logics[3].body.find((s) => s.kind === 'Return');
+    if (!ret3 || ret3.kind !== 'Return' || !ret3.value) throw new Error('no return');
+    const agg = ret3.value;
+    expect(agg.kind).toBe('Call');
+    if (agg.kind !== 'Call') return;
+    expect(agg.callee).toMatchObject({ kind: 'Member', prop: 'aggregate' });
+    expect(agg.args[0]).toMatchObject({
+      kind: 'Call',
+      callee: { kind: 'Ident', name: 'sum' },
+      args: [{ kind: 'Ident', name: 'total' }],
+    });
+    // sumByCustomer: aggregate(sum(total)).groupBy(customer)
+    const ret4 = app.logics[4].body.find((s) => s.kind === 'Return');
+    if (!ret4 || ret4.kind !== 'Return' || !ret4.value) throw new Error('no return');
+    const g = ret4.value;
+    expect(g.kind).toBe('Call');
+    if (g.kind !== 'Call') return;
+    expect(g.callee).toMatchObject({ kind: 'Member', prop: 'groupBy' });
+    expect(g.args).toEqual([{ kind: 'Ident', name: 'customer' }]);
+  });
+
+  it('parses 数组字面量 [a, b] → NewList（in 条件右值）', () => {
+    const app = parse(M2_DSL);
+    const ret = app.logics[5].body.find((s) => s.kind === 'Return');
+    if (!ret || ret.kind !== 'Return' || !ret.value) throw new Error('no return');
+    const call = ret.value;
+    expect(call.kind).toBe('Call');
+    if (call.kind !== 'Call') return;
+    const cond = call.args[0];
+    expect(cond).toMatchObject({ kind: 'Binary', operator: 'in' });
+    if (cond.kind !== 'Binary') return;
+    expect(cond.right).toMatchObject({
+      kind: 'NewList',
+      items: [{ kind: 'String', value: 'A' }, { kind: 'String', value: 'B' }],
+    });
+  });
+
+  it('parses && / || 顶层布尔组合', () => {
+    const app = parse(M2_DSL);
+    const ret = app.logics[6].body.find((s) => s.kind === 'Return');
+    if (!ret || ret.kind !== 'Return' || !ret.value) throw new Error('no return');
+    const call = ret.value;
+    expect(call.kind).toBe('Call');
+    if (call.kind !== 'Call') return;
+    const cond = call.args[0];
+    expect(cond).toMatchObject({ kind: 'Binary', operator: '||' });
+  });
+
+  it('rejects where 条件缺运算符', () => {
+    expect(() =>
+      parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+logic bad(): List<Order> {
+  return Order.where(total);
+}
+`),
+    ).toThrow(/field op value/);
+  });
+
+  it('rejects orderBy 方向非法关键字', () => {
+    expect(() =>
+      parse(`
+@datasource('d')
+entity Order { id: Integer @pk; total: Decimal; }
+logic bad(): List<Order> {
+  return Order.where(total > 0).orderBy(total sideways);
+}
+`),
+    ).toThrow(/sideways/);
+  });
+});
