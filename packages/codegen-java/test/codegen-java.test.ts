@@ -246,3 +246,123 @@ interface OrderApi {
     expect(detail).toContain('orderItemRepository.findByOrderId(id)');
   });
 });
+
+describe('codegen-java M1 namespace', () => {
+  it('generates distinct repos/entities for same-name entities across datasources', () => {
+    const files = generateJava(parse(`
+@datasource('erp')
+entity Order { id: Integer @pk; erpNo: String; }
+@datasource('crm')
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic listErp(): List<erp.Order> { return erp.Order.all; }
+`));
+    const erpEntity = files.find((f) => f.path.endsWith('entity/Order.java'))!;
+    expect(erpEntity.content).toContain('erpNo');
+    const erpRepo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!;
+    expect(erpRepo.content).toContain('JpaRepository<Order, Long>');
+    // Service 引用 erp.Order.all → erp 的 OrderRepository
+    const svc = files.find((f) => f.path.endsWith('service/ListErpService.java'))!;
+    expect(svc.content).toContain('orderRepository.findAll()');
+  });
+
+  it('reuses outer variable in nested block (Java semantics, no shadowing)', () => {
+    const files = generateJava(parse(`
+entity Order { id: Integer @pk; total: Decimal; }
+@export
+logic f(): Order {
+  order := new Order();
+  order.total = 0;
+  if (true) {
+    order.total = 1;
+    order.total = order.total + 5;
+  }
+  order.save();
+  return order;
+}
+`));
+    const svc = files.find((f) => f.path.endsWith('service/FService.java'))!.content;
+    // 嵌套块内同名 order := 复用外层（生成赋值，不重复声明 Order 类型）
+    expect(svc).toContain('Order order = new Order();');
+    expect(svc.match(/Order order = /g)).toHaveLength(1);
+  });
+});
+
+describe('codegen-java M6 external service', () => {
+  const M6_DSL = `
+entity Order { id: Integer @pk; customer: String; }
+@export
+logic createOrder(input: Order): Order {
+  return userService.createOrder(input);
+}
+@export
+logic getOrderFromErp(id: Integer): Order {
+  return erpApi.getOrder(id);
+}
+@service(kind = 'dubbo', group = 'order-center', version = '1.0.0')
+service UserService {
+  createOrder(input: Order): Order;
+}
+@service(kind = 'bean', jar = 'com.example:order-sdk:1.0')
+service OrderSdk {
+  createOrder(input: Order): Order;
+}
+@service(kind = 'http', baseUrl = 'http://erp-center')
+service ErpApi {
+  GET '/api/orders/{id}' -> getOrder(id: Integer): Order;
+}
+interface OrderApi {
+  POST '/api/orders' -> createOrder
+}
+`;
+
+  it('injects dubbo service via @DubboReference', () => {
+    const files = generateJava(parse(M6_DSL));
+    const svc = files.find((f) => f.path.endsWith('service/CreateOrderService.java'))!.content;
+    expect(svc).toContain('import org.apache.dubbo.config.annotation.DubboReference;');
+    expect(svc).toContain('@DubboReference(group = "order-center", version = "1.0.0")');
+    expect(svc).toContain('private UserService userService;');
+    expect(svc).toContain('import com.todo.service.api.*;');
+  });
+
+  it('injects http service via @Autowired + generates Feign interface', () => {
+    const files = generateJava(parse(M6_DSL));
+    const svc = files.find((f) => f.path.endsWith('service/GetOrderFromErpService.java'))!.content;
+    expect(svc).toContain('import org.springframework.beans.factory.annotation.Autowired;');
+    expect(svc).toContain('private ErpApi erpApi;');
+    // Feign 接口文件
+    const erp = files.find((f) => f.path.endsWith('service/api/ErpApi.java'))!.content;
+    expect(erp).toContain('@FeignClient(name = "erpapi", url = "http://erp-center")');
+    expect(erp).toContain('@GetMapping("/api/orders/{id}")');
+    expect(erp).toContain('Order getOrder(Long id);');
+  });
+
+  it('generates dubbo/bean interface files', () => {
+    const files = generateJava(parse(M6_DSL));
+    const us = files.find((f) => f.path.endsWith('service/api/UserService.java'))!.content;
+    expect(us).toContain('public interface UserService');
+    expect(us).toContain('Order createOrder(Order input);');
+    const sdk = files.find((f) => f.path.endsWith('service/api/OrderSdk.java'))!.content;
+    expect(sdk).toContain('public interface OrderSdk');
+  });
+
+  it('adds dubbo/bean/http deps to pom.xml', () => {
+    const files = generateJava(parse(M6_DSL));
+    const pom = files.find((f) => f.path === 'pom.xml')!.content;
+    expect(pom).toContain('org.apache.dubbo');
+    expect(pom).toContain('<groupId>com.example</groupId>\n      <artifactId>order-sdk</artifactId>');
+    expect(pom).toContain('spring-cloud-starter-openfeign');
+  });
+
+  it('without services no service deps in pom', () => {
+    const files = generateJava(parse(`
+entity Order { id: Integer @pk; }
+@export
+logic listOrders(): List<Order> { return Order.all; }
+interface OrderApi { GET '/api/orders' -> listOrders }
+`));
+    const pom = files.find((f) => f.path === 'pom.xml')!.content;
+    expect(pom).not.toContain('dubbo');
+    expect(pom).not.toContain('openfeign');
+  });
+});

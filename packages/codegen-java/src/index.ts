@@ -1,13 +1,17 @@
-import type {
-  AppNode,
-  EndpointNode,
-  EntityNode,
-  Expr,
-  GeneratedFile,
-  InterfaceNode,
-  LogicNode,
-  Statement,
-  StructureNode,
+import {
+  createVarScope,
+  lookupVar,
+  type AppNode,
+  type EndpointNode,
+  type EntityNode,
+  type Expr,
+  type GeneratedFile,
+  type InterfaceNode,
+  type LogicNode,
+  type ServiceNode,
+  type Statement,
+  type StructureNode,
+  type VarScope,
 } from '@tdsl/core';
 import { cap, javaType, typeNameFromPath } from './type-map';
 
@@ -22,29 +26,43 @@ function repoVar(ent: EntityNode): string {
 }
 
 /** 查找引用 X.all / X.get 的实体名 */
+/** 实体短名/限定名 → 实体名（erp.Order → Order；Order → Order；非实体返回 null） */
 function entityNameOfIdent(app: AppNode, name: string): string | null {
-  for (const ds of app.datasources) {
-    for (const ent of ds.entities) {
-      if (ent.name === name) return ent.name;
-    }
+  const ent = findEntityByName(app, name);
+  return ent ? ent.name : null;
+}
+
+/** 实体查询接收者表达式 → 实体名（Ident('Order') → 'Order'；Member(Ident('erp'),'Order') 且 erp 是数据源 → 'erp.Order'；非实体返回 null） */
+function entityNameOfReceiver(app: AppNode, e: Expr): string | null {
+  if (e.kind === 'Ident') return entityNameOfIdent(app, e.name);
+  if (e.kind === 'Member' && e.obj.kind === 'Ident') {
+    // 限定名：仅当左段是数据源名才解析为 ds.Entity
+    const qname = `${e.obj.name}.${e.prop}`;
+    const ent = findEntityByName(app, qname);
+    if (ent) return qname;
+    return null;
   }
   return null;
 }
 
 /** 查找引用 X.all 的实体 */
 function findEntityForAll(app: AppNode, all: Expr): EntityNode | null {
-  if (all.kind !== 'Member' || all.obj.kind !== 'Ident' || all.prop !== 'all') return null;
-  const name = entityNameOfIdent(app, all.obj.name);
+  if (all.kind !== 'Member' || all.prop !== 'all') return null;
+  const name = entityNameOfReceiver(app, all.obj);
   return name ? findEntityByName(app, name) : null;
 }
 
+/** 按短名或限定名（erp.Order）查找实体 */
 function findEntityByName(app: AppNode, name: string): EntityNode | null {
-  for (const ds of app.datasources) {
-    for (const ent of ds.entities) {
-      if (ent.name === name) return ent;
-    }
+  if (name.includes('.')) {
+    const dot = name.indexOf('.');
+    const dsName = name.slice(0, dot);
+    const entName = name.slice(dot + 1);
+    const ds = app.datasources.find((d) => d.name === dsName);
+    return ds?.entities.find((e) => e.name === entName) ?? null;
   }
-  return null;
+  const hits = app.datasources.flatMap((ds) => ds.entities).filter((e) => e.name === name);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 /** Java 值类型（primitive 包装 / 集合 / var），无字段访问 */
@@ -73,13 +91,13 @@ function collectUsedEntities(app: AppNode, logic: LogicNode): Map<string, Entity
       case 'Call': {
         const callee = e.callee;
         if (callee.kind === 'Member') {
+          // Todo.get(id) / Todo.all / Todo.where(...) / erp.Order.all —— 静态实体调用
+          const entName = entityNameOfReceiver(app, callee.obj);
+          if (entName && (callee.prop === 'get' || callee.prop === 'all' || callee.prop === 'where')) {
+            add(entName);
+          }
+          // entity.save() / entity.delete() —— 实例方法（接收者是实体变量）
           if (callee.obj.kind === 'Ident') {
-            // Todo.get(id) / Todo.all / Todo.where(...) —— 静态实体调用
-            const entName = entityNameOfIdent(app, callee.obj.name);
-            if (entName && (callee.prop === 'get' || callee.prop === 'all' || callee.prop === 'where')) {
-              add(entName);
-            }
-            // entity.save() / entity.delete() —— 实例方法
             const recvEnt = entityVars.get(callee.obj.name);
             if (recvEnt && (callee.prop === 'save' || callee.prop === 'delete')) add(recvEnt);
           }
@@ -88,11 +106,9 @@ function collectUsedEntities(app: AppNode, logic: LogicNode): Map<string, Entity
         break;
       }
       case 'Member': {
-        // 实体静态 X.all → 收集该实体
-        if (e.obj.kind === 'Ident') {
-          const entName = entityNameOfIdent(app, e.obj.name);
-          if (entName && e.prop === 'all') add(entName);
-        }
+        // 实体静态 X.all / erp.Order.all → 收集该实体（接收者是 e.obj）
+        const entName = entityNameOfReceiver(app, e.obj);
+        if (entName && e.prop === 'all') add(entName);
         scanExpr(e.obj);
         break;
       }
@@ -169,6 +185,76 @@ function collectUsedEntities(app: AppNode, logic: LogicNode): Map<string, Entity
   return used;
 }
 
+/** 外部服务变量名：UserService → userService（logic 内调用接收者） */
+function serviceVarName(s: ServiceNode): string {
+  return s.name.charAt(0).toLowerCase() + s.name.slice(1);
+}
+
+/** 遍历逻辑体内被调用的外部服务（userService.getUser(...) 接收者是 service 变量名） */
+function collectUsedServices(app: AppNode, logic: LogicNode): ServiceNode[] {
+  const used = new Map<string, ServiceNode>();
+  const scanExpr = (e: Expr): void => {
+    switch (e.kind) {
+      case 'Call': {
+        const callee = e.callee;
+        if (callee.kind === 'Member' && callee.obj.kind === 'Ident') {
+          const recvName = callee.obj.name;
+          const svc = app.services.find((s) => serviceVarName(s) === recvName);
+          if (svc) used.set(svc.name, svc);
+        }
+        e.args.forEach(scanExpr);
+        break;
+      }
+      case 'Member':
+        scanExpr(e.obj);
+        break;
+      case 'New':
+        e.args.forEach(scanExpr);
+        break;
+      case 'NewList':
+        e.items.forEach(scanExpr);
+        break;
+      case 'Binary':
+        scanExpr(e.left);
+        scanExpr(e.right);
+        break;
+      case 'Group':
+        scanExpr(e.expr);
+        break;
+      case 'Ident':
+      case 'Bool':
+      case 'Numeric':
+      case 'String':
+      case 'Null':
+        break;
+    }
+  };
+  forEachStmt(logic.body, (st) => {
+    switch (st.kind) {
+      case 'VarDecl':
+        if (st.init) scanExpr(st.init);
+        break;
+      case 'Assign':
+        scanExpr(st.target);
+        scanExpr(st.value);
+        break;
+      case 'Return':
+        if (st.value) scanExpr(st.value);
+        break;
+      case 'If':
+        scanExpr(st.cond);
+        break;
+      case 'ForEach':
+        scanExpr(st.container);
+        break;
+      case 'CallStmt':
+        scanExpr(st.call);
+        break;
+    }
+  });
+  return [...used.values()];
+}
+
 /** 生成完整 Spring Boot 工程文件列表 */
 export function generateJava(app: AppNode): GeneratedFile[] {
   const files: GeneratedFile[] = [];
@@ -184,6 +270,9 @@ export function generateJava(app: AppNode): GeneratedFile[] {
   for (const s of app.structures) {
     files.push(structureFile(app, s));
   }
+  for (const svc of app.services) {
+    files.push(serviceApiFile(pkg, svc));
+  }
   for (const logic of app.logics) {
     files.push(serviceFile(app, logic));
   }
@@ -191,6 +280,49 @@ export function generateJava(app: AppNode): GeneratedFile[] {
     files.push(controllerFile(app, itf));
   }
   return files;
+}
+
+// ---------- External Service → Dubbo/Bean/Feign 接口 ----------
+
+/** 外部服务接口文件：dubbo/bean 生成普通接口；http 生成 @FeignClient 接口 */
+function serviceApiFile(pkg: string, svc: ServiceNode): GeneratedFile {
+  const methods = svc.operations
+    .map((op) => {
+      const params = op.params.map((p) => `${javaType(p.type)} ${p.name}`).join(', ');
+      const ret = op.returns[0] ? javaType(op.returns[0].type) : 'void';
+      if (svc.kind_ === 'http') {
+        const ann = HTTP_ANNOTATION[op.method ?? 'GET'];
+        return `  @${ann}("${op.path}")\n  ${ret} ${op.name}(${params});`;
+      }
+      return `  ${ret} ${op.name}(${params});`;
+    })
+    .join('\n\n');
+
+  if (svc.kind_ === 'http') {
+    const name = svc.config['name'] ?? svc.name.toLowerCase();
+    const url = svc.config['baseUrl'] ?? '';
+    const content = `package ${pkg}.service.api;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.*;
+
+@FeignClient(name = "${name}", url = "${url}")
+public interface ${svc.name} {
+
+${methods}
+}
+`;
+    return { path: `src/main/java/${pkg.replaceAll('.', '/')}/service/api/${svc.name}.java`, content };
+  }
+
+  const content = `package ${pkg}.service.api;
+
+public interface ${svc.name} {
+
+${methods}
+}
+`;
+  return { path: `src/main/java/${pkg.replaceAll('.', '/')}/service/api/${svc.name}.java`, content };
 }
 
 // ---------- Structure → POJO ----------
@@ -241,6 +373,37 @@ ${gettersSetters}
 
 function scaffoldFiles(app: AppNode): GeneratedFile[] {
   const pkg = pkgOf(app);
+
+  // 外部服务依赖：dubbo → dubbo starter；bean(jar) → jar 坐标；http → openfeign
+  const serviceDeps = app.services
+    .map((svc) => {
+      if (svc.kind_ === 'dubbo') {
+        return `    <dependency>
+      <groupId>org.apache.dubbo</groupId>
+      <artifactId>dubbo-spring-boot-starter</artifactId>
+      <version>2.7.23</version>
+    </dependency>`;
+      }
+      if (svc.kind_ === 'bean' && svc.config['jar']) {
+        const [g, a, v] = svc.config['jar'].split(':');
+        return `    <dependency>
+      <groupId>${g}</groupId>
+      <artifactId>${a}</artifactId>
+      <version>${v}</version>
+    </dependency>`;
+      }
+      if (svc.kind_ === 'http') {
+        return `    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-openfeign</artifactId>
+      <version>3.1.8</version>
+    </dependency>`;
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+
   return [
     {
       path: 'pom.xml',
@@ -274,6 +437,7 @@ function scaffoldFiles(app: AppNode): GeneratedFile[] {
       <artifactId>h2</artifactId>
       <scope>runtime</scope>
     </dependency>
+${serviceDeps}
   </dependencies>
   <build>
     <plugins>
@@ -400,13 +564,12 @@ function collectWhereFields(app: AppNode): Map<string, WhereField[]> {
         if (
           e.kind === 'Call' &&
           e.callee.kind === 'Member' &&
-          e.callee.obj.kind === 'Ident' &&
           e.callee.prop === 'where'
         ) {
-          const entName = e.callee.obj.name;
-          const ent = findEntityByName(app, entName);
+          const entName = entityNameOfReceiver(app, e.callee.obj);
+          const ent = entName ? findEntityByName(app, entName) : null;
           const cond = e.args[0];
-          if (ent && cond?.kind === 'Binary' && cond.operator === '=' && cond.left.kind === 'Ident') {
+          if (ent && entName && cond?.kind === 'Binary' && cond.operator === '=' && cond.left.kind === 'Ident') {
             const fieldName = cond.left.name;
             const prop = ent.properties.find((p) => p.name === fieldName);
             if (prop) add(entName, { field: prop.name, javaType: javaType(prop.type) });
@@ -504,6 +667,7 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
   const pkg = pkgOf(app);
   const className = `${cap(logic.name)}Service`;
   const usedEntities = collectUsedEntities(app, logic);
+  const usedServices = collectUsedServices(app, logic);
 
   const repoFields = [...usedEntities.values()]
     .map((ent) => `  private final ${ent.name}Repository ${repoVar(ent)};`)
@@ -514,6 +678,24 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
   const ctorAssign = [...usedEntities.values()]
     .map((ent) => `    this.${repoVar(ent)} = ${repoVar(ent)};`)
     .join('\n');
+
+  // 外部服务注入字段：dubbo → @DubboReference；bean/http → @Autowired
+  const serviceFields = usedServices
+    .map((svc) => {
+      if (svc.kind_ === 'dubbo') {
+        const attrs = [
+          svc.config['group'] ? `group = "${svc.config['group']}"` : '',
+          svc.config['version'] ? `version = "${svc.config['version']}"` : '',
+        ]
+          .filter(Boolean)
+          .join(', ');
+        return `  @DubboReference(${attrs})\n  private ${svc.name} ${serviceVarName(svc)};`;
+      }
+      return `  @Autowired\n  private ${svc.name} ${serviceVarName(svc)};`;
+    })
+    .join('\n');
+  const serviceApiImport =
+    usedServices.length > 0 ? `import ${pkg}.service.api.*;\n` : '';
 
   const returnType = logic.returns[0] ? javaType(logic.returns[0].type) : 'void';
 
@@ -527,9 +709,9 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
   const methodParams = logic.params
     .map((p) => `${javaType(p.type)} ${p.name}`)
     .join(', ');
-  const vars = new Map<string, string>();
+  const vars = createVarScope();
   for (const p of logic.params) {
-    vars.set(p.name, javaType(p.type));
+    vars.vars.set(p.name, javaType(p.type));
   }
   const body = genStatements(app, logic.body, usedEntities, vars).join('\n');
 
@@ -537,6 +719,13 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
     'import org.springframework.stereotype.Service;',
     ...(transactionalImport ? [transactionalImport.trim()] : []),
     ...(usedEntities.size > 0 ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
+    // 外部服务注入注解 import
+    ...(usedServices.some((s) => s.kind_ === 'dubbo')
+      ? ['import org.apache.dubbo.config.annotation.DubboReference;']
+      : []),
+    ...(usedServices.some((s) => s.kind_ !== 'dubbo')
+      ? ['import org.springframework.beans.factory.annotation.Autowired;']
+      : []),
     // 参数或返回类型引用 structure 时补 import
     ...(logic.params.some((p) => p.type.kind === 'reference' && isStructure(app, p.type)) ||
       logic.returns.some((r) => r.type.kind === 'reference' && isStructure(app, r.type))
@@ -547,10 +736,10 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
   const content = `package ${pkg}.service;
 
 ${imports}
-
+${serviceApiImport}
 @Service
 public class ${className} {
-${repoFields}
+${repoFields}${serviceFields ? `\n${serviceFields}` : ''}
 
   public ${className}(${ctorParams}) {
 ${ctorAssign}
@@ -731,7 +920,7 @@ function genStatements(
   app: AppNode,
   stmts: Statement[],
   entities: Map<string, EntityNode>,
-  vars: Map<string, string>,
+  vars: VarScope,
 ): string[] {
   return stmts.flatMap((st) => genStatement(app, st, entities, vars));
 }
@@ -740,19 +929,24 @@ function genStatement(
   app: AppNode,
   st: Statement,
   entities: Map<string, EntityNode>,
-  vars: Map<string, string>,
+  vars: VarScope,
 ): string[] {
   switch (st.kind) {
     case 'VarDecl': {
+      const initStr = st.init ? genExpr(app, st.init, entities, vars) : 'null';
+      // Java 语义：同名变量沿链查找，找到则复用（生成赋值，类型沿用外层）；未找到才声明新变量
+      const existing = lookupVar(vars, st.name);
+      if (existing) {
+        return [`    ${st.name} = ${initStr};`];
+      }
       const elemType = st.init?.kind === 'NewList' ? st.init.elem : undefined;
-      // 识别 Todo.get(id) / new Todo() / new OrderDetail() 推断类型（实体或结构）
+      // 识别 Todo.get(id) / erp.Order.get(id) / new Todo() / new OrderDetail() 推断类型（实体或结构）
       const getInit = st.init;
       const inferredType =
         getInit?.kind === 'Call' &&
         getInit.callee.kind === 'Member' &&
-        getInit.callee.obj.kind === 'Ident' &&
         getInit.callee.prop === 'get'
-          ? entityNameOfIdent(app, getInit.callee.obj.name)
+          ? findEntityByName(app, entityNameOfReceiver(app, getInit.callee.obj) ?? '')?.name
           : getInit?.kind === 'New' && getInit.type.kind === 'reference'
             ? typeNameFromPath(getInit.type.path)
             : undefined;
@@ -763,10 +957,9 @@ function genStatement(
           : inferredType
             ? inferredType
             : 'var';
-      if (st.type) vars.set(st.name, javaType(st.type));
-      else if (elemType) vars.set(st.name, `java.util.List<${javaType(elemType)}>`);
-      else if (inferredType) vars.set(st.name, inferredType);
-      const initStr = st.init ? genExpr(app, st.init, entities, vars) : 'null';
+      if (st.type) vars.vars.set(st.name, javaType(st.type));
+      else if (elemType) vars.vars.set(st.name, `java.util.List<${javaType(elemType)}>`);
+      else if (inferredType) vars.vars.set(st.name, inferredType);
       return [`    ${typeStr} ${st.name} = ${initStr};`];
     }
     case 'Assign': {
@@ -774,7 +967,7 @@ function genStatement(
       const t = st.target;
       // target 为 实体/结构变量.prop → setter
       if (t.kind === 'Member' && t.obj.kind === 'Ident') {
-        const varType = vars.get(t.obj.name);
+        const varType = lookupVar(vars, t.obj.name)?.javaType;
         if (varType && !isValueType(varType)) {
           let v = value;
           // Decimal 字段赋值整数字面量 → BigDecimal.valueOf(...)
@@ -791,15 +984,18 @@ function genStatement(
       return [`    return ${st.value ? genExpr(app, st.value, entities, vars) : ''};`];
     case 'If': {
       const lines = [`    if (${genExpr(app, st.cond, entities, vars)}) {`];
-      lines.push(...genStatements(app, st.then, entities, vars));
+      const thenScope = createVarScope(vars);
+      lines.push(...genStatements(app, st.then, entities, thenScope));
       if (st.else) {
+        const elseScope = createVarScope(vars);
         lines.push('    } else {');
-        lines.push(...genStatements(app, st.else, entities, vars));
+        lines.push(...genStatements(app, st.else, entities, elseScope));
       }
       lines.push('    }');
       return lines;
     }
     case 'ForEach': {
+      const bodyScope = createVarScope(vars);
       const ent = findEntityForAll(app, st.container) ?? findEntityForWhere(app, st.container);
       let itemType: string;
       if (ent) {
@@ -810,14 +1006,14 @@ function genStatement(
         const m = ct?.match(/^java\.util\.List<(.+)>$/);
         itemType = m ? m[1] : 'var';
       }
-      vars.set(st.item, itemType);
+      bodyScope.vars.set(st.item, itemType);
       const containerStr = ent
         ? isWhereCall(st.container)
           ? genExpr(app, st.container, entities, vars)
           : `${repoVar(ent)}.findAll()`
         : genExpr(app, st.container, entities, vars);
       const lines = [`    for (${itemType} ${st.item} : ${containerStr}) {`];
-      lines.push(...genStatements(app, st.body, entities, vars));
+      lines.push(...genStatements(app, st.body, entities, bodyScope));
       lines.push('    }');
       return lines;
     }
@@ -837,11 +1033,11 @@ function exprJavaType(
   app: AppNode,
   e: Expr,
   entities: Map<string, EntityNode>,
-  vars: Map<string, string>,
+  vars: VarScope,
 ): string | null {
   switch (e.kind) {
     case 'Ident':
-      return vars.get(e.name) ?? null;
+      return lookupVar(vars, e.name)?.javaType ?? null;
     case 'Numeric':
       return 'Long'; // 数字字面量默认 Integer→Long
     case 'Bool':
@@ -857,11 +1053,12 @@ function exprJavaType(
       return null;
     }
     case 'Call': {
-      if (e.callee.kind === 'Member' && e.callee.obj.kind === 'Ident') {
-        const entName = entityNameOfIdent(app, e.callee.obj.name);
-        if (entName && e.callee.prop === 'get') return entName;
-        if (entName && (e.callee.prop === 'all' || e.callee.prop === 'where')) {
-          return `java.util.List<${entName}>`;
+      if (e.callee.kind === 'Member') {
+        const entName = entityNameOfReceiver(app, e.callee.obj);
+        const ent = entName ? findEntityByName(app, entName) : null;
+        if (ent && e.callee.prop === 'get') return ent.name;
+        if (ent && (e.callee.prop === 'all' || e.callee.prop === 'where')) {
+          return `java.util.List<${ent.name}>`;
         }
       }
       return null;
@@ -885,11 +1082,11 @@ function exprJavaType(
 /** 变量某字段的 Java 类型（变量类型是实体或结构时查属性类型） */
 function memberFieldType(
   app: AppNode,
-  vars: Map<string, string>,
+  vars: VarScope,
   varName: string,
   prop: string,
 ): string | null {
-  const typeName = vars.get(varName);
+  const typeName = lookupVar(vars, varName)?.javaType;
   if (!typeName) return null;
   return typeFieldType(app, typeName, prop);
 }
@@ -914,7 +1111,7 @@ function toBigDecimal(
   app: AppNode,
   e: Expr,
   entities: Map<string, EntityNode>,
-  vars: Map<string, string>,
+  vars: VarScope,
 ): string {
   const t = exprJavaType(app, e, entities, vars);
   const s = genExpr(app, e, entities, vars);
@@ -922,22 +1119,22 @@ function toBigDecimal(
   return `java.math.BigDecimal.valueOf(${s})`;
 }
 
-/** 是否为 Entity.where(...) 调用 */
+/** 是否为 Entity.where(...) / erp.Order.where(...) 调用 */
 function isWhereCall(e: Expr): boolean {
   return (
     e.kind === 'Call' &&
     e.callee.kind === 'Member' &&
-    e.callee.obj.kind === 'Ident' &&
+    (e.callee.obj.kind === 'Ident' || (e.callee.obj.kind === 'Member' && e.callee.obj.obj.kind === 'Ident')) &&
     e.callee.prop === 'where'
   );
 }
 
-/** 从 where 容器解析实体（Entity.where(...) → 实体） */
+/** 从 where 容器解析实体（Entity.where(...) / erp.Order.where(...) → 实体） */
 function findEntityForWhere(app: AppNode, e: Expr): EntityNode | null {
-  if (e.kind !== 'Call' || e.callee.kind !== 'Member' || e.callee.obj.kind !== 'Ident' || e.callee.prop !== 'where') {
+  if (e.kind !== 'Call' || e.callee.kind !== 'Member' || e.callee.prop !== 'where') {
     return null;
   }
-  const name = entityNameOfIdent(app, e.callee.obj.name);
+  const name = entityNameOfReceiver(app, e.callee.obj);
   return name ? findEntityByName(app, name) : null;
 }
 
@@ -945,7 +1142,7 @@ function genExpr(
   app: AppNode,
   e: Expr,
   entities: Map<string, EntityNode>,
-  vars: Map<string, string>,
+  vars: VarScope,
 ): string {
   switch (e.kind) {
     case 'Ident':
@@ -955,26 +1152,34 @@ function genExpr(
       if (e.prop === 'count') {
         return `${genExpr(app, e.obj, entities, vars)}.size()`;
       }
-      // 实体静态 X.all → findAll()
+      // 实体静态 X.all / erp.Order.all → findAll()
       if (e.obj.kind === 'Ident') {
         const entName = entityNameOfIdent(app, e.obj.name);
         if (entName && e.prop === 'all') {
           return `${repoVar(findEntityByName(app, entName)!)}.findAll()`;
         }
-        const varType = vars.get(e.obj.name);
+        const varType = lookupVar(vars, e.obj.name)?.javaType;
         // 实体/结构变量字段访问 → getter（如 todo.done → todo.getDone()、input.title → input.getTitle()）
         if (varType && !isValueType(varType)) {
           return `${e.obj.name}.get${cap(e.prop)}()`;
         }
         return `${e.obj.name}.${e.prop}`;
       }
+      // erp.Order.all —— Member(Member(Ident('erp'),'Order'),'all')
+      if (e.obj.kind === 'Member' && e.obj.obj.kind === 'Ident') {
+        const qname = `${e.obj.obj.name}.${e.obj.prop}`;
+        const ent = findEntityByName(app, qname);
+        if (ent && e.prop === 'all') {
+          return `${repoVar(ent)}.findAll()`;
+        }
+      }
       return `${genExpr(app, e.obj, entities, vars)}.${e.prop}`;
     }
     case 'Call': {
       const callee = e.callee;
-      // 实体静态方法：Todo.all / Todo.get(id) / Todo.where(field = value)
-      if (callee.kind === 'Member' && callee.obj.kind === 'Ident') {
-        const entName = entityNameOfIdent(app, callee.obj.name);
+      // 实体静态方法：Todo.all / Todo.get(id) / Todo.where(...) / erp.Order.all
+      if (callee.kind === 'Member') {
+        const entName = entityNameOfReceiver(app, callee.obj);
         if (entName) {
           const ent = findEntityByName(app, entName)!;
           const repo = repoVar(ent);
@@ -995,11 +1200,13 @@ function genExpr(
           }
         }
         // 实体实例方法：entity.save() / entity.delete()
-        const recvVar = vars.get(callee.obj.name);
-        if (recvVar && !isValueType(recvVar)) {
-          const ent = findEntityByName(app, recvVar);
-          if (ent && (callee.prop === 'save' || callee.prop === 'delete')) {
-            return `${repoVar(ent)}.${callee.prop}(${genExpr(app, callee.obj, entities, vars)})`;
+        if (callee.obj.kind === 'Ident') {
+          const recvVar = lookupVar(vars, callee.obj.name)?.javaType;
+          if (recvVar && !isValueType(recvVar)) {
+            const ent = findEntityByName(app, recvVar);
+            if (ent && (callee.prop === 'save' || callee.prop === 'delete')) {
+              return `${repoVar(ent)}.${callee.prop}(${genExpr(app, callee.obj, entities, vars)})`;
+            }
           }
         }
       }
