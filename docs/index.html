@@ -12,12 +12,6 @@
   a { color: #1a5fb4; text-decoration: none; }
   a:hover { text-decoration: underline; }
   .desc { color: #666; font-size: .9rem; }
-  .rv-add { background: #d4f7dc; }
-  .rv-del { background: #fdd; text-decoration: line-through; }
-  .rv-chg { background: #fff3cd; }
-  .toolbar { position: sticky; top: 0; background: #fff; padding: .5rem 0; border-bottom: 1px solid #eee; margin-bottom: 1rem; }
-  button { padding: .4rem 1rem; cursor: pointer; border: 1px solid #4472C4; background: #fff; color: #4472C4; border-radius: 4px; }
-  button.active { background: #4472C4; color: #fff; }
   .badge { display: inline-block; font-size: .75rem; padding: .1rem .5rem; border-radius: 8px; background: #e8e8e8; margin-left: .5rem; }
   .badge.done { background: #d4f7dc; }
   .badge.todo { background: #fff3cd; }
@@ -25,58 +19,41 @@
 </head>
 <body>
 
-<div class="toolbar">
-  <button id="btnReview" onclick="toggleReview()">审阅模式：关</button>
-  <span style="margin-left:1rem;font-size:.85rem;color:#666;">切换后高亮 <span class="rv-add">新增(rv-add)</span> <span class="rv-del">删除(rv-del)</span> <span class="rv-chg">修改(rv-chg)</span></span>
-</div>
-
 <h1>TDSL 项目文档索引</h1>
-<p class="desc">自研低代码 DSL（TDSL）—— 大模型写 TS 风格 DSL → Typed AST → 生成 React + Java。入口文档：<a href="README.md">docs/README.md</a></p>
+<p class="desc">自研低代码 DSL（TDSL）—— 大模型写 TS 风格 DSL → Typed AST → 生成 React + Java。入口文档：<a href="README.md">docs/README.md</a>（2026-09 已简化：占位目录已删，三份设计文档合并为设计总览）</p>
 
-<h2>项目文档（docs/，markdown）</h2>
+<h2>参考资料（docs/00_参考资料/）</h2>
 <ul>
-  <li><a href="00_参考资料/NASL调研.md">00 参考资料 / NASL调研</a> <span class="badge done">完成</span><br><span class="desc">网易 CodeWave NASL 调研：三投影、类型、命名空间、继承/组合、SDK</span></li>
-  <li><a href="00_参考资料/NASL设计原理调研汇报.md">00 参考资料 / NASL设计原理调研汇报</a> <span class="badge done">完成</span><br><span class="desc">面向管理层的 NASL 设计原理调研：核心思想、优势、劣势、参考价值（纯调研）</span></li>
-  <li><a href="10_需求设计/需求设计.md">10 需求设计</a> <span class="badge done">完成</span><br><span class="desc">目标、核心路线、关键决策（D1-D7）、P0/P1/P2 需求清单</span></li>
-  <li><a href="20_系统设计/系统设计.md">20 系统设计</a> <span class="badge done">完成</span><br><span class="desc">分层架构、模块划分（packages/*）、数据流、LLM 管线、里程碑</span></li>
-  <li><a href="30_详细设计/详细设计.md">30 详细设计</a> <span class="badge done">完成</span><br><span class="desc">Typed AST 类型定义、TypeRef、Expr/Statement、parser、typecheck、codegen</span></li>
-  <li><a href="40_编码/编码.md">40 编码</a> <span class="badge todo">占位</span><br><span class="desc">编码约定（TS strict、判别联合 + never 穷尽）</span></li>
-  <li><a href="50_测试用例/测试用例.md">50 测试用例</a> <span class="badge todo">占位</span><br><span class="desc">单元测试策略：parser / round-trip / typecheck / codegen 快照</span></li>
-  <li><a href="60_集成测试/集成测试.md">60 集成测试</a> <span class="badge todo">占位</span><br><span class="desc">E2E 场景1：Todo 垂直切片（P0 验收）</span></li>
-  <li><a href="70_教程/README.md">70 教程：编译器入门</a> <span class="badge done">完成</span><br><span class="desc">P0 五包逐包讲解：总览 / core / parser / typecheck / codegen-java / codegen-react</span></li>
-  <li><a href="99_成果物/成果物.md">99 成果物</a> <span class="badge done">完成</span><br><span class="desc">交付物索引：源码(A5)、Todo 示例(A6)、生成产物(A7)</span></li>
+  <li><a href="00_参考资料/NASL调研.md">NASL调研</a> <span class="badge done">完成</span><br><span class="desc">网易 CodeWave NASL 调研：三投影、类型、命名空间、继承/组合、SDK</span></li>
+  <li><a href="00_参考资料/NASL设计原理调研汇报.md">NASL设计原理调研汇报</a> <span class="badge done">完成</span><br><span class="desc">面向管理层的 NASL 设计原理调研：核心思想、优势、劣势、参考价值</span></li>
 </ul>
 
-<h2>内部开发文档（docs/dev/，本技能流程产物）</h2>
+<h2>项目设计（docs/10_设计/）</h2>
 <ul>
-  <li><a href="dev/00_需求管理.md">dev/00 需求管理（最小切面）</a> <span class="badge todo">进行中</span><br><span class="desc">P0 最小切面范围：五包闭环 + Todo demo + 真实 build 验收</span></li>
-  <li><a href="dev/10_系统设计-最小切面.md">dev/10 系统设计（最小切面）</a> <span class="badge todo">进行中</span><br><span class="desc">方案 A：core/parser/typecheck/codegen-java/codegen-react + 数据流</span></li>
-  <li><a href="dev/11_系统设计-P1-typecheck.md">dev/11 系统设计（P1 typecheck）</a> <span class="badge todo">已设计</span><br><span class="desc">完整类型检查器：类型推导、子类型、隐式转换、泛型统一</span></li>
+  <li><a href="10_设计/设计总览.md">设计总览</a> <span class="badge done">完成</span><br><span class="desc">一份读完：目标与核心路线、关键决策（D1-D7，含 D4 口径修正）、分层架构、域概念与寻址、类型速览（SSoT=core/types.ts）、codegen 映射、LLM 管线、部署形态、里程碑地图（合并自原需求/系统/详细设计三份）</span></li>
+</ul>
+
+<h2>教程（docs/70_教程/，学习路径）</h2>
+<ul>
+  <li><a href="70_教程/README.md">70 教程：编译器入门</a> <span class="badge done">完成</span><br><span class="desc">P0 五包逐包讲解：总览 / core / parser / typecheck / codegen-java / codegen-react</span></li>
+  <li><a href="70_教程/06_项目Tour-功能全景.md">06 项目 Tour：功能全景与源码导读</a> <span class="badge done">完成</span><br><span class="desc">基于最新代码的学习地图：进度全景（132 单测）、todo.tdsl 样本导览、五包逐包源码导读、一条逻辑的完整旅程、动手练习——掌握项目从这里开始</span></li>
+</ul>
+
+<h2>内部研发文档（docs/dev/，按里程碑切面）</h2>
+<ul>
+  <li><a href="dev/11_系统设计-P1-typecheck.md">dev/11 系统设计（P1 typecheck 加深）</a> <span class="badge todo">已设计·M3 用</span><br><span class="desc">完整类型检查器：类型推导、子类型、隐式转换、泛型统一</span></li>
   <li><a href="dev/12_系统设计-P1-crud.md">dev/12 系统设计（P1 CRUD）</a> <span class="badge done">已实现</span><br><span class="desc">interface 语法、Controller、真实 CRUD fetch、种子数据</span></li>
   <li><a href="dev/13_系统设计-P2-复杂逻辑.md">dev/13 系统设计（P2 复杂逻辑）</a> <span class="badge done">已实现</span><br><span class="desc">扁平表+外键、运算符/List/where/事务扩展、Decimal 算术、订单场景全链路</span></li>
-  <li><a href="dev/14_路线规划-NASL对标与前后端能力.md">dev/14 路线规划（NASL 对标）</a> <span class="badge todo">规划中</span><br><span class="desc">NASL 差距矩阵、命名空间/作用域决策、前后端演进路线、外部能力接入（service/component 主航道）、分阶段路线图、能力边界评估</span></li>
-  <li><a href="dev/15_系统设计-M1-命名空间.md">dev/15 系统设计（M1 命名空间/作用域）</a> <span class="badge done">已实现</span><br><span class="desc">实体→数据源作用域、跨源同名共存、限定名 ds.Entity、logic 变量块作用域（Java 复用语义）</span></li>
+  <li><a href="dev/14_路线规划-NASL对标与前后端能力.md">dev/14 路线规划（NASL 对标）</a> <span class="badge todo">规划中</span><br><span class="desc">NASL 差距矩阵、命名空间/作用域决策、前后端演进路线、外部能力接入主航道、分阶段路线图、能力边界评估</span></li>
+  <li><a href="dev/15_系统设计-M1-命名空间.md">dev/15 系统设计（M1 命名空间/作用域）</a> <span class="badge done">已实现</span><br><span class="desc">实体→数据源作用域、跨源同名共存、限定名 ds.Entity、logic 变量块作用域</span></li>
   <li><a href="dev/16_系统设计-M4-View声明层.md">dev/16 系统设计（M4 View 声明层）</a> <span class="badge done">已实现</span><br><span class="desc">page+JSX子集 → ViewNode IR、组件映射、useQuery/useMutation/navigate 绑定、多页面路由、前端真生成</span></li>
-  <li><a href="dev/17_系统设计-M6-外部能力接入.md">dev/17 系统设计（M6 外部能力接入）</a> <span class="badge done">已实现</span><br><span class="desc">service（dubbo/bean/http 三种注入）+ component（npm 三方组件注册）、Feign 接口生成、pom 依赖</span></li>
-  <li><a href="dev/18_系统设计-M2-查询语言.md">dev/18 系统设计（M2 查询语言）</a> <span class="badge done">已实现</span><br><span class="desc">where 复合条件（多条件 AND/&amp;&amp;/||/like/in/比较）、.orderBy 排序、.page/.limit 分页、sum/avg/max/min/count 聚合 + groupBy、Page&lt;T&gt; 全链路</span></li>
-  <li><a href="dev/QA记录.xlsx">dev/QA记录.xlsx</a> <span class="badge done">已建</span><br><span class="desc">QA 跟踪：问题 → 结论 → 状态闭环</span></li>
+  <li><a href="dev/17_系统设计-M6-外部能力接入.md">dev/17 系统设计（M6 外部能力接入）</a> <span class="badge done">已实现</span><br><span class="desc">service（dubbo/bean/http 三种注入）+ component（npm 三方组件注册）、Feign 接口生成</span></li>
+  <li><a href="dev/18_系统设计-M2-查询语言.md">dev/18 系统设计（M2 查询语言）</a> <span class="badge done">已实现</span><br><span class="desc">where 复合条件、orderBy/page/limit、sum/avg/max/min/count 聚合 + groupBy、Page&lt;T&gt; 全链路</span></li>
+  <li><a href="dev/19_系统设计-P2-LLM书写面与PromptPack.md">dev/19 系统设计（P2 LLM 书写面与 Prompt Pack）</a> <span class="badge done">已实现</span><br><span class="desc">示例主导三原则、五层 prompt 组装、示例矩阵（单测锁定可编译性）、诊断回流修复闭环；packages/llm 已落地</span></li>
+  <li>QA记录.xlsx（各切面问题跟踪，Gate 记录）</li>
 </ul>
 
-<h2>交付物（docs/api/）</h2>
-<ul>
-  <li><span class="desc">（P0 切片完成后再填：接口文档 / 生成产物说明）</span></li>
-</ul>
+<p class="desc">已删除：40_编码 / 50_测试用例 / 60_集成测试 / 99_成果物（占位）、dev/00+dev/10（P0 历史切面，由教程 00-05 与 Tour 取代）。编码约定见根目录 <a href="../AGENTS.md">AGENTS.md</a>。</p>
 
-<script>
-function toggleReview() {
-  const btn = document.getElementById('btnReview');
-  const on = btn.textContent.includes('关');
-  document.querySelectorAll('.rv-add,.rv-del,.rv-chg').forEach(el => {
-    el.style.display = on ? '' : 'none';
-  });
-  btn.textContent = on ? '审阅模式：开' : '审阅模式：关';
-  btn.classList.toggle('active', on);
-}
-</script>
 </body>
 </html>
