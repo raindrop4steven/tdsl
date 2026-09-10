@@ -293,6 +293,33 @@ page X { <table dataSource={useQuery('listOrders')}><column field="id" /></table
     expect(r.diagnostics.some((d) => d.message.includes('悬空逻辑引用'))).toBe(true);
   });
 
+  it('rejects logic without interface endpoint（agent 忘写 interface → api.ts 缺函数 → 前端白屏，编译期拦截）', () => {
+    const app = parse(`
+entity Car { id: Integer @pk; plate: String; }
+@export
+logic listCars(): List<Car> { return Car.all; }
+page CarList {
+  <table dataSource={useQuery('listCars')}><column field="plate" /></table>
+}
+`);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.some((d) => d.message.includes('没有 interface 端点暴露该逻辑'))).toBe(true);
+  });
+
+  it('passes logic exposed via interface endpoint', () => {
+    const app = parse(`
+entity Car { id: Integer @pk; plate: String; }
+@export
+logic listCars(): List<Car> { return Car.all; }
+interface CarApi { GET '/api/cars' -> listCars }
+page CarList {
+  <table dataSource={useQuery('listCars')}><column field="plate" /></table>
+}
+`);
+    expect(check(app).ok).toBe(true);
+  });
+
 it('rejects dangling navigate page', () => {
     const app = parse(`
 entity Order { id: Integer @pk; }
@@ -378,6 +405,7 @@ entity Order { id: Integer @pk; }
 entity Order { id: Integer @pk; customer: String; }
 @export
 logic listOrders(): List<Order> { return Order.all; }
+interface OrderApi { GET '/api/orders' -> listOrders }
 component ECharts {
   pkg: 'echarts-for-react';
   defaultProps: { option: Json; style: Json };

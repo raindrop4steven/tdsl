@@ -327,6 +327,7 @@ logic pullErpOrder(id: Integer): Order {
 
 interface OrderApi {
   GET '/api/orders' -> listOrders
+  GET '/api/orders/stats' -> orderStats
 }
 
 component ECharts {

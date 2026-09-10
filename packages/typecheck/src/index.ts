@@ -214,9 +214,14 @@ export function check(app: AppNode): CheckResult {
     }
   }
 
-  // 5. View：组件类型 + binding 解析
+  // 5. View：组件类型 + binding 解析 + 端点暴露检查
+  const exposedLogics = new Set(
+    app.interfaces
+      .flatMap((itf) => itf.endpoints.map((ep) => ep.logicRef?.split('.').pop() ?? ''))
+      .filter(Boolean),
+  );
   for (const v of app.views) {
-    checkView(app, v.elements, diagnostics, ownerPath);
+    checkView(app, v.elements, diagnostics, ownerPath, exposedLogics);
   }
 
   // 6. 文件定位（M7 多文件工程）：按诊断 path 反查所属顶层声明节点的来源文件
@@ -272,6 +277,7 @@ function checkView(
   elements: ViewElementNode[],
   diagnostics: Diagnostic[],
   ownerPath: (n: BaseNode) => string,
+  exposedLogics: Set<string>,
 ): void {
   for (const el of elements) {
     const isBuiltin = KNOWN_VIEW_TYPES.has(el.type);
@@ -284,9 +290,9 @@ function checkView(
       });
     }
     for (const b of el.bindings) {
-      checkBinding(app, b, diagnostics, ownerPath);
+      checkBinding(app, b, diagnostics, ownerPath, exposedLogics);
     }
-    if (el.children.length > 0) checkView(app, el.children, diagnostics, ownerPath);
+    if (el.children.length > 0) checkView(app, el.children, diagnostics, ownerPath, exposedLogics);
   }
 }
 
@@ -296,12 +302,20 @@ function checkBinding(
   b: BindingNode,
   diagnostics: Diagnostic[],
   ownerPath: (n: BaseNode) => string,
+  exposedLogics: Set<string>,
 ): void {
   if (b.name === 'useQuery' || b.name === 'useMutation') {
     if (!resolve(app, b.target)) {
       diagnostics.push({
         path: ownerPath(b),
         message: `页面绑定 ${b.name} 悬空逻辑引用: ${b.target}`,
+        severity: 'error',
+      });
+    } else if (!exposedLogics.has(b.target.split('.').pop() ?? b.target)) {
+      // 逻辑存在但没有 interface 端点暴露 → api.ts 不会生成该函数 → 前端运行时 TypeError（真白屏）
+      diagnostics.push({
+        path: ownerPath(b),
+        message: `页面绑定 ${b.name}('${b.target}') 但没有 interface 端点暴露该逻辑，api.ts 不会生成对应函数；请在 interface 中声明（如 GET '/api/...' -> ${b.target}）`,
         severity: 'error',
       });
     }
