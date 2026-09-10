@@ -40,6 +40,8 @@
   <div id="exportHint" style="color:#888;font-size:.85rem">agent 调用 generate_code 落盘后可导出</div>
   <h3>运行状态（M10）</h3>
   <div id="runPanel" style="font-size:.85rem;color:#555">轮询中…</div>
+  <h3><button id="dbgBtn" style="background:none;border:1px solid #999;border-radius:4px;cursor:pointer;font-size:.8rem;padding:2px 8px">🐞 调试日志</button></h3>
+  <pre id="dbgLog" style="display:none;max-height:300px;overflow:auto;background:#1e1e1e;color:#9cdcaa;font-size:.72rem;white-space:pre-wrap">(关闭中)</pre>
 </div>
 
 <script>
@@ -137,6 +139,27 @@ document.querySelectorAll('.exp').forEach((b) => {
   b.onclick = () => { location.href = `/api/export/${sessionId}/${b.dataset.target}`; };
 });
 connect(sessionStorage.getItem('tdslSession') ? false : true);
+
+// 🐞 调试面板：轮询 /api/agent-log（agent 事件日志：模型请求/返回/工具/错误/重试）
+let dbgOn = false;
+document.getElementById('dbgBtn').onclick = () => {
+  dbgOn = !dbgOn;
+  const box = document.getElementById('dbgLog');
+  box.style.display = dbgOn ? 'block' : 'none';
+  document.getElementById('dbgBtn').textContent = dbgOn ? '🐞 调试（开）' : '🐞 调试';
+  if (dbgOn) pollDebug();
+};
+function pollDebug() {
+  if (!dbgOn || !sessionId) return;
+  fetch(`/api/agent-log/${sessionId}`).then((r) => r.text()).then((t) => {
+    const box = document.getElementById('dbgLog');
+    if (box.textContent !== t) {
+      box.textContent = t;
+      box.scrollTop = box.scrollHeight;
+    }
+  }).catch(() => {});
+  setTimeout(pollDebug, 1000);
+}
 
 // 运行状态面板：2s 轮询（up 后可直接点开前端页面）
 setInterval(() => {

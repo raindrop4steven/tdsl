@@ -11,7 +11,7 @@ import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { spawn } from 'node:child_process';
 import kill from 'tree-kill';
 import { exportZip } from './export';
-import { AppRunner, RunnerStatus } from './runner';
+import { appendLog, logTail } from './runner';
 import { SessionTable, type SessionEntry } from './sessions';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -140,6 +140,27 @@ export function startServer(opts?: { table?: SessionTable }): void {
       });
       return;
     }
+    // agent 诊断日志（调试面板轮询）：/api/agent-log/<sessionId> → logs/agent.log 尾部
+    const logMatch = /^\/api\/agent-log\/([A-Za-z0-9]+)$/.exec(req.url ?? '');
+    if (logMatch && req.method === 'GET') {
+      void sessions
+        .get(logMatch[1])
+        .then((entry) => {
+          if (!entry) {
+            res.statusCode = 404;
+            res.end('unknown session');
+            return;
+          }
+          const { tail } = logTail(join(entry.ws.root, 'logs', 'agent.log'), 200);
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.end(tail || '(暂无日志)');
+        })
+        .catch(() => {
+          res.statusCode = 500;
+          res.end('log error');
+        });
+      return;
+    }
     // 创建会话（注入错误回流地址：agent 服务端口 + 会话 id）
     if (req.url === '/api/session' && req.method === 'POST') {
       void sessions
@@ -199,6 +220,10 @@ function bindSession(socket: { send: (data: string) => void; on: (ev: string, fn
       }
       if (msg.type === 'prompt' && msg.text) {
         try {
+          const ts = new Date().toISOString().slice(11, 19);
+          const line = `user prompt: ${msg.text.slice(0, 120)}`;
+          console.log(`[agent:${entry.id}] ${ts} ${line}`);
+          appendLog(join(entry.ws.root, 'logs', 'agent.log'), `[${ts}] ${line}\n`);
           await entry.session.prompt(msg.text);
         } catch (err) {
           // 模型调用失败（如 key 无效/端点不可达）不能静默吞掉，必须回流到浏览器
@@ -228,6 +253,8 @@ function slimEvent(event: AgentSessionEvent): SlimEvent {
       return { type: 'tool_start', tool: (event as { toolName?: string }).toolName, args: (event as { args?: unknown }).args };
     case 'tool_execution_end':
       return { type: 'tool_end', tool: (event as { toolName?: string }).toolName, result: (event as { result?: unknown }).result };
+    case 'auto_retry_start':
+      return { type: 'error', message: `模型调用失败，自动重试 ${(event as { attempt?: number }).attempt}/${(event as { maxAttempts?: number }).maxAttempts}：${(event as { errorMessage?: string }).errorMessage}` };
     case 'agent_start':
     case 'agent_end':
       return { type: event.type };

@@ -10,12 +10,13 @@ import {
   DefaultResourceLoader,
   ModelRuntime,
   SessionManager,
+  SettingsManager,
   defineTool as piDefineTool,
   type AgentSession,
   type AgentSessionEvent,
 } from '@earendil-works/pi-coding-agent';
 import { EXAMPLES } from '@tdsl/llm';
-import { AppRunner, MAX_RUNNING_SESSIONS } from './runner';
+import { AppRunner, MAX_RUNNING_SESSIONS, appendLog } from './runner';
 import { buildTools, systemPrompt } from './tools';
 import { Workspace } from './workspace';
 
@@ -186,13 +187,76 @@ export async function createSession(opts: {
     resourceLoader: loader,
     modelRuntime,
     sessionManager: SessionManager.inMemory(ws.root),
-    tools: ['write_tdsl_files', 'read_tdsl_files', 'compile_tdsl', 'generate_code'],
+    tools: ['write_tdsl_files', 'read_tdsl_files', 'compile_tdsl', 'generate_code', 'run_app'],
+    // 重试/超时策略：GLM 网关首 token 慢（长系统提示词+思考），默认 10s 级超时会 Request timed out，放宽到 5min
+    settingsManager: SettingsManager.inMemory({
+      retry: {
+        enabled: true,
+        maxRetries: 5,
+        baseDelayMs: 3000,
+        provider: { timeoutMs: 300_000, maxRetries: 0, maxRetryDelayMs: 60_000 },
+      },
+    }),
     customTools: tools as never,
   });
 
   const entry: SessionEntry = { id, session, ws, runner };
   if (onEvent) session.subscribe(onEvent);
+  // 诊断日志：控制台 + 沙箱 logs/agent.log——模型请求发了没/返回多少/报什么错，一眼可见
+  session.subscribe(agentEventLogger(id, ws));
   return entry;
+}
+
+/** agent 事件 → 人话日志（控制台 + logs/agent.log） */
+function agentEventLogger(id: string, ws: Workspace): (e: AgentSessionEvent) => void {
+  const file = join(ws.root, 'logs', 'agent.log');
+  const write = (line: string): void => {
+    const ts = new Date().toISOString().slice(11, 19);
+    console.log(`[agent:${id}] ${ts} ${line}`);
+    appendLog(file, `[${ts}] ${line}\n`);
+  };
+  return (e: AgentSessionEvent): void => {
+    switch (e.type) {
+      case 'agent_start':
+        write('▶ agent 开始处理');
+        break;
+      case 'message_start':
+        if ((e as { message?: { role?: string } }).message?.role === 'assistant') {
+          write('→ 已向模型发起请求（等待流式响应）');
+        }
+        break;
+      case 'message_end': {
+        const m = (e as { message?: { role?: string; content?: Array<{ type: string; text?: string }>; stopReason?: string; errorMessage?: string } }).message;
+        if (m?.role !== 'assistant') break;
+        const text = (m.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
+        if (text.length === 0) {
+          write(`⚠ 模型返回空内容（stop=${m.stopReason ?? '未知'}${m.errorMessage ? `，错误：${m.errorMessage}` : ''}）`);
+        } else {
+          write(`← 模型返回 ${text.length} 字（stop=${m.stopReason ?? 'stop'}）`);
+        }
+        break;
+      }
+      case 'tool_execution_start':
+        write(`🔧 工具 ${(e as { toolName?: string }).toolName} 开始`);
+        break;
+      case 'tool_execution_end': {
+        const t = e as { toolName?: string; isError?: boolean };
+        write(`${t.isError ? '✗' : '✓'} 工具 ${t.toolName} 结束`);
+        break;
+      }
+      case 'auto_retry_start':
+        write(`⚠ 模型调用失败，自动重试 ${(e as { attempt?: number }).attempt}/${(e as { maxAttempts?: number }).maxAttempts}：${(e as { errorMessage?: string }).errorMessage}`);
+        break;
+      case 'compaction_end':
+        if ((e as { errorMessage?: string }).errorMessage) {
+          write(`⚠ 上下文压缩失败：${(e as { errorMessage?: string }).errorMessage}`);
+        }
+        break;
+      case 'agent_end':
+        write((e as { willRetry?: boolean }).willRetry ? '■ 本轮结束（将重试）' : '■ 本轮结束');
+        break;
+    }
+  };
 }
 
 function appNameOf(id: string): string {
