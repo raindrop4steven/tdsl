@@ -29,8 +29,8 @@
 
 ## 3. 当前状态快照（2026-09，M9 Agent 交付后）
 
-- **186 单测全绿**：core 5 / parser 48 / typecheck 35 / codegen-java 30 / codegen-react 21 / llm 13 / playground 6 / cli 14 / server 14；九包 strict typecheck 通过。
-- 演示入口：**`npm run server`（或根目录 start-server.sh，http://localhost:8787）**：浏览器提需求 → agent 写分片 → 编译自修 → 产物导出 zip；`npm run playground`（离线试验台）；端到端：`npm run slice`（单文件）+ `npm run slice:multi`（M7 对拍）；CLI：`npm run dsl -- check/build examples/todo-multi/tdsl`。
+- **196 单测全绿**：core 5 / parser 48 / typecheck 35 / codegen-java 30 / codegen-react 23 / llm 13 / playground 6 / cli 14 / server 22；九包 strict typecheck 通过。
+- 演示入口：**`npm run server`（或根目录 start-server.sh，http://localhost:8787）**：浏览器提需求 → agent 写分片 → 编译自修 → 产物导出 zip → **run_app 起前后端（vite dev + mvn spring-boot:run + H2），用户反馈 → agent 读运行日志自修（M10 闭环）**；`npm run playground`（离线试验台）；端到端：`npm run slice`（单文件）+ `npm run slice:multi`（M7 对拍）；CLI：`npm run dsl -- check/build examples/todo-multi/tdsl`。
 - **下一步**（按当前优先级）：评测基准（可编译率/build 通过率，CLI + agent session 记录是天然采集器）→ playground 内嵌 AI 按钮（服务稳定后）→ M3/M5 视需求排期。
 
 ### 3.1 进度日志（按切面交付序，逐条追加）
@@ -51,6 +51,8 @@
 | 12 | 2026-09 | M8 CLI | `dsl parse/check/generate/build`（bin 经 tsx ESM register 加载）；薄命令层（run(argv)→{code,stdout} 可测可复用）；app 名清洗；诊断人话化；端到端 build 验证 | 91adfcb | +14 单测，169 全绿 |
 | 13 | 2026-09 | M9 在线 TDSL Agent | packages/server 嵌入 pi SDK（会话/工具循环/流式 WS）；TDSL 工具 ×4（compile_tdsl 裁判/读写分片/generate_code 落盘）；产物导出 zip（java/react/all）；GLM 端点 env 注入（含 compat 透传）；聊天页自动重连+错误回流；dev/23 设计文档 | eda7820 | +14 单测，server 独立交付 |
 | 14 | 2026-09 | codegen 对拍修复 | agent 实际产出（合同管理 4 分片）暴露双端缺陷：react 8 处（hook 重复声明/input 接线/detail row 别名/Page<T>.content/onRow/结构体实参/.npmrc 锁公网）+ java 6 处（enum 类生成/裸枚举限定/查询链类型推断/X.all 链式/logic 间调用注入/orderBy 关键词）+ cli generate 混写 bug | 34481cd | 双端对拍 mvn+vite build ✓，186 全绿 |
+| 15 | 2026-09 | 表单字段类型升级 | form 字段按结构体类型升级控件：枚举→Select（选项来自 TDSL enum）/日期→DatePicker/数字→InputNumber；agent 提示词规范表单绑定；.npmrc 机制之前已落地 | 0fef2d6 | +3 用例，188 全绿 |
+| 16 | 2026-09 | M10 运行回路 | runner 进程编排（mvn spring-boot:run + vite dev + /api 代理，H2 内存库零安装）；run_app 编排工具（up/down/restart/status/logs）；错误回流（后端日志 grep + 前端 reporter → client.log）；GET 接口参数 required=false + defaultValue；/healthz 探针 + 端口参数化 | b4de90a | +8 用例，196 全绿；真机冒烟：healthz/业务接口 200、干净 down |
 
 ## 4. 踩过的坑（后来者必读）
 
