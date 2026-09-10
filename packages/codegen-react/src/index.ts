@@ -802,15 +802,17 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     : `    <Card style={{ margin: '0 auto' }}>\n      <h2 style={{ marginTop: 0 }}>${v.name}</h2>`;
   const wrapperClose = isDialog ? `    </Drawer>` : `    </Card>`;
 
+  // 页面渲染挂载了 dialog 组件时，Card 与 Drawer 是兄弟 JSX → 用 Fragment 包裹
+  const returnInner = dialogRenders
+    ? `      <>\n${wrapperOpen}\n${toolbar}${body}\n${wrapperClose}\n${dialogRenders}\n      </>`
+    : `${wrapperOpen}\n${toolbar}${body}\n${wrapperClose}`;
+
   const content = `${imports.join('\n')}
 
 ${compSig}
 ${hooksInit.join('\n')}
   return (
-${wrapperOpen}
-${toolbar}${body}
-${wrapperClose}
-${dialogRenders}
+${returnInner}
   );
 }
 `;
