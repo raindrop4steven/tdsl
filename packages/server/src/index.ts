@@ -120,6 +120,46 @@ export function startServer(opts?: { table?: SessionTable }): void {
         });
       return;
     }
+    // 手动运行控制（M10）：POST /api/run/<sessionId>/<up|down|restart> —— 不经 agent，面板按钮直达 runner
+    const runOpMatch = /^\/api\/run\/([A-Za-z0-9]+)\/(up|down|restart)$/.exec(req.url ?? '');
+    if (runOpMatch && req.method === 'POST') {
+      void sessions
+        .get(runOpMatch[1])
+        .then((entry) => {
+          if (!entry) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'unknown session' }));
+            return;
+          }
+          const action = runOpMatch[2] as 'up' | 'down' | 'restart';
+          const done = (msg: string): void => {
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ message: msg, status: entry.runner.status() }));
+          };
+          const fail = (msg: string): void => {
+            res.statusCode = 409;
+            res.end(JSON.stringify({ error: msg, status: entry.runner.status() }));
+          };
+          if (action === 'up') {
+            const msg = entry.runner.up(() => {
+              /* 状态由前端轮询刷新 */
+            });
+            msg.includes('✗') ? fail(msg) : done(msg);
+          } else if (action === 'down') {
+            done(entry.runner.down());
+          } else {
+            void entry
+              .runner.restart()
+              .then(done)
+              .catch((err) => fail(err instanceof Error ? err.message : String(err)));
+          }
+        })
+        .catch((err) => {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+        });
+      return;
+    }
     // 前端运行时错误回流（M10）：生成页 reporter → 沙箱 logs/client.log → agent 经 run_app logs 检索
     const errMatch = /^\/api\/client-error\?sessionId=([A-Za-z0-9]+)$/.exec(req.url ?? '');
     if (errMatch && req.method === 'POST') {

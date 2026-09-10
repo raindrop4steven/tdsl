@@ -40,6 +40,12 @@
   <div id="exportHint" style="color:#888;font-size:.85rem">agent 调用 generate_code 落盘后可导出</div>
   <h3>运行状态（M10）</h3>
   <div id="runPanel" style="font-size:.85rem;color:#555">轮询中…</div>
+  <div id="runBar" style="margin-top:6px">
+    <button class="runbtn" data-action="up">▶ 启动</button>
+    <button class="runbtn" data-action="restart">↻ 重启</button>
+    <button class="runbtn" data-action="down">■ 停止</button>
+  </div>
+  <div id="runMsg" style="font-size:.75rem;color:#c0392b;margin-top:4px"></div>
   <h3><button id="dbgBtn" style="background:none;border:1px solid #999;border-radius:4px;cursor:pointer;font-size:.8rem;padding:2px 8px">🐞 调试日志</button></h3>
   <pre id="dbgLog" style="display:none;max-height:300px;overflow:auto;background:#1e1e1e;color:#9cdcaa;font-size:.72rem;white-space:pre-wrap">(关闭中)</pre>
 </div>
@@ -173,6 +179,20 @@ setInterval(() => {
       (s.frontend === 'up' ? `<a href="${s.urls.frontend}" target="_blank">打开应用页面 ↗</a>` : '');
   }).catch(() => {});
 }, 2000);
+
+// 运行按钮：手动启停（up 需要产物已生成，否则提示先生成）
+document.querySelectorAll('.runbtn').forEach((b) => {
+  b.style.cssText = 'padding:4px 10px;margin:0 6px 6px 0;border:1px solid #2E7D32;background:#fff;color:#2E7D32;border-radius:4px;cursor:pointer';
+  b.onclick = () => {
+    if (!sessionId) return;
+    fetch(`/api/run/${sessionId}/${b.dataset.action}`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((d) => {
+        document.getElementById('runMsg').textContent = d.error ?? d.message ?? '';
+      })
+      .catch(() => {});
+  };
+});
 </script>
 </body>
 </html>
