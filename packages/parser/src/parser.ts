@@ -6,6 +6,7 @@ import {
   resolveShort,
   type AppNode,
   type BindingNode,
+  type BaseNode,
   type DataSourceNode,
   type EntityNode,
   type EntityPropertyNode,
@@ -35,18 +36,73 @@ export class TdslSyntaxError extends Error {
     message: string,
     public readonly line: number,
     public readonly col: number,
+    /** 所在文件（parseProject 多文件场景由外层填充；单文件为 '<stdin>'） */
+    public file?: string,
   ) {
     super(`${message} (line ${line}, col ${col})`);
     this.name = 'TdslSyntaxError';
   }
 }
 
-/** TDSL（TS 书写面子集）→ Typed AST；引用名在 link 阶段绑定为 nodePath */
+/** 单文件入口：语义等价于 parseProject 单元素（保持 P0~M6 兼容） */
 export function parse(input: string): AppNode {
-  const tokens = tokenize(input);
-  const parser = new Parser(tokens);
-  const app = parser.parseApp();
+  return parseProject([{ path: '<stdin>', content: input }]);
+}
+
+export interface TdslSourceFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * 多文件工程（M7）：目录即 app，每个 .tdsl 文件是一个分片。
+ * 逐文件 parse → 合并为一个 AppNode → link（短名→nodePath 统一绑定，文件顺序无关）。
+ * 跨文件引用靠 app 级全局命名空间（NASL 式），无 import 语句。
+ */
+export function parseProject(files: TdslSourceFile[], appName = 'todo'): AppNode {
+  const fragments = files.map((f) => {
+    try {
+      const tokens = tokenize(f.content);
+      const parser = new Parser(tokens);
+      return parser.parseAppInto(f.path);
+    } catch (e) {
+      if (e instanceof TdslSyntaxError && e.file === undefined) e.file = f.path;
+      throw e;
+    }
+  });
+  const app = mergeApp(appName, fragments);
   linkApp(app);
+  return app;
+}
+
+/** 分片合并：datasource 同名合并实体，其余段顺序拼接；重名冲突由 linkApp 检测（报错含文件） */
+function mergeApp(name: string, fragments: AppNode[]): AppNode {
+  const app: AppNode = {
+    ...createNode('App'),
+    name,
+    datasources: [],
+    structures: [],
+    enums: [],
+    logics: [],
+    interfaces: [],
+    views: [],
+    services: [],
+    components: [],
+  };
+  for (const frag of fragments) {
+    for (const ds of frag.datasources) {
+      const existing = app.datasources.find((d) => d.name === ds.name);
+      if (existing) existing.entities.push(...ds.entities);
+      else app.datasources.push(ds);
+    }
+    app.structures.push(...frag.structures);
+    app.enums.push(...frag.enums);
+    app.logics.push(...frag.logics);
+    app.interfaces.push(...frag.interfaces);
+    app.views.push(...frag.views);
+    app.services.push(...frag.services);
+    app.components.push(...frag.components);
+  }
   return app;
 }
 
@@ -94,7 +150,7 @@ class Parser {
     throw new TdslSyntaxError(msg, t.line, t.col);
   }
 
-  parseApp(): AppNode {
+  parseAppInto(file: string): AppNode {
     const app: AppNode = {
       ...createNode('App'),
       name: 'todo',
@@ -159,6 +215,7 @@ class Parser {
         this.fail(`unexpected '${kw}' at top level`);
       }
     }
+    stampFile(app, file);
     return app;
   }
 
@@ -825,48 +882,95 @@ class Parser {
 
 // ---------- link：短名 → nodePath（分层作用域：实体→数据源，结构/枚举/逻辑/接口→全局） ----------
 
+/** 冲突报错附注：两个声明所在文件（多文件场景；单文件 '<stdin>' 时省略） */
+function whereTwo(a: string | undefined, b: string | undefined): string {
+  const fa = a && a !== '<stdin>' ? a : undefined;
+  const fb = b && b !== '<stdin>' ? b : undefined;
+  if (!fa && !fb) return '';
+  if (!fa && fb) return ` (${fb})`;
+  return ` (${fa} and ${fb ?? '?'})`;
+}
+
+/** 多文件工程（M7）：给分片内所有顶层声明节点打来源文件标（诊断反查用） */
+function stampFile(app: AppNode, file: string): void {
+  const mark = (n: BaseNode): void => {
+    if (n.file === undefined) n.file = file;
+  };
+  app.datasources.forEach((ds) => {
+    mark(ds);
+    ds.entities.forEach(mark);
+  });
+  app.structures.forEach(mark);
+  app.enums.forEach(mark);
+  app.logics.forEach(mark);
+  app.interfaces.forEach(mark);
+  app.views.forEach(mark);
+  app.services.forEach(mark);
+  app.components.forEach(mark);
+}
+
 function linkApp(app: AppNode): void {
   const table = buildTypeSymbolTable(app);
 
   // 同数据源内重名检查（buildTypeSymbolTable 已保证跨源同名进各自 scope）
   for (const [dsName, scope] of table.dataSources) {
     // scope 是每数据源独立 Map，天然同源唯一（重复声明会覆盖，需检测）
-    const seen = new Set<string>();
+    const seen = new Map<string, string>();
     for (const ent of app.datasources.find((d) => d.name === dsName)?.entities ?? []) {
-      if (seen.has(ent.name)) {
+      const from = seen.get(ent.name);
+      if (from !== undefined) {
         throw new TdslSyntaxError(
-          `duplicate entity '${ent.name}' in datasource '${dsName}'`,
+          `duplicate entity '${ent.name}' in datasource '${dsName}'` + whereTwo(from, ent.file),
           0,
           0,
         );
       }
-      seen.add(ent.name);
+      seen.set(ent.name, ent.file ?? '<stdin>');
     }
   }
 
   // 全局概念重名检查（structure/enum/logic/interface 短名全局唯一；且不得与全局唯一实体冲突）
   const globalSeen = new Map<string, string>();
-  const declareGlobal = (name: string, path: string): void => {
+  const globalFiles = new Map<string, string>();
+  const declareGlobal = (name: string, path: string, node: BaseNode): void => {
     const existing = globalSeen.get(name);
     if (existing !== undefined && existing !== path) {
       throw new TdslSyntaxError(
-        `duplicate type name '${name}': ${existing} vs ${path}`,
+        `duplicate type name '${name}': ${existing} vs ${path}` +
+          whereTwo(globalFiles.get(name), node.file),
+        0,
+        0,
+      );
+    }
+    if (existing !== undefined) {
+      // 同段同名（path 相同）：单文件同段重名 / 跨文件重名同报（M7 收紧，原实现漏报）
+      throw new TdslSyntaxError(
+        `duplicate name '${name}': declared twice in '${path}'` +
+          whereTwo(globalFiles.get(name), node.file),
         0,
         0,
       );
     }
     globalSeen.set(name, path);
+    globalFiles.set(name, node.file ?? '<stdin>');
   };
   // 全局唯一实体已占用 global 名（跨源同名实体不在 global，无冲突）
   for (const [name, path] of table.global) {
-    if (path.startsWith('app.datasources.')) globalSeen.set(name, path);
+    if (path.startsWith('app.datasources.')) {
+      globalSeen.set(name, path);
+      const dsName = path.split('.')[2];
+      const ent = app.datasources
+        .find((d) => d.name === dsName)
+        ?.entities.find((e) => e.name === name);
+      globalFiles.set(name, ent?.file ?? '<stdin>');
+    }
   }
-  for (const s of app.structures) declareGlobal(s.name, `app.structures.${s.name}`);
-  for (const en of app.enums) declareGlobal(en.name, `app.enums.${en.name}`);
-  for (const l of app.logics) declareGlobal(l.name, `app.logics.${l.name}`);
-  for (const itf of app.interfaces) declareGlobal(itf.name, `app.interfaces.${itf.name}`);
-  for (const s of app.services) declareGlobal(s.name, `app.services.${s.name}`);
-  for (const c of app.components) declareGlobal(c.name, `app.components.${c.name}`);
+  for (const s of app.structures) declareGlobal(s.name, `app.structures.${s.name}`, s);
+  for (const en of app.enums) declareGlobal(en.name, `app.enums.${en.name}`, en);
+  for (const l of app.logics) declareGlobal(l.name, `app.logics.${l.name}`, l);
+  for (const itf of app.interfaces) declareGlobal(itf.name, `app.interfaces.${itf.name}`, itf);
+  for (const s of app.services) declareGlobal(s.name, `app.services.${s.name}`, s);
+  for (const c of app.components) declareGlobal(c.name, `app.components.${c.name}`, c);
   for (const c of app.components) {
     if (!c.pkg) {
       throw new TdslSyntaxError(`component '${c.name}' requires pkg`, 0, 0);

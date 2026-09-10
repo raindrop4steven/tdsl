@@ -15,8 +15,13 @@ import {
 } from '@tdsl/core';
 import { cap, javaType, typeNameFromPath } from './type-map';
 
-/** app 名转包名：com.<name> */
+/** app 名转包名：com.<name>；必须为合法 Java 标识符（M7 app 名参数化后防御） */
 function pkgOf(app: AppNode): string {
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(app.name)) {
+    throw new Error(
+      `app name '${app.name}' is not a valid Java identifier: it is used as package name 'com.${app.name}'`,
+    );
+  }
   return `com.${app.name}`;
 }
 

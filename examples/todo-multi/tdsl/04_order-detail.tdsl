@@ -1,0 +1,17 @@
+// 详情功能域：详情逻辑 + 详情页（orderItems 聚合展示）
+
+@export
+logic getOrderDetail(id: Integer): OrderDetail {
+  order := Order.get(id);
+  detail := new OrderDetail();
+  detail.order = order;
+  detail.items = OrderItem.where(orderId = id);
+  return detail;
+}
+
+page OrderDetail {
+  <detail dataSource={useQuery('getOrderDetail', $route.id)}>
+    <text field="order.customer" />
+    <text field="order.total" />
+  </detail>
+}

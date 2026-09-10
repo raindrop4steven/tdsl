@@ -7,6 +7,8 @@ export interface BaseNode {
   kind: string;
   id: string;
   annotations?: Annotation[];
+  /** 来源文件（多文件工程 M7：parseProject 为顶层声明节点打标；单文件 parse 为 '<stdin>'） */
+  file?: string;
 }
 
 /** 语义性注解（区别于编辑器 UI 元信息） */

@@ -461,3 +461,22 @@ interface OrderApi {
     expect(repo).toContain('java.util.List<Order> findByStatusIn(java.util.Collection<String> status);');
   });
 });
+
+describe('codegen-java M7 多文件工程', () => {
+  it('app 名非法时抛清晰错误（app 名参数化防御）', () => {
+    const app = parse("@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }");
+    app.name = 'todo-multi';
+    expect(() => generateJava(app)).toThrow(/not a valid Java identifier/);
+  });
+
+  it('app 名参数化：包名/groupId/类名跟随', () => {
+    const app = parse("@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }");
+    app.name = 'todomulti';
+    const files = generateJava(app);
+    const pom = files.find((f) => f.path === 'pom.xml')!.content;
+    expect(pom).toContain('<groupId>com.todomulti</groupId>');
+    expect(pom).toContain('<artifactId>todomulti-app</artifactId>');
+    const main = files.find((f) => f.path.endsWith('TodomultiApplication.java'))!;
+    expect(main.path).toBe('src/main/java/com/todomulti/TodomultiApplication.java');
+  });
+});

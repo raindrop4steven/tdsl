@@ -2,6 +2,7 @@
 // Order / OrderItem 是两个平等实体，OrderItem.orderId 为普通外键字段
 
 @datasource('defaultDS')
+
 entity Order {
   id: Integer @pk;
   customer: String;

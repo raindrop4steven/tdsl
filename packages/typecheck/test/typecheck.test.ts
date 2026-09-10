@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createNode, type AppNode, type DataSourceNode, type EntityNode } from '@tdsl/core';
-import { parse } from '@tdsl/parser';
+import { parse, parseProject } from '@tdsl/parser';
 import { check } from '../src/index';
 
 const GOOD = `
@@ -531,5 +531,37 @@ logic bad(): List<Order> {
     const r = check(app);
     expect(r.ok).toBe(false);
     expect(r.diagnostics.some((d) => d.message.includes('查询链无方法'))).toBe(true);
+  });
+});
+
+describe('typecheck/M7 多文件工程', () => {
+  it('诊断带 file：跨文件悬空类型引用定位到引用所在文件', () => {
+    const app = parseProject([
+      { path: 'a.tdsl', content: "@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }\n" },
+      { path: 'b.tdsl', content: "logic bad(): List<Order> {\n  return Order.where(nofield > 0);\n}\n" },
+    ]);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    const d = r.diagnostics.find((x) => x.message.includes('nofield'));
+    expect(d).toBeDefined();
+    expect(d?.file).toBe('b.tdsl');
+  });
+
+  it('诊断带 file：未知查询链方法定位到所在文件', () => {
+    const app = parseProject([
+      { path: '01_model.tdsl', content: "@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }\n" },
+      { path: '02_query.tdsl', content: "logic bad(): List<Order> {\n  return Order.where(total > 0).frobnicate();\n}\n" },
+    ]);
+    const r = check(app);
+    expect(r.ok).toBe(false);
+    const d = r.diagnostics.find((x) => x.message.includes('查询链无方法'));
+    expect(d?.file).toBe('02_query.tdsl');
+  });
+
+  it('单文件 parse：诊断 file 为 <stdin>', () => {
+    const app = parse("@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }\nlogic bad(): List<Order> {\n  return Order.where(nofield > 0);\n}\n");
+    const r = check(app);
+    const d = r.diagnostics.find((x) => x.message.includes('nofield'));
+    expect(d?.file).toBe('<stdin>');
   });
 });

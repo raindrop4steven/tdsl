@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parse, TdslSyntaxError, tokenize } from '../src/index';
+import { parse, parseProject, TdslSyntaxError, tokenize } from '../src/index';
 
 const SAMPLE = `
 @datasource('defaultDS')
@@ -597,5 +597,171 @@ logic bad(): List<Order> {
 }
 `),
     ).toThrow(/sideways/);
+  });
+});
+
+describe('parser/M7 多文件工程', () => {
+  const A = `@datasource('defaultDS')
+entity Order { id: Integer @pk; total: Decimal; }
+`;
+  const B = `@datasource('defaultDS')
+entity OrderItem { id: Integer @pk; orderId: Integer; }
+`;
+  const B_REF = `struct OrderInput { total: Decimal; }
+
+logic createOrder(input: OrderInput): Order {
+  result := new Order();
+  result.total = input.total;
+  return result;
+}
+`;
+
+  it('跨文件短名引用（logic 用别文件的 entity/struct）', () => {
+    const app = parseProject([
+      { path: 'a.tdsl', content: A },
+      { path: 'b.tdsl', content: B_REF },
+    ]);
+    expect(app.logics).toHaveLength(1);
+    expect(app.logics[0].returns[0].type).toMatchObject({
+      kind: 'reference',
+      path: 'app.datasources.defaultDS.entities.Order',
+    });
+    expect(app.structures[0].name).toBe('OrderInput');
+  });
+
+  it('文件顺序无关（倒序输入得到同构 AST）', () => {
+    const files = [
+      { path: 'b.tdsl', content: B },
+      { path: 'a.tdsl', content: A },
+      { path: 'c.tdsl', content: B_REF },
+    ];
+    const app = parseProject(files);
+    const reversed = parseProject([...files].reverse());
+    const shape = (x: typeof app) => ({
+      entities: x.datasources.flatMap((d) => d.entities.map((e) => e.name)).sort(),
+      structures: x.structures.map((s) => s.name),
+      logics: x.logics.map((l) => l.name),
+    });
+    expect(shape(app)).toEqual(shape(reversed));
+    // 引用绑定与文件顺序无关
+    expect(app.logics[0].returns[0].type).toMatchObject({
+      path: 'app.datasources.defaultDS.entities.Order',
+    });
+  });
+
+  it('同名 datasource 跨文件合并（两文件实体归同一 ds）', () => {
+    const app = parseProject([
+      { path: 'a.tdsl', content: A },
+      { path: 'b.tdsl', content: B },
+    ]);
+    expect(app.datasources).toHaveLength(1);
+    expect(app.datasources[0].name).toBe('defaultDS');
+    expect(app.datasources[0].entities.map((e) => e.name).sort()).toEqual(['Order', 'OrderItem']);
+  });
+
+  it('跨文件同数据源重名 entity 报错（消息含双文件）', () => {
+    const B2 = `@datasource('defaultDS')
+entity Order { id: Integer @pk; }
+`;
+    expect(() =>
+      parseProject([
+        { path: 'a.tdsl', content: A },
+        { path: 'b.tdsl', content: B2 },
+      ]),
+    ).toThrow(/a\.tdsl.*b\.tdsl|b\.tdsl.*a\.tdsl/);
+  });
+
+  it('跨文件重名 logic 报错（消息含双文件）', () => {
+    const B_LOGIC = `logic createOrder(): Integer {
+  return 0;
+}
+`;
+    const C_LOGIC = `logic createOrder(): Integer {
+  return 1;
+}
+`;
+    expect(() =>
+      parseProject([
+        { path: 'b.tdsl', content: B_LOGIC },
+        { path: 'c.tdsl', content: C_LOGIC },
+      ]),
+    ).toThrow(/b\.tdsl.*c\.tdsl|c\.tdsl.*b\.tdsl/);
+  });
+
+  it('跨数据源同名实体合法（M1 语义不变，引用需限定名）', () => {
+    const OTHER = `@datasource('erp')
+entity Order { id: Integer @pk; }
+`;
+    const app = parseProject([
+      { path: 'a.tdsl', content: A },
+      { path: 'erp.tdsl', content: OTHER },
+    ]);
+    expect(app.datasources.map((d) => d.name).sort()).toEqual(['defaultDS', 'erp']);
+    expect(app.datasources.every((d) => d.entities.length === 1)).toBe(true);
+  });
+
+  it('空文件合法（纯注释分片）', () => {
+    const app = parseProject([
+      { path: 'a.tdsl', content: A },
+      { path: 'empty.tdsl', content: '// 空文件，只有注释' },
+    ]);
+    expect(app.datasources[0].entities).toHaveLength(1);
+  });
+
+  it('app 名参数化（codegen 包名跟随）', () => {
+    const app = parseProject([{ path: 'a.tdsl', content: A }], 'erp-app');
+    expect(app.name).toBe('erp-app');
+  });
+
+  it('按功能纵向切：同文件混排多段 + 跨文件引用共享模型', () => {
+    const MODEL = `@datasource('defaultDS')
+entity Order { id: Integer @pk; total: Decimal; }
+struct OrderInput { total: Decimal; }
+`;
+    const FEATURE = `logic createOrder(input: OrderInput): Order {
+  result := new Order();
+  result.total = input.total;
+  return result;
+}
+
+page OrderCreate {
+  <form>
+    <button onClick={useMutation('createOrder')} />
+  </form>
+}
+`;
+    const app = parseProject([
+      { path: '01_order-model.tdsl', content: MODEL },
+      { path: '02_order-create.tdsl', content: FEATURE },
+    ]);
+    expect(app.logics[0].returns[0].type).toMatchObject({
+      path: 'app.datasources.defaultDS.entities.Order',
+    });
+    expect(app.views[0].name).toBe('OrderCreate');
+  });
+
+  it('parse 错误与顶层节点带来源文件标', () => {
+    const app = parseProject([
+      { path: 'a.tdsl', content: A },
+      { path: 'b.tdsl', content: B_REF },
+    ]);
+    expect(app.logics[0].file).toBe('b.tdsl');
+    expect(app.datasources[0].entities[0].file).toBe('a.tdsl');
+    try {
+      parseProject([{ path: 'bad.tdsl', content: 'entity {{{' }]);
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(TdslSyntaxError);
+      if (e instanceof TdslSyntaxError) expect(e.file).toBe('bad.tdsl');
+    }
+  });
+
+  it('parse() 单文件兼容入口：语义与 parseProject 单元素一致', () => {
+    const app = parse(A + B_REF);
+    expect(app.name).toBe('todo');
+    expect(app.logics[0].returns[0].type).toMatchObject({
+      path: 'app.datasources.defaultDS.entities.Order',
+    });
+    expect(app.logics[0].file).toBe('<stdin>');
   });
 });

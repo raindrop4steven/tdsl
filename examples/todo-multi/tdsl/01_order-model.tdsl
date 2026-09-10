@@ -1,0 +1,36 @@
+// M7 多文件工程示例：按功能纵向切（每功能域一个文件，共享数据模型独立成文件）
+// 本文件：共享数据模型（实体 + 结构）——多功能共用的数据归属
+// 拆分与单文件版 todo.tdsl 逐字节等价（仅文本切分），由 slice-multi.ts 对拍断言
+
+@datasource('defaultDS')
+
+entity Order {
+  id: Integer @pk;
+  customer: String;
+  total: Decimal;
+  status: String;
+}
+
+entity OrderItem {
+  id: Integer @pk;
+  orderId: Integer;
+  product: String;
+  price: Decimal;
+  qty: Integer;
+}
+
+struct OrderInput {
+  customer: String;
+  items: List<OrderItemInput>;
+}
+
+struct OrderItemInput {
+  product: String;
+  price: Decimal;
+  qty: Integer;
+}
+
+struct OrderDetail {
+  order: Order;
+  items: List<OrderItem>;
+}

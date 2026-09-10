@@ -1,0 +1,48 @@
+// 下单功能域：下单逻辑 + 对外接口 + 创建页
+// 跨文件短名引用：Order/OrderInput 来自 01_order-model.tdsl（无 import，全局命名空间）
+
+@export
+logic createOrder(input: OrderInput): Order {
+  if (input.items.count === 0) {
+    return null;
+  }
+  order := new Order();
+  order.customer = input.customer;
+  order.total = 0;
+  order.save();
+  for (it in input.items) {
+    item := new OrderItem();
+    item.orderId = order.id;
+    item.product = it.product;
+    item.price = it.price;
+    item.qty = it.qty;
+    item.save();
+    order.total = order.total + it.price * it.qty;
+  }
+  order.save();
+  return order;
+}
+
+interface OrderApi {
+  GET    '/api/orders'      -> listOrders
+  POST   '/api/orders'      -> createOrder
+  GET    '/api/orders/{id}' -> getOrderDetail
+  DELETE '/api/orders/{id}' -> deleteOrder
+  GET    '/api/orders/search'        -> searchOrders
+  GET    '/api/orders/top'           -> topOrders
+  GET    '/api/orders/page'          -> pageOrders
+  GET    '/api/orders/stats'         -> orderStats
+  GET    '/api/orders/sum-by-customer' -> sumByCustomer
+}
+
+page OrderCreate {
+  <form submit={useMutation('createOrder')}>
+    <input field="customer" />
+    <repeat field="items">
+      <input field="product" />
+      <input field="price" />
+      <input field="qty" />
+    </repeat>
+    <button text="提交" />
+  </form>
+}

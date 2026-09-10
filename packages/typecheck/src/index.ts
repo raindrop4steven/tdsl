@@ -16,6 +16,8 @@ export interface Diagnostic {
   path: string;
   line?: number;
   col?: number;
+  /** 所在文件（多文件工程 M7：由诊断 path 反查顶层声明节点得；单文件为 '<stdin>'，可忽略） */
+  file?: string;
   message: string;
   severity: 'error' | 'warning';
 }
@@ -217,7 +219,46 @@ export function check(app: AppNode): CheckResult {
     checkView(app, v.elements, diagnostics, ownerPath);
   }
 
+  // 6. 文件定位（M7 多文件工程）：按诊断 path 反查所属顶层声明节点的来源文件
+  const files = fileMapOf(app);
+  for (const d of diagnostics) {
+    const f = fileOfPath(files, d.path);
+    if (f) d.file = f;
+  }
+
   return { ok: diagnostics.length === 0, diagnostics };
+}
+
+/** nodePath → 所在文件（顶层声明节点的 file 标） */
+function fileMapOf(app: AppNode): Map<string, string> {
+  const map = new Map<string, string>();
+  const put = (p: string, node: BaseNode): void => {
+    if (node.file) map.set(p, node.file);
+  };
+  app.datasources.forEach((ds) => {
+    put(`app.datasources.${ds.name}`, ds);
+    ds.entities.forEach((e) => put(`app.datasources.${ds.name}.entities.${e.name}`, e));
+  });
+  app.structures.forEach((s) => put(`app.structures.${s.name}`, s));
+  app.enums.forEach((e) => put(`app.enums.${e.name}`, e));
+  app.logics.forEach((l) => put(`app.logics.${l.name}`, l));
+  app.interfaces.forEach((i) => put(`app.interfaces.${i.name}`, i));
+  app.views.forEach((v) => put(`app.views.${v.name}`, v));
+  app.services.forEach((s) => put(`app.services.${s.name}`, s));
+  app.components.forEach((c) => put(`app.components.${c.name}`, c));
+  return map;
+}
+
+/** path 向上回溯找最近带 file 的顶层声明（如 ...Order.properties.total → Order.file） */
+function fileOfPath(map: Map<string, string>, path: string): string | undefined {
+  let p = path;
+  for (;;) {
+    const hit = map.get(p);
+    if (hit) return hit;
+    const i = p.lastIndexOf('.');
+    if (i < 0) return undefined;
+    p = p.slice(0, i);
+  }
 }
 
 /** 已知 ViewElement 组件类型 */

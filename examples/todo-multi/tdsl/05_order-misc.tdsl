@@ -1,0 +1,11 @@
+// 辅助功能域：删除（级联删除明细）
+
+@export
+logic deleteOrder(id: Integer): Boolean {
+  order := Order.get(id);
+  for (it in OrderItem.where(orderId = id)) {
+    it.delete();
+  }
+  order.delete();
+  return true;
+}

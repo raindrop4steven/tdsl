@@ -6,7 +6,7 @@
 export const SYNTAX_CHEATSHEET = `// ===== TDSL 语法速查（形态一览，语义见示例）=====
 
 // ---- 声明（领域扩展，TS 无对应）----
-@datasource('dsName')        // 声明/切换数据源；此后 entity 归入该数据源；跨源同名实体引用用 dsName.Entity
+@datasource('dsName')        // 独立顶层语句（非实体修饰符）：声明/切换当前数据源，此后 entity 归入它直到下一次切换；跨源同名实体引用用 dsName.Entity
 entity Order { id: Integer @pk; total: Decimal; createdAt: DateTime }  // 注解: @pk @nullable @unique
 struct OrderInput { items: List<OrderItemInput> }                      // DTO / 嵌套结构
 enum Priority { LOW, HIGH }

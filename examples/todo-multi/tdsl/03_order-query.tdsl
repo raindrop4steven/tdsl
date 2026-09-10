@@ -1,0 +1,44 @@
+// 查询功能域：列表 + M2 查询语言（where 复合条件 / 排序 / 分页 / 聚合）+ 列表页
+
+@export
+logic listOrders(): List<Order> {
+  return Order.all;
+}
+
+// ---- M2：查询语言（where 复合条件 / 排序 / 分页 / 聚合） ----
+
+@export
+logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+  return Order.where(customer like '%' + customer + '%', total >= minTotal);
+}
+
+@export
+logic topOrders(): List<Order> {
+  return Order.where(total > 0).orderBy(total desc).limit(10);
+}
+
+@export
+logic pageOrders(n: Integer, size: Integer): Page<Order> {
+  return Order.where(total > 0).orderBy(total desc).page(n, size);
+}
+
+@export
+logic orderStats(): Decimal {
+  return Order.aggregate(sum(total));
+}
+
+@export
+logic sumByCustomer(): List<Map<Object>> {
+  return Order.aggregate(sum(total)).groupBy(customer);
+}
+
+page OrderList {
+  <table dataSource={useQuery('listOrders')}>
+    <column field="id" />
+    <column field="customer" />
+    <column field="total" />
+    <button text="详情" action={navigate('OrderDetail', row.id)} />
+    <button text="删除" action={useMutation('deleteOrder', row.id)} />
+  </table>
+  <button text="新增订单" action={navigate('OrderCreate')} />
+}

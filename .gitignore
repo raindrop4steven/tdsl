@@ -1,5 +1,6 @@
 node_modules/
 examples/todo-app/generated/
+examples/todo-multi/generated/
 *.log
 .DS_Store
 .omo/

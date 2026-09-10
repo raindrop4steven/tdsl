@@ -26,6 +26,7 @@ export const EXAMPLES: Example[] = [
     keywords: ['crud', '单表', '列表', '表单', '增删改查', 'todo', '管理'],
     tdsl: `// CRUD 单表：全套最小形态
 @datasource('defaultDS')
+
 entity Todo {
   id: Integer @pk;
   title: String;
@@ -98,6 +99,7 @@ page TodoCreate {
     keywords: ['订单', '主子表', '外键', '明细', 'order', '事务', 'repeat'],
     tdsl: `// 订单（扁平表 + 外键关联）：OrderItem.orderId 是普通外键字段
 @datasource('defaultDS')
+
 entity Order {
   id: Integer @pk;
   customer: String;
@@ -220,6 +222,7 @@ page OrderDetail {
     keywords: ['查询', '报表', '统计', '分页', '排序', '聚合', '搜索', 'report'],
     tdsl: `// 查询报表：where 复合条件 / 链式 / 聚合
 @datasource('defaultDS')
+
 entity Order {
   id: Integer @pk;
   customer: String;
