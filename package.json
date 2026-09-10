@@ -4,12 +4,15 @@
   "version": "0.0.1",
   "workspaces": [
     "packages/*",
-    "examples/todo-app"
+    "examples/todo-app",
+    "examples/todo-multi"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
     "playground": "npm run dev -w @tdsl/playground",
-    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit && tsc -p packages/playground --noEmit",
-    "slice": "npm run slice -w todo-app"
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit && tsc -p packages/playground --noEmit && tsc -p packages/cli --noEmit",
+    "dsl": "node packages/cli/bin/dsl.mjs",
+    "slice": "npm run slice -w todo-app",
+    "slice:multi": "npm run slice -w todo-multi"
   }
 }

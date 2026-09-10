@@ -3,7 +3,7 @@
 > 定位：**演进的记忆**，与 `AGENTS.md`（稳定的工作规则）互补。
 > 维护约定：每个重要节点（切面交付/关键决策/踩坑）由 AI 主动追加；读项目的顺序是
 > `AGENTS.md`（怎么干活）→ 本文件（干过什么）→ `docs/10_设计/设计总览.md`（设计是什么）。
-> 最后更新：2026-09（Playground 交付后）
+> 最后更新：2026-09（M8 CLI 交付后）
 
 ---
 
@@ -29,9 +29,9 @@
 
 ## 3. 当前状态快照（2026-09，Playground 交付后）
 
-- **139 单测全绿**：core 5 / parser 37 / typecheck 32 / codegen-java 28 / codegen-react 18 / llm 13 / playground 6；七包 strict typecheck 通过。
-- 演示入口：`npm run playground`（http://localhost:5173，离线可用）；端到端：`npm run slice`。
-- **下一步**（按当前优先级）：CLI（`dsl parse/check/generate/build`，也是编译服务地基）→ 真实 LLM 接入（provider 适配层）→ 评测基准（可编译率/build 通过率）。
+- **169 单测全绿**：core 5 / parser 48 / typecheck 35 / codegen-java 30 / codegen-react 18 / llm 13 / playground 6 / cli 14；八包 strict typecheck 通过。
+- 演示入口：`npm run playground`（http://localhost:5173，离线可用）；端到端：`npm run slice`（单文件）+ `npm run slice:multi`（M7 多文件对拍）；CLI：`npm run dsl -- check/build examples/todo-multi/tdsl`。
+- **下一步**（按当前优先级）：真实 LLM 接入（provider 适配层，CLI/管线已具备）→ 评测基准（可编译率/build 通过率，CLI 是天然采集器）→ M3/M5 视需求排期。
 
 ### 3.1 进度日志（按切面交付序，逐条追加）
 
@@ -47,6 +47,8 @@
 | 8 | 2026-09 | 文档简化 | 三份设计合并设计总览；删占位与 P0 历史；调研文件正名 | 17079b2 | docs 29→18 文件 |
 | 9 | 2026-09 | P2 Playground | packages/playground：Monaco 本地打包/四面板/防抖编译 | f12e5ce + 13f8104 | +6 单测 |
 | 10 | 2026-09 | 项目记忆 | memory.md（本文档） | 13f8104 | — |
+| 11 | 2026-09 | M7 多文件工程 | parseProject 分片合并（NASL 式全局命名空间、零 import）；诊断带 file；按功能纵向切示例 todo-multi（5 分片对拍）；顺带修复 declareGlobal 同段重名漏报 + codegen app 名合法校验 | 4f05527 | +16 单测，155 全绿 |
+| 12 | 2026-09 | M8 CLI | `dsl parse/check/generate/build`（bin 经 tsx ESM register 加载）；薄命令层（run(argv)→{code,stdout} 可测可复用）；app 名清洗；诊断人话化；端到端 build 验证 | 91adfcb | +14 单测，169 全绿 |
 
 ## 4. 踩过的坑（后来者必读）
 
@@ -58,6 +60,9 @@
 | `@tdsl/llm` 示例矩阵第一版就有内容 bug（Order 漏 total 字段） | "可编译性单测"不只是防漂移，还能抓示例本身的内容错误 |
 | Monaco 主 chunk ~3.5MB，vite build 有警告 | 演示场景接受；未来要优化用 manualChunks 拆 monaco |
 | 设计文档会滞后于代码（dev/14 现状盘点写于 M1 前） | 任何"现状"结论以实测为准：`npm test` + 读源码 |
+| 字符串比较式判重（`existing !== path`）对"同名同段"恒失效（path 恒等）→ 重名 logic 一直漏报 | 判重逻辑不能依赖 path 差异做同名检测；新增概念时补"同段同名"单测 |
+| app 名直接拿去当 Java 包名，带连字符就生成非法代码（app 名参数化 M7 才暴露） | 环境相关/外部拼入标识符的值，入口处校验合法性并抛清晰错误，不静默变形 |
+| `type AppNode` 从 `@tdsl/parser` 导入但 parser 不导出该类型 → TS 静默当 any，直到隐式 any 报错才暴露 | 语义核类型一律从 `@tdsl/core` 导入；新增包入口时检查 re-export 面 |
 
 ## 5. 文档地图（简化后的最终形态）
 

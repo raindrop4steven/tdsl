@@ -15,7 +15,7 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
                   (@tdsl/parser)  (@tdsl/core)  (@tdsl/typecheck) └─ codegen-react ──▶ Vite+React 工程（vite build ✓）
 ```
 
-## 2. 当前进度（2026-09 实测，139 单测全绿）
+## 2. 当前进度（2026-09 实测，169 单测全绿）
 
 | 里程碑 | 状态 |
 |--------|------|
@@ -28,9 +28,11 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 | M2 查询语言（where 复合条件、orderBy/page/limit、aggregate+groupBy） | ✅ |
 | P2 LLM Prompt Pack（示例矩阵/prompt 组装/诊断修复闭环，`packages/llm`，13 单测） | ✅ |
 | P2 Playground（浏览器试验台：Monaco + 实时诊断/AST/双端代码，`packages/playground`，6 单测） | ✅ |
+| M7 多文件工程（`parseProject` 分片合并、跨文件全局命名空间引用、诊断带 file、按功能纵向切示例 todo-multi 对拍） | ✅ |
+| M8 CLI（`dsl parse/check/generate/build`，多文件目录入口、app 名清洗、诊断人话化；`packages/cli`，14 单测） | ✅ |
 | M3 逻辑补全+typecheck 加深 / M5 数据完整性 / P2 llm·cli·playground | ⬜ 未开始 |
 
-设计文档：`docs/dev/12~19`（各里程碑）；总路线：`docs/dev/14`；项目级设计：`docs/10_设计/设计总览.md`。
+设计文档：`docs/dev/12~22`（各里程碑）；总路线：`docs/dev/14`；项目级设计：`docs/10_设计/设计总览.md`。
 
 ## 3. 核心工程约定（违反即打回）
 
@@ -46,9 +48,11 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 ## 4. 常用命令
 
 ```bash
-npm test              # 七包 vitest（139 个用例）
-npm run typecheck     # 七包 tsc --noEmit
+npm test              # 八包 vitest（169 个用例）
+npm run typecheck     # 八包 tsc --noEmit
+npm run dsl           # CLI：npm run dsl -- check examples/todo-multi/tdsl（parse/check/generate/build）
 npm run slice         # 端到端：todo.tdsl → parse → typecheck → 双端 codegen → mvn compile + vite build
+npm run slice:multi   # M7 多文件端到端：todo-multi 5 个功能域分片 → parseProject → 对拍单文件 → 双端 build
 npm run playground    # 浏览器试验台：http://localhost:5173（左编辑 TDSL，右看诊断/AST/双端代码）
 ```
 
@@ -67,6 +71,9 @@ examples/todo-app/
   todo.tdsl        # ★最佳样本：订单场景，一个文件覆盖全部已完成能力
   scripts/slice.ts # 端到端驱动（66 行）
   generated/       # 产物（gitignore 性质，独立构建）
+examples/todo-multi/
+  tdsl/*.tdsl      # M7 多文件示例：按功能纵向切 5 个分片（模型/下单/查询/详情/辅助）
+  scripts/slice-multi.ts # 多文件端到端 + 单文件对拍
 docs/
   00_参考资料/     # NASL 调研（NASL调研 + NASL设计原理调研汇报）
   10_设计/设计总览.md   # 项目级设计一份读完（原需求/系统/详细设计三份已合并删除）
