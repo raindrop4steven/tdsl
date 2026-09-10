@@ -666,7 +666,6 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
 
   // 页面级 state 名清单（input field + form 字段），供 button 的 mutation 实参适配引用
   const pageStates = [...collectInputFields(v), ...collectFormStateLines(app, v).map((l) => l.match(/\[(\w+),/)?.[1] ?? '')].filter(Boolean);
-  const body = v.elements.map((el) => genElement(app, el, queryVars, pageStates)).join('\n\n');
 
   const imports: string[] = [];
   // hooks 按需导入（useQuery/useMutation 分开）
@@ -703,8 +702,8 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   for (const comp of collectUsedComponents(app, v)) {
     imports.push(`import ${comp.name} from '${comp.pkg}';`);
   }
-  // 页面用到的 antd 组件 → import { Table, Button } from 'antd'（含 form 字段类型升级的 Select/DatePicker 等）
-  const antdNames = [...new Set([...collectAntdComponents(v), ...collectFormAntd(app, v)])];
+  // Card 页面容器 + antd 升级控件统一入 import
+  const antdNames = [...new Set([...collectAntdComponents(v), ...collectFormAntd(app, v), 'Card'])];
   if (antdNames.length > 0) {
     imports.push(`import { ${antdNames.join(', ')} } from 'antd';`);
   }
@@ -763,6 +762,15 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     );
   }
   // form/输入字段状态（hooks 提升到函数体顶部，避免内联 import）
+  // 管理端排版：有 table 的页面 → 页面级 input/button（搜索框+主操作）上提为工具栏一行；正文包进 Card
+  const toolbarEls = hasTable ? v.elements.filter((el) => el.type === 'input' || el.type === 'button') : [];
+  const restEls = v.elements.filter((el) => !toolbarEls.includes(el));
+  const body = restEls.map((el) => genElement(app, el, queryVars, pageStates)).join('\n\n');
+  const toolbar =
+    toolbarEls.length > 0
+      ? `<div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>` +
+        `\n${toolbarEls.map((el) => genElement(app, el, queryVars, pageStates)).join('\n')}\n</div>`
+      : '';
   const formStateLines = collectFormStateLines(app, v);
   hooksInit.push(...formStateLines);
 
@@ -771,9 +779,10 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
 export default function ${v.name}() {
 ${hooksInit.join('\n')}
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 760, margin: '0 auto', padding: 24 }}>
-${body}
-    </div>
+    <Card style={{ margin: '0 auto' }}>
+      <h2 style={{ marginTop: 0 }}>${v.name}</h2>
+${toolbar}${body}
+    </Card>
   );
 }
 `;
@@ -1486,15 +1495,44 @@ function routerFile(app: AppNode): GeneratedFile {
   const redirect = firstRoute ? `  <Route path="/" element={<Navigate to="${firstRoute}" replace />} />\n` : '';
   const imports = app.views.map((v) => `import ${v.name} from './pages/${v.name}';`).join('\n');
   const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
-  const content = `// 自动生成：页面路由（TDSL page）
-import { Routes, Route } from 'react-router-dom';
-${navImport}${imports}
+  // 管理端布局：顶部 Header（应用名）+ 左侧 Sider 菜单 + 右侧内容区（路由出口）
+  const menuItems = app.views.map((v) => `  { key: '${routePathOf(v)}', label: '${v.name}' },`).join('\n');
+  const content = `// 自动生成：页面路由 + 管理端布局（TDSL page）
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Layout, Menu } from 'antd';
+${imports}
+
+const { Header, Sider, Content } = Layout;
+
+const MENU_ITEMS = [
+${menuItems}
+];
 
 export default function App() {
+  const nav = useNavigate();
+  const base = '/' + (useLocation().pathname.split('/')[1] ?? '');
   return (
-    <Routes>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Header style={{ background: '#001529', color: '#fff', display: 'flex', alignItems: 'center', paddingInline: 24, fontWeight: 600, fontSize: 16 }}>
+        ${cap(app.name)} 管理系统
+      </Header>
+      <Layout>
+        <Sider width={200} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
+          <Menu
+            mode="inline"
+            selectedKeys={[base]}
+            items={MENU_ITEMS}
+            onClick={({ key }) => nav(String(key))}
+            style={{ height: '100%', borderInlineEnd: 'none' }}
+          />
+        </Sider>
+        <Content style={{ padding: 24, background: '#f5f5f5' }}>
+          <Routes>
 ${redirect}${routes}
-    </Routes>
+          </Routes>
+        </Content>
+      </Layout>
+    </Layout>
   );
 }
 `;

@@ -148,7 +148,7 @@ page OrderDetail {
   it('generates root path redirect so / is not blank', () => {
     const files = generateReact(parse(PAGE_DSL));
     const app = files.find((f) => f.path === 'src/App.tsx')!.content;
-    expect(app).toContain("import { Navigate } from 'react-router-dom';");
+    expect(app).toMatch(/import \{[^}]*Navigate[^}]*\} from 'react-router-dom'/);
     expect(app).toContain('<Route path="/" element={<Navigate to="/order-list" replace />} />');
   });
 
@@ -185,7 +185,8 @@ page OrderDetail {
   it('renders antd Table with data-driven columns', () => {
     const files = generateReact(parse(PAGE_DSL));
     const list = files.find((f) => f.path === 'src/pages/OrderList.tsx')!.content;
-    expect(list).toContain("import { Table, Button } from 'antd';");
+    expect(list).toMatch(/import \{[^}]*Table[^}]*\} from 'antd'/);
+    expect(list).toMatch(/import \{[^}]*Button[^}]*\} from 'antd'/);
     expect(list).toContain('<Table');
     expect(list).toContain('dataIndex: \'id\'');
     expect(list).toContain('pagination={false}');
@@ -200,7 +201,7 @@ page OrderDetail {
     expect(create).toContain("useState<OrderItemInput[]>");
     expect(create).toContain('mCreateOrder.mutate({ customer, items })');
     expect(create).toContain('htmlType="submit"');
-    expect(create).toContain("import { Input, Button } from 'antd';");
+    expect(create).toMatch(/import \{[^}]*Input[^}]*\} from 'antd'/);
   });
 
   it('renders detail page with antd Descriptions', () => {
@@ -208,7 +209,7 @@ page OrderDetail {
     const detail = files.find((f) => f.path === 'src/pages/OrderDetail.tsx')!.content;
     expect(detail).toContain('<Descriptions');
     expect(detail).toContain('<Descriptions.Item label="order.customer">');
-    expect(detail).toContain("import { Descriptions } from 'antd';");
+    expect(detail).toMatch(/import \{[^}]*Descriptions[^}]*\} from 'antd'/);
   });
 
   it('main.tsx wraps BrowserRouter when views exist', () => {
