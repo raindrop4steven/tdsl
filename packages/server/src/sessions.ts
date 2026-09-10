@@ -113,8 +113,9 @@ export function buildModelsJson(env: NodeJS.ProcessEnv = process.env): string | 
   const model = env.TDSL_LLM_MODEL;
   if (!baseUrl || !model) return null;
   const key = env.TDSL_LLM_API_KEY ?? 'placeholder';
-  // 兼容性开关透传（pi 省略时按“标准 OpenAI”探测，GLM 等端点需要显式覆盖，如 maxTokensField）
-  const compat = parseCompat(env.TDSL_LLM_COMPAT);
+  // 兼容性开关透传（pi 省略时按“标准 OpenAI”探测，GLM 等端点需要显式覆盖，如 maxTokensField）；
+  // OpenCode Go 等网关要求会话头路由（MissingSessionID），强制开启 session affinity（pi 从 sessionId 生成 x-session-id）
+  const compat = { sendSessionAffinityHeaders: true, ...parseCompat(env.TDSL_LLM_COMPAT) };
   return JSON.stringify(
     {
       providers: {

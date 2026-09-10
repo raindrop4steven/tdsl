@@ -204,11 +204,13 @@ describe('server/prompt + 配置', () => {
       TDSL_LLM_MODEL: 'glm-5.3-flash',
       TDSL_LLM_COMPAT: '{"supportsStore":false,"supportsDeveloperRole":false,"maxTokensField":"max_tokens"}',
     });
-    const parsed = JSON.parse(ok!) as { providers: Record<string, { models: { id: string; compat?: unknown }[] }> };
+    const parsed = JSON.parse(ok!) as { providers: Record<string, { models: { id: string; compat?: Record<string, unknown> }[] }> };
     expect(parsed.providers['tdsl-llm'].models[0]).toMatchObject({
       id: 'glm-5.3-flash',
       compat: { supportsDeveloperRole: false, maxTokensField: 'max_tokens' },
     });
+    // session affinity 强制开启（OpenCode Go 网关要求会话头路由）
+    expect(parsed.providers['tdsl-llm'].models[0].compat).toMatchObject({ sendSessionAffinityHeaders: true });
     // 非法 JSON → 忽略 compat，不阻断启动
     const bad = JSON.parse(
       buildModelsJson({
@@ -217,7 +219,7 @@ describe('server/prompt + 配置', () => {
         TDSL_LLM_COMPAT: 'not-json',
       })!,
     ) as { providers: Record<string, { models: Record<string, unknown>[] }> };
-    expect(bad.providers['tdsl-llm'].models[0]).toEqual({ id: 'm' });
+    expect(bad.providers['tdsl-llm'].models[0]).toEqual({ id: 'm', compat: { sendSessionAffinityHeaders: true } });
   });
 });
 
