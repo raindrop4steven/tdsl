@@ -68,19 +68,34 @@ function traceAppend(text) {
 
 async function connect(fresh) {
   try {
-    if (fresh || !sessionId) {
-      const r = await fetch('/api/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // 续用已有会话（localStorage 持久，浏览器重启也不丢）；服务端沙箱还在则恢复，失效则自动换新
-        body: JSON.stringify(sessionId ? { sessionId } : {}),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.sessionId) throw new Error(data.error || `会话创建失败 (HTTP ${r.status})`);
-      sessionId = data.sessionId;
-      localStorage.setItem('tdslSession', sessionId);
+    if (fresh) {
+      // 显式换新：清掉本地记录，不再携带旧 sessionId
+      sessionId = null;
+      localStorage.removeItem('tdslSession');
     }
-    const sock = new WebSocket(`ws://${location.host}/?sessionId=${sessionId}`);
+    const r = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // 续用已有会话（localStorage 持久，浏览器重启也不丢）；服务端沙箱失效 → catch 自动换新
+      body: JSON.stringify(sessionId ? { sessionId } : {}),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.sessionId) throw new Error(data.error || `会话创建失败 (HTTP ${r.status})`);
+    sessionId = data.sessionId;
+    localStorage.setItem('tdslSession', sessionId);
+  } catch (err) {
+    // 恢复失败（沙箱已失效/服务重启丢失）→ 清掉本地记录自动换新会话，不卡死
+    if (sessionId) {
+      sessionId = null;
+      localStorage.removeItem('tdslSession');
+      append('agent', '旧会话已失效，已自动创建新会话。');
+      return connect(true);
+    }
+    append('err', '初始化失败: ' + (err?.message ?? err));
+    return;
+  }
+  const sock = new WebSocket(`ws://${location.host}/?sessionId=${sessionId}`);
     ws = sock;
     sock.onopen = () => { retries = 0; sendBtn.disabled = false; };
     sock.onmessage = (ev) => {
@@ -128,9 +143,6 @@ async function connect(fresh) {
         append('err', '多次重连失败，请刷新页面并查看服务端控制台输出。');
       }
     };
-  } catch (err) {
-    append('err', '初始化失败: ' + (err?.message ?? err));
-  }
 }
 
 function send() {
