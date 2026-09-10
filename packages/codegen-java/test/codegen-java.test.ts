@@ -29,6 +29,13 @@ describe('codegen-java', () => {
     expect(names).toContain('pom.xml');
     expect(names).toContain('src/main/java/com/todo/TodoApplication.java');
     expect(names).toContain('src/main/resources/application.yml');
+    // M10 运行回路：脚手架自带探针端点 + 端口参数化
+    expect(names).toContain('src/main/java/com/todo/HealthController.java');
+    const health = files.find((f) => f.path.endsWith('HealthController.java'))!.content;
+    expect(health).toContain('@GetMapping("/healthz")');
+    const yml = files.find((f) => f.path === 'src/main/resources/application.yml')!.content;
+    expect(yml).toContain('TDSL_BACKEND_PORT');
+    expect(yml).toContain('ddl-auto: update');
   });
 
   it('generates JPA entity with getters/setters', () => {

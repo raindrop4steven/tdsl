@@ -54,7 +54,7 @@
   <li><a href="dev/21_系统设计-M7-多文件工程.md">dev/21 系统设计（M7 多文件工程）</a> <span class="badge done">已实现</span><br><span class="desc">NASL 式分片合并：目录即 app、零新语法、跨文件全局命名空间引用、@datasource 按文件隔离、诊断带 file 定位；parseProject(files) API + 按功能纵向切示例（todo-multi，5 分片对拍单文件）</span></li>
   <li><a href="dev/22_系统设计-M8-CLI.md">dev/22 系统设计（M8 CLI）</a> <span class="badge done">已实现</span><br><span class="desc">dsl parse/check/generate/build 四命令：多文件目录扫描、app 名清洗、诊断人话化、薄命令层（编译服务地基）；零新增依赖，tsx 加载 TS 源</span></li>
   <li><a href="dev/23_系统设计-M9-LLM接入-pi嵌入.md">dev/23 系统设计（M9 LLM 接入 · pi 嵌入）</a> <span class="badge done">已实现</span><br><span class="desc">在线 TDSL 工程 Agent：packages/server 嵌入 pi SDK（会话/压缩/工具循环免费），自写 TDSL 领域工具（compile_tdsl 裁判 + 多文件读写 + generate_code 落盘）；产物导出 zip、GLM/本地端点 env 注入、WS 流式</span></li>
-  <li><a href="dev/24_系统设计-M10-运行回路.md">dev/24 系统设计（M10 运行回路）</a> <span class="badge todo">已设计·待 Gate</span><br><span class="desc">前后端真正跑起来：runner 进程编排（mvn spring-boot:run + vite dev，H2 内存库零安装）+ 运行时错误自动回流（日志 grep + 前端 reporter）→ agent 改 DSL→编译→重启→日志确认的反馈闭环</span></li>
+  <li><a href="dev/24_系统设计-M10-运行回路.md">dev/24 系统设计（M10 运行回路）</a> <span class="badge done">已实现</span><br><span class="desc">前后端真正跑起来：runner 进程编排（mvn spring-boot:run + vite dev + /api 代理，H2 内存库零安装）+ run_app 编排工具 + 运行时错误自动回流（后端日志 grep + 前端 reporter）→ agent 改 DSL→编译→重启→日志确认的反馈闭环</span></li>
   <li>QA记录.xlsx（各切面问题跟踪，Gate 记录）</li>
 </ul>
 

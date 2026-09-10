@@ -498,8 +498,29 @@ public class ${cap(app.name)}Application {
 `,
     },
     {
+      // 运行探针（M10 runner 启动就绪检测用）
+      path: `src/main/java/${pkg.replaceAll('.', '/')}/HealthController.java`,
+      content: `package ${pkg};
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/** 运行探针：runner 以 GET /healthz 判定后端就绪 */
+@RestController
+public class HealthController {
+
+  @GetMapping("/healthz")
+  public java.util.Map<String, Object> healthz() {
+    return java.util.Map.of("ok", true);
+  }
+}
+`,
+    },
+    {
       path: 'src/main/resources/application.yml',
-      content: `spring:
+      content: `server:
+  port: \${TDSL_BACKEND_PORT:8080}
+spring:
   datasource:
     url: jdbc:h2:mem:${app.name}
     driver-class-name: org.h2.Driver
@@ -1148,11 +1169,21 @@ function genEndpointMethod(
   const logic = app.logics.find((l) => l.name === logicName);
   const returnType = logic?.returns[0] ? javaType(logic.returns[0].type) : 'void';
 
-  // 方法参数：path 变量 → @PathVariable；结构/实体 → @RequestBody
+  // 方法参数：path 变量 → @PathVariable；GET 标量 → @RequestParam 可选（agent/前端常只传部分参数，缺省给人话默认值）；结构/实体 → @RequestBody
   const params = (logic?.params ?? []).map((p) => {
     const isPathVar = ep.path.includes(`{${p.name}}`);
     if (isPathVar) {
       return `@PathVariable ${javaType(p.type)} ${p.name}`;
+    }
+    if (ep.method === 'GET') {
+      const t = p.type;
+      if (t.kind === 'primitive' && (t.builtin === 'String' || t.builtin === 'Date' || t.builtin === 'Time' || t.builtin === 'DateTime')) {
+        return `@RequestParam(value = "${p.name}", required = false, defaultValue = "") String ${p.name}`;
+      }
+      if (t.kind === 'reference' && app.enums.some((e) => e.name === typeNameFromPath(t.path))) {
+        return `@RequestParam(value = "${p.name}", required = false, defaultValue = "") ${javaType(t)} ${p.name}`;
+      }
+      return `@RequestParam(value = "${p.name}", required = false, defaultValue = "0") ${javaType(t)} ${p.name}`;
     }
     return `@RequestBody ${javaType(p.type)} ${p.name}`;
   });

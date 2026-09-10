@@ -15,6 +15,7 @@ import {
   type AgentSessionEvent,
 } from '@earendil-works/pi-coding-agent';
 import { EXAMPLES } from '@tdsl/llm';
+import { AppRunner, MAX_RUNNING_SESSIONS } from './runner';
 import { buildTools, systemPrompt } from './tools';
 import { Workspace } from './workspace';
 
@@ -22,27 +23,53 @@ export interface SessionEntry {
   id: string;
   session: AgentSession;
   ws: Workspace;
+  runner: AppRunner;
+}
+
+export interface SpawnOptions {
+  /** 进程拉起/终止注入（测试用假实现；index.ts 装配真实 spawn + tree-kill） */
+  spawnFn?: (cmd: string, args: string[], cwd: string, env: Record<string, string>) => import('node:child_process').ChildProcess;
+  killFn?: (pid: number) => void;
+  /** agent 服务基址（错误回流 URL 前缀），缺省取入口装配时的 PORT */
+  reportUrlBase?: string;
 }
 
 export class SessionTable {
   private sessions = new Map<string, Promise<SessionEntry>>();
   private counter = 0;
   private readonly baseDir: string;
+  private readonly spawnOpts: SpawnOptions;
 
   /** baseDir 缺省 = 系统临时目录（测试/演示免清理；生产部署配 TDSL_SESSION_DIR） */
-  constructor(baseDir?: string) {
+  constructor(baseDir?: string, spawnOpts?: SpawnOptions) {
     this.baseDir = baseDir ?? mkdtempSync(join(tmpdir(), 'tdsl-agent-'));
+    this.spawnOpts = spawnOpts ?? {};
   }
 
   get base(): string {
     return this.baseDir;
   }
 
-  /** 创建会话（异步装配 pi）；同 id 幂等 */
-  create(): Promise<SessionEntry> {
+  /** 创建会话（异步装配 pi）；同 id 幂等；全局并发上限保护 */
+  create(opts?: { reportUrlBase?: string }): Promise<SessionEntry> {
+    if (this.sessions.size >= MAX_RUNNING_SESSIONS) {
+      return Promise.reject(new Error(`并发会话已达上限（${MAX_RUNNING_SESSIONS}），请先结束已有会话`));
+    }
     this.counter++;
     const id = `s${this.counter}`;
-    const entry = createSession({ id, ws: this.newWorkspace(id), modelsJson: buildModelsJson() });
+    const ws = this.newWorkspace(id);
+    // runner：sessionSeq = counter-1（s1 → 8080/5173，s2 → 8081/5174…）；错误回流地址由入口注入
+    const reportUrl = opts?.reportUrlBase ?? this.spawnOpts.reportUrlBase
+      ? `${(opts?.reportUrlBase ?? this.spawnOpts.reportUrlBase)}/api/client-error?sessionId=${id}`
+      : process.env.TDSL_AGENT_REPORT_URL;
+    const runner = new AppRunner(
+      join(ws.root, 'generated', 'java'),
+      join(ws.root, 'generated', 'react'),
+      join(ws.root, 'logs'),
+      this.counter - 1,
+      { reportUrl, spawnFn: this.spawnOpts.spawnFn, killFn: this.spawnOpts.killFn },
+    );
+    const entry = createSession({ id, ws, modelsJson: buildModelsJson(), runner });
     this.sessions.set(id, entry);
     return entry;
   }
@@ -69,6 +96,7 @@ export class SessionTable {
       void promise
         .then((e) => {
           e.session.dispose();
+          e.runner.down();
           e.ws.dispose();
         })
         .catch(() => {
@@ -119,10 +147,12 @@ function parseCompat(raw: string | undefined): Record<string, boolean | string> 
 export async function createSession(opts: {
   id: string;
   ws: Workspace;
+  runner: AppRunner;
   modelsJson?: string | null;
   onEvent?: (e: AgentSessionEvent) => void;
+  onRunnerState?: () => void;
 }): Promise<SessionEntry> {
-  const { id, ws, modelsJson, onEvent } = opts;
+  const { id, ws, runner, modelsJson, onEvent } = opts;
 
   // auth/models 隔离到服务级临时目录（不污染用户全局 ~/.pi/agent）
   const agentDir = mkdtempSync(join(tmpdir(), 'tdsl-agent-svc-'));
@@ -143,7 +173,13 @@ export async function createSession(opts: {
   });
   await loader.reload();
 
-  const tools = buildTools(ws, appNameOf(id), (def) => piDefineTool(def as never) as unknown);
+  const tools = buildTools(
+    ws,
+    appNameOf(id),
+    (def) => piDefineTool(def as never) as unknown,
+    runner,
+    opts.onRunnerState,
+  );
   const { session } = await createAgentSession({
     cwd: ws.root,
     resourceLoader: loader,
@@ -153,7 +189,7 @@ export async function createSession(opts: {
     customTools: tools as never,
   });
 
-  const entry: SessionEntry = { id, session, ws };
+  const entry: SessionEntry = { id, session, ws, runner };
   if (onEvent) session.subscribe(onEvent);
   return entry;
 }

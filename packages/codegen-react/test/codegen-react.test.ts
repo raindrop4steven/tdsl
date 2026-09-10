@@ -56,7 +56,8 @@ describe('codegen-react', () => {
   it('generates App.tsx with real CRUD fetch (data-driven)', () => {
     const files = generateReact(parse(SAMPLE));
     const app = files.find((f) => f.path === 'src/App.tsx')!.content;
-    expect(app).toContain('http://localhost:8080');
+    // M10：API base 走 vite dev 代理（相对路径），不再硬编码端口
+    expect(app).not.toContain('localhost:8080');
     expect(app).toContain("fetch(API + '/api/todos')");
     expect(app).toContain("method: 'POST'");
     expect(app).toContain("method: 'DELETE'");

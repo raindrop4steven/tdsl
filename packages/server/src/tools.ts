@@ -10,6 +10,7 @@ import type { AppNode, GeneratedFile } from '@tdsl/core';
 import { parseProject, TdslSyntaxError } from '@tdsl/parser';
 import { check } from '@tdsl/typecheck';
 import { SYNTAX_CHEATSHEET } from '@tdsl/llm';
+import type { AppRunner } from './runner';
 import type { Workspace } from './workspace';
 
 // ---------- 逻辑层（可测） ----------
@@ -113,6 +114,9 @@ export function systemPrompt(): string {
     '- 表单必须绑定提交：<form submit={useMutation(\'逻辑名\')}>；提交按钮由生成器自动产生，不要再写单独的提交按钮。',
     '- 字段控件由生成器按类型升级（枚举→下拉、日期→日期选择器、数字→数字输入），agent 只写普通 <input field>，不要自造下拉。',
     '- 日期/时间字段用 Date/DateTime 类型；表单字段名必须与首参结构体的属性名一致。',
+    '- 编译通过不是交付标准：改完必须 run_app restart 并读 logs 确认无 ERROR 后再总结。',
+    '- 用户提供运行反馈（如“保存报 500”“页面白屏”）→ 先 run_app logs 定位，再改 DSL，编译→生成→restart→日志验证。',
+    '- 首次编译通过后主动 run_app up，并告知用户前端页面地址。',
     '- 每个文件开头用注释说明该功能域。',
     '- 需要更多示例形态时，读取 examples/ 目录下的示例文件。',
   ].join('\n');
@@ -142,6 +146,8 @@ export function buildTools(
   ws: Workspace,
   appName: string,
   defineTool: DefineToolFn,
+  runner?: AppRunner,
+  onState?: () => void,
 ): unknown[] {
   const write_files = defineTool({
     name: 'write_tdsl_files',
@@ -200,9 +206,45 @@ export function buildTools(
     execute: async () => {
       const report = compileSandbox(ws, appName);
       if (!report.ok || !report.app) return textResult(`先让编译通过再生成: ${report.feedback}`);
-      return textResult(generateAndSave(ws, report.app).feedback);
+      const r = generateAndSave(ws, report.app);
+      if (r.ok) {
+        return textResult(`${r.feedback}\n生成完成后建议调用 run_app restart 让改动生效（vite 页面会热更新，后端需重启）。`);
+      }
+      return textResult(r.feedback);
     },
   });
 
-  return [write_files, readFiles, compile, genCode];
+  // M10 运行回路：编排固定命令（非 bash），agent 自主起停前后端、读运行日志
+  const runApp = defineTool({
+    name: 'run_app',
+    label: '运行应用',
+    description: '编译产物的前后端运行编排：up 启动（vite dev + mvn spring-boot:run，H2 内存库）、down 停止、restart 重启（改动生效）、status 查看状态、logs 读运行日志（含前端报错自动回流）',
+    parameters: Type.Object({
+      action: Type.Union([Type.Literal('up'), Type.Literal('down'), Type.Literal('restart'), Type.Literal('status'), Type.Literal('logs')], {
+        description: 'up=启动 down=停止 restart=重启 status=状态 logs=日志',
+      }),
+      which: Type.Optional(Type.Union([Type.Literal('backend'), Type.Literal('frontend'), Type.Literal('client')], { description: 'logs 时的日志源，缺省=全部' })),
+    }),
+    execute: async (_id: string, params: { action: 'up' | 'down' | 'restart' | 'status' | 'logs'; which?: 'backend' | 'frontend' | 'client' }) => {
+      if (!runner) return textResult('运行器不可用（会话未装配 runner）');
+      const st = (): string => {
+        const s = runner.status();
+        return `后端 ${s.backend}（:${s.backendPort}） 前端 ${s.frontend}（:${s.frontendPort}） 前端页面 ${s.urls.frontend}`;
+      };
+      switch (params.action) {
+        case 'up':
+          return textResult(`${runner.up(onState)}\n当前：${st()}`);
+        case 'down':
+          return textResult(`${runner.down(onState)}\n当前：${st()}`);
+        case 'restart':
+          return textResult(`${await runner.restart(onState)}\n当前：${st()}`);
+        case 'status':
+          return textResult(st());
+        case 'logs':
+          return textResult(runner.logs(params.which));
+      }
+    },
+  });
+
+  return [write_files, readFiles, compile, genCode, runApp];
 }

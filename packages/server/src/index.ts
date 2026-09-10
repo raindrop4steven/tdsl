@@ -3,18 +3,26 @@
  * 启动：npm run server（8787）；模型配置见 docs/dev/23（TDSL_LLM_BASE_URL/MODEL/API_KEY，或 pi 默认 provider）。
  */
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
+import { spawn } from 'node:child_process';
+import kill from 'tree-kill';
 import { exportZip } from './export';
+import { AppRunner, RunnerStatus } from './runner';
 import { SessionTable, type SessionEntry } from './sessions';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.TDSL_SERVER_PORT ?? 8787);
 
-const table = new SessionTable();
+const table = new SessionTable(undefined, {
+  spawnFn: (cmd, args, cwd, env) =>
+    spawn(cmd, args, { cwd, env: { ...process.env, ...env }, shell: true, stdio: ['ignore', 'pipe', 'pipe'] }),
+  killFn: (pid) => kill(pid),
+  reportUrlBase: `http://localhost:${PORT}`,
+});
 
 /** 会话 id → 合法 Java 包名（与 sessions.ts appNameOf 同规则） */
 function appNameOf(id: string): string {
@@ -92,10 +100,50 @@ export function startServer(opts?: { table?: SessionTable }): void {
         });
       return;
     }
-    // 创建会话
+    // 运行状态（页面轮询）：/api/run-status/<sessionId>
+    const runMatch = /^\/api\/run-status\/([A-Za-z0-9]+)$/.exec(req.url ?? '');
+    if (runMatch && req.method === 'GET') {
+      void sessions
+        .get(runMatch[1])
+        .then((entry) => {
+          if (!entry) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'unknown session' }));
+            return;
+          }
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(entry.runner.status()));
+        })
+        .catch((err) => {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+        });
+      return;
+    }
+    // 前端运行时错误回流（M10）：生成页 reporter → 沙箱 logs/client.log → agent 经 run_app logs 检索
+    const errMatch = /^\/api\/client-error\?sessionId=([A-Za-z0-9]+)$/.exec(req.url ?? '');
+    if (errMatch && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += String(c)));
+      req.on('end', () => {
+        void sessions
+          .get(errMatch[1])
+          .then((entry0) => {
+            if (!entry0) {
+              res.end('unknown session');
+              return;
+            }
+            appendFileSync(join(entry0.ws.root, 'logs', 'client.log'), `[client-error] ${body}\n`);
+            res.end('ok');
+          })
+          .catch(() => res.end('unknown session'));
+      });
+      return;
+    }
+    // 创建会话（注入错误回流地址：agent 服务端口 + 会话 id）
     if (req.url === '/api/session' && req.method === 'POST') {
       void sessions
-        .create()
+        .create({ reportUrlBase: `http://localhost:${PORT}` })
         .then((e) => {
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ sessionId: e.id }));

@@ -17,6 +17,7 @@
     "@tdsl/parser": "*",
     "@tdsl/typecheck": "*",
     "jszip": "^3.10.2",
+    "tree-kill": "^1.2.2",
     "typebox": "1.3.7",
     "ws": "^8.18.0"
   },

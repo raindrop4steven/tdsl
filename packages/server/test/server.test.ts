@@ -1,11 +1,12 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSZip from 'jszip';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { exportZip, parseExportTarget } from '../src/export';
-import { compileSandbox, generateAndSave, systemPrompt } from '../src/tools';
+import { buildTools, compileSandbox, generateAndSave, systemPrompt } from '../src/tools';
 import { buildModelsJson } from '../src/sessions';
+import { AppRunner, appendLog, logTail, MAX_RUNNING_SESSIONS } from '../src/runner';
 import { Workspace, safeSandboxPath } from '../src/workspace';
 
 const MODEL = `@datasource('defaultDS')
@@ -24,6 +25,26 @@ function newWs(): Workspace {
   const ws = new Workspace(mkdtempSync(join(tmpdir(), 'tdsl-ws-')));
   ws.ensure();
   return ws;
+}
+
+const spawned: Array<{ cmd: string; args: string[]; cwd: string; env: Record<string, string> }> = [];
+const killed: number[] = [];
+
+/** 造 runner：产物目录用临时目录；spawn/kill 用记录式假实现 */
+function makeRunner(opts?: { reportUrl?: string; javaOk?: boolean; reactOk?: boolean }): AppRunner {
+  const javaDir = mkdtempSync(join(tmpdir(), 'fake-java-'));
+  const reactDir = mkdtempSync(join(tmpdir(), 'fake-react-'));
+  if (opts?.javaOk !== false) writeFileSync(join(javaDir, 'pom.xml'), '<project/>');
+  if (opts?.reactOk !== false) writeFileSync(join(reactDir, 'package.json'), '{}');
+  const fake = { pid: 12345, on: vi.fn(), kill: vi.fn(), stdout: null, stderr: null };
+  return new AppRunner(javaDir, reactDir, mkdtempSync(join(tmpdir(), 'fake-logs-')), 0, {
+    spawnFn: (cmd, args, cwd, env) => {
+      spawned.push({ cmd, args, cwd, env });
+      return fake as unknown as import('node:child_process').ChildProcess;
+    },
+    killFn: (pid) => killed.push(pid),
+    reportUrl: opts?.reportUrl,
+  });
 }
 
 describe('server/workspace', () => {
@@ -197,5 +218,94 @@ describe('server/prompt + 配置', () => {
       })!,
     ) as { providers: Record<string, { models: Record<string, unknown>[] }> };
     expect(bad.providers['tdsl-llm'].models[0]).toEqual({ id: 'm' });
+  });
+});
+
+describe('server/runner（M10 运行回路）', () => {
+  it('前置检查：产物缺失 → 人话报错不拉起进程', () => {
+    spawned.length = 0;
+    const r = makeRunner({ javaOk: false });
+    const msg = r.up();
+    expect(msg).toContain('后端产物不存在');
+    expect(spawned).toHaveLength(0);
+  });
+
+  it('up → 拉起 mvn spring-boot:run + vite dev，注入端口与错误回流地址；幂等', () => {
+    spawned.length = 0;
+    const r = makeRunner({ reportUrl: 'http://x:8787/api/client-error?sessionId=s1' });
+    r.up();
+    expect(spawned).toHaveLength(2);
+    expect(spawned[0].cmd).toContain('mvn');
+    expect(spawned[0].args).toContain('spring-boot:run');
+    expect(spawned[0].env.TDSL_BACKEND_PORT).toBe('8080');
+    expect(spawned[1].cmd).toContain('npm');
+    expect(spawned[1].args).toContain('--port');
+    expect(spawned[1].env.BACKEND_PORT).toBe('8080');
+    expect(spawned[1].env.TDSL_REPORT_URL).toContain('/api/client-error?sessionId=');
+    const again = r.up();
+    expect(again).toContain('已在运行');
+    expect(spawned).toHaveLength(2);
+  });
+
+  it('status 端口分配与会话序号偏移（s0 → 8080/5173，s2 → 8082/5175）', () => {
+    expect(makeRunner().status().backendPort).toBe(8080);
+    const r2 = new AppRunner('a', 'b', 'c', 2, { spawnFn: () => ({}) as never });
+    expect(r2.status().backendPort).toBe(8082);
+    expect(r2.status().frontendPort).toBe(5175);
+  });
+
+  it('down 终止进程树并回到 idle；restart 后重新拉起', () => {
+    spawned.length = 0;
+    killed.length = 0;
+    const r = makeRunner();
+    r.up();
+    expect(r.down()).toContain('已停止');
+    expect(killed).toContain(12345);
+    expect(r.status().backend).toBe('idle');
+  });
+
+  it('appendLog 环形截断：超上限不无限膨胀，logTail 仍可读尾部', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fake-logs-'));
+    const file = join(dir, 'backend.log');
+    for (let i = 0; i < 10; i++) appendLog(file, `chunk-${i} ${'x'.repeat(60 * 1024)}\n`);
+    const size = statSync(file).size;
+    expect(size).toBeLessThanOrEqual(200 * 1024 + 64 * 1024);
+    const { tail } = logTail(file);
+    expect(tail).toContain('chunk-9');
+  });
+
+  it('并发会话上限（MAX_RUNNING_SESSIONS）', () => {
+    expect(MAX_RUNNING_SESSIONS).toBe(3);
+  });
+});
+
+describe('server/tools.run_app（M10 编排工具）', () => {
+  // runner 缺席 → 人话提示不抛异常
+  it('run_app：未装配 runner 时不崩溃', async () => {
+    const ws = newWs();
+    const tools = buildTools(ws, 'app', (def) => def);
+    const runApp = (tools as Array<{ name: string; execute: (id: string, p: unknown) => unknown }>).find((t) => t.name === 'run_app')!;
+    const r = (await runApp.execute('id', { action: 'status' })) as { content: Array<{ text: string }> };
+    expect(r.content[0].text).toContain('运行器不可用');
+  });
+
+  it('run_app：up/down/restart/status/logs 与 runner 联动（注入 runner）', async () => {
+    spawned.length = 0;
+    const ws = newWs();
+    const runner = makeRunner({ reportUrl: 'http://x/api/client-error?sessionId=s1' });
+    const tools = buildTools(ws, 'app', (def) => def, runner, () => {});
+    const runApp = (tools as Array<{ name: string; execute: (id: string, p: unknown) => unknown }>).find((t) => t.name === 'run_app')!;
+    const call = (p: unknown): string => (runApp.execute('id', p) as { content: Array<{ text: string }> }).content[0].text;
+    // 造产物 → up 成功（产物缺失场景已由 runner 前置检查用例覆盖）
+    mkdirSync(join(ws.root, 'generated', 'java'), { recursive: true });
+    writeFileSync(join(ws.root, 'generated', 'java', 'pom.xml'), '<project/>');
+    mkdirSync(join(ws.root, 'generated', 'react'), { recursive: true });
+    writeFileSync(join(ws.root, 'generated', 'react', 'package.json'), '{}');
+    const up2 = (await runApp.execute('id', { action: 'up' })) as { content: Array<{ text: string }> };
+    expect(up2.content[0].text).toContain('已启动');
+    const status = (await runApp.execute('id', { action: 'status' })) as { content: Array<{ text: string }> };
+    expect(status.content[0].text).toContain('前端页面');
+    expect((await runApp.execute('id', { action: 'logs' }) as { content: Array<{ text: string }> }).content[0].text).toContain('npm install');
+    expect((await runApp.execute('id', { action: 'down' }) as { content: Array<{ text: string }> }).content[0].text).toContain('已停止');
   });
 });

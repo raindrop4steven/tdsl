@@ -38,6 +38,8 @@
     <button class="exp" data-target="all" disabled>导出全部+tdsl源码 (zip)</button>
   </div>
   <div id="exportHint" style="color:#888;font-size:.85rem">agent 调用 generate_code 落盘后可导出</div>
+  <h3>运行状态（M10）</h3>
+  <div id="runPanel" style="font-size:.85rem;color:#555">轮询中…</div>
 </div>
 
 <script>
@@ -135,6 +137,19 @@ document.querySelectorAll('.exp').forEach((b) => {
   b.onclick = () => { location.href = `/api/export/${sessionId}/${b.dataset.target}`; };
 });
 connect(sessionStorage.getItem('tdslSession') ? false : true);
+
+// 运行状态面板：2s 轮询（up 后可直接点开前端页面）
+setInterval(() => {
+  if (!sessionId) return;
+  fetch(`/api/run-status/${sessionId}`).then((r) => r.json()).then((s) => {
+    if (s.error) return;
+    const dot = (st) => ({ up: '🟢', starting: '🟡', failed: '🔴', idle: '⚪', down: '⚪' }[st] ?? '⚪');
+    document.getElementById('runPanel').innerHTML =
+      `${dot(s.backend)} 后端 ${s.backend} :${s.backendPort}<br>` +
+      `${dot(s.frontend)} 前端 ${s.frontend} :${s.frontendPort}<br>` +
+      (s.frontend === 'up' ? `<a href="${s.urls.frontend}" target="_blank">打开应用页面 ↗</a>` : '');
+  }).catch(() => {});
+}, 2000);
 </script>
 </body>
 </html>

@@ -97,6 +97,22 @@ import 'antd/dist/reset.css';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 
+declare const __REPORT_URL__: string;
+// 运行时错误回流 agent（M10）：vite dev 注入上报地址；自动采集未捕获异常/拒绝与 HTTP ≥400
+const REPORT_URL = typeof __REPORT_URL__ === 'string' ? __REPORT_URL__ : '';
+function report(payload: Record<string, unknown>): void {
+  if (!REPORT_URL) return;
+  window.fetch(REPORT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
+}
+window.addEventListener('error', (e) => report({ kind: 'error', message: String(e.message) }));
+window.addEventListener('unhandledrejection', (e) => report({ kind: 'rejection', message: String(e.reason) }));
+const origFetch = window.fetch.bind(window);
+window.fetch = async (...args: Parameters<typeof fetch>): Promise<Response> => {
+  const res = await origFetch(...args);
+  if (res.status >= 400) report({ kind: 'http', message: \`HTTP \${res.status} \${String(args[0])}\` });
+  return res;
+};
+
 ReactDOM.render(
   <React.StrictMode>
     <BrowserRouter>
@@ -154,8 +170,21 @@ registry=https://registry.npmjs.org/`,
       content: `import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// M10 运行回路：/api 代理到同会话后端（BACKEND_PORT 由 runner 注入）；
+// __REPORT_URL__ 由 runner 注入（前端运行时错误回流 agent 服务）
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: \`http://localhost:\${process.env.BACKEND_PORT ?? 8080}\`,
+        changeOrigin: true,
+      },
+    },
+  },
+  define: {
+    __REPORT_URL__: JSON.stringify(process.env.TDSL_REPORT_URL ?? ''),
+  },
 });
 `,
     },
@@ -282,7 +311,8 @@ import { ${ent.name}, ${inputStruct?.name ?? ent.name + 'Input'}${
     itemStruct ? `, ${itemStruct.name}` : ''
   } } from './types';
 
-const API = 'http://localhost:8080';
+// API base：走 vite dev 代理（/api → 同会话后端端口，M10 运行回路），相对路径免跨域
+const API = '';
 
 export default function App() {
   const [items, setItems] = useState<${ent.name}[]>([]);
@@ -485,7 +515,7 @@ function apiFile(app: AppNode): GeneratedFile {
   const typeImport =
     usedTypesSet.size > 0 ? `import type { ${[...usedTypesSet].join(', ')} } from './types';\n` : '';
   const content = `// 自动生成：接口 → fetch 封装（TDSL interface）
-${typeImport}const API = 'http://localhost:8080';
+${typeImport}const API = '';
 
 ${funcs.join('\n')}
 `;
