@@ -2,7 +2,7 @@
  * 会话装配（M9）：id → { AgentSession, Workspace }。
  * pi 承担 turn loop / 上下文压缩 / 会话持久化；本层只做沙箱 + 工具 + 提示词装配与事件转发。
  */
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -41,9 +41,20 @@ export class SessionTable {
   private readonly baseDir: string;
   private readonly spawnOpts: SpawnOptions;
 
-  /** baseDir 缺省 = 系统临时目录（测试/演示免清理；生产部署配 TDSL_SESSION_DIR） */
+  /** baseDir 缺省 = 系统临时目录（测试/演示免清理；跨重启恢复需显式传固定目录，如 packages/server/.sessions） */
   constructor(baseDir?: string, spawnOpts?: SpawnOptions) {
     this.baseDir = baseDir ?? mkdtempSync(join(tmpdir(), 'tdsl-agent-'));
+    // 会话编号续用：扫已存在的 s<N> 目录，避免重启后新会话与磁盘上旧沙箱撞名
+    try {
+      const seqs = existsSync(this.baseDir)
+        ? readdirSync(this.baseDir)
+            .filter((d) => /^s\d+$/.test(d))
+            .map((d) => Number.parseInt(d.slice(1), 10))
+        : [];
+      this.counter = seqs.length > 0 ? Math.max(...seqs) : 0;
+    } catch {
+      this.counter = 0;
+    }
     this.spawnOpts = spawnOpts ?? {};
   }
 
@@ -90,6 +101,32 @@ export class SessionTable {
     ws.ensure();
     injectExamples(ws);
     return ws;
+  }
+
+  /** 恢复已有会话（刷新/服务重启后续用）：沙箱目录还在 → 以该目录重建（文件即状态；聊天历史不保留） */
+  async restore(id: string, opts?: { reportUrlBase?: string }): Promise<SessionEntry> {
+    const existing = await this.get(id);
+    if (existing) return existing;
+    const dir = join(this.baseDir, id);
+    if (!existsSync(join(dir, 'tdsl'))) {
+      return Promise.reject(new Error(`会话 ${id} 不存在或已失效`));
+    }
+    const ws = new Workspace(dir);
+    ws.ensure();
+    const seq = Math.max(0, (Number.parseInt(id.replace(/\D/g, ''), 10) || 1) - 1);
+    const reportUrl = (opts?.reportUrlBase ?? this.spawnOpts.reportUrlBase)
+      ? `${(opts?.reportUrlBase ?? this.spawnOpts.reportUrlBase)}/api/client-error?sessionId=${id}`
+      : process.env.TDSL_AGENT_REPORT_URL;
+    const runner = new AppRunner(
+      join(ws.root, 'generated', 'java'),
+      join(ws.root, 'generated', 'react'),
+      join(ws.root, 'logs'),
+      seq,
+      { reportUrl, spawnFn: this.spawnOpts.spawnFn, killFn: this.spawnOpts.killFn },
+    );
+    const entry = createSession({ id, ws, modelsJson: buildModelsJson(), runner });
+    this.sessions.set(id, entry);
+    return entry;
   }
 
   disposeAll(): void {

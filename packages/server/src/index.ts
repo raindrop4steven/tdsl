@@ -3,7 +3,7 @@
  * 启动：npm run server（8787）；模型配置见 docs/dev/23（TDSL_LLM_BASE_URL/MODEL/API_KEY，或 pi 默认 provider）。
  */
 import { createServer } from 'node:http';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
@@ -17,7 +17,10 @@ import { SessionTable, type SessionEntry } from './sessions';
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.TDSL_SERVER_PORT ?? 8787);
 
-const table = new SessionTable(undefined, {
+// 会话沙箱固定位置（跨重启可恢复）；.sessions 已 gitignore
+const SESSION_DIR = join(ROOT, '..', '.sessions');
+if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
+const table = new SessionTable(SESSION_DIR, {
   spawnFn: (cmd, args, cwd, env) =>
     spawn(cmd, args, { cwd, env: { ...process.env, ...env }, shell: true, stdio: ['ignore', 'pipe', 'pipe'] }),
   killFn: (pid) => kill(pid),
@@ -201,18 +204,31 @@ export function startServer(opts?: { table?: SessionTable }): void {
         });
       return;
     }
-    // 创建会话（注入错误回流地址：agent 服务端口 + 会话 id）
+    // 创建/恢复会话（body 带 sessionId = 恢复；沙箱失效则服务端报错，前端自动换新）
     if (req.url === '/api/session' && req.method === 'POST') {
-      void sessions
-        .create({ reportUrlBase: `http://localhost:${PORT}` })
-        .then((e) => {
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ sessionId: e.id }));
-        })
-        .catch((err) => {
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-        });
+      let body = '';
+      req.on('data', (c: Buffer) => (body += String(c)));
+      req.on('end', () => {
+        let resumeId: string | undefined;
+        try {
+          const parsed = JSON.parse(body) as { sessionId?: string };
+          resumeId = typeof parsed?.sessionId === 'string' ? parsed.sessionId : undefined;
+        } catch {
+          /* 空 body = 新建 */
+        }
+        const work = resumeId
+          ? sessions.restore(resumeId, { reportUrlBase: `http://localhost:${PORT}` })
+          : sessions.create({ reportUrlBase: `http://localhost:${PORT}` });
+        void work
+          .then((e) => {
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ sessionId: e.id, restored: resumeId !== undefined }));
+          })
+          .catch((err) => {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+          });
+      });
       return;
     }
     res.statusCode = 404;

@@ -53,7 +53,7 @@
 <script>
 const log = document.getElementById('log'), trace = document.getElementById('trace');
 const input = document.getElementById('input'), sendBtn = document.getElementById('send');
-let sessionId = null, ws = null, retries = 0;
+let sessionId = sessionStorage.getItem('tdslSession'), ws = null, retries = 0;
 
 function append(cls, text) {
   const div = document.createElement('div');
@@ -69,11 +69,16 @@ function traceAppend(text) {
 async function connect(fresh) {
   try {
     if (fresh || !sessionId) {
-      const r = await fetch('/api/session', { method: 'POST' });
+      const r = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // 续用已有会话（localStorage 持久，浏览器重启也不丢）；服务端沙箱还在则恢复，失效则自动换新
+        body: JSON.stringify(sessionId ? { sessionId } : {}),
+      });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.sessionId) throw new Error(data.error || `会话创建失败 (HTTP ${r.status})`);
       sessionId = data.sessionId;
-      sessionStorage.setItem('tdslSession', sessionId);
+      localStorage.setItem('tdslSession', sessionId);
     }
     const sock = new WebSocket(`ws://${location.host}/?sessionId=${sessionId}`);
     ws = sock;
@@ -144,7 +149,7 @@ input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
 document.querySelectorAll('.exp').forEach((b) => {
   b.onclick = () => { location.href = `/api/export/${sessionId}/${b.dataset.target}`; };
 });
-connect(sessionStorage.getItem('tdslSession') ? false : true);
+connect(localStorage.getItem('tdslSession') ? false : true);
 
 // 🐞 调试面板：轮询 /api/agent-log（agent 事件日志：模型请求/返回/工具/错误/重试）
 let dbgOn = false;
