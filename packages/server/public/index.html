@@ -66,6 +66,29 @@ function traceAppend(text) {
   trace.scrollTop = trace.scrollHeight; return div;
 }
 
+// 🤔 思考中指示器：GLM 等思考型模型先思考（不产出正文），显示状态避免看起来卡死
+let thinkingEl = null, thinkingTimer = null, thinkingStart = 0;
+function showThinking() {
+  if (!thinkingEl) {
+    thinkingEl = document.createElement('div');
+    thinkingEl.className = 'agent';
+    thinkingEl.style.color = '#888';
+    log.appendChild(thinkingEl);
+  }
+  if (!thinkingTimer) {
+    thinkingStart = Date.now();
+    thinkingTimer = setInterval(() => {
+      if (thinkingEl) thinkingEl.textContent = `🤔 思考中… (${Math.round((Date.now() - thinkingStart) / 1000)}s)`;
+    }, 500);
+  }
+  thinkingEl.textContent = '🤔 思考中…';
+  log.scrollTop = log.scrollHeight;
+}
+function hideThinking() {
+  if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
+  if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+}
+
 async function connect(fresh) {
   try {
     if (fresh) {
@@ -115,11 +138,13 @@ async function connect(fresh) {
         return;
       }
       if (e.type === 'delta') {
+        hideThinking();
         if (!ws._cur || ws._curDone) { ws._cur = append('agent', ''); ws._curDone = false; }
         ws._cur.textContent += e.text;
         log.scrollTop = log.scrollHeight;
       }
-      if (e.type === 'message_end' && e.role === 'assistant') ws._curDone = true;
+      if (e.type === 'thinking') showThinking();
+      if (e.type === 'message_end' && e.role === 'assistant') { ws._curDone = true; hideThinking(); }
       if (e.type === 'error') { append('err', '⚠ ' + e.message); }
       if (e.type === 'tool_start') ws._toolDiv = traceAppend(`▶ ${e.tool} ${JSON.stringify(e.args ?? {}).slice(0, 400)}`);
       if (e.type === 'tool_end') {

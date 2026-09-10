@@ -301,6 +301,10 @@ function slimEvent(event: AgentSessionEvent): SlimEvent {
       if (event.assistantMessageEvent.type === 'text_delta') {
         return { type: 'delta', text: event.assistantMessageEvent.delta };
       }
+      // 思考过程心跳：GLM 等思考型模型先思考后正文，透出状态避免“看起来卡死”
+      if (event.assistantMessageEvent.type === 'thinking_delta') {
+        return { type: 'thinking' };
+      }
       return null;
     case 'message_start':
     case 'message_end':
