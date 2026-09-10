@@ -1,9 +1,12 @@
 node_modules/
 examples/todo-app/generated/
 examples/todo-multi/generated/
+packages/server/.sessions/
 *.log
 .DS_Store
 .omo/
 .codegraph/
 .playwright-mcp/
 packages/*/dist/
+start-server.sh
+start-server.cmd

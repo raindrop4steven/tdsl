@@ -1,0 +1,30 @@
+{
+  "name": "@tdsl/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "M9 在线 TDSL 工程 Agent：嵌入 pi SDK 的独立 Web 服务",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@tdsl/codegen-java": "*",
+    "@tdsl/codegen-react": "*",
+    "@tdsl/core": "*",
+    "@tdsl/llm": "*",
+    "@tdsl/parser": "*",
+    "@tdsl/typecheck": "*",
+    "jszip": "^3.10.2",
+    "typebox": "1.3.7",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
