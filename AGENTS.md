@@ -30,7 +30,8 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 | P2 Playground（浏览器试验台：Monaco + 实时诊断/AST/双端代码，`packages/playground`，6 单测） | ✅ |
 | M7 多文件工程（`parseProject` 分片合并、跨文件全局命名空间引用、诊断带 file、按功能纵向切示例 todo-multi 对拍） | ✅ |
 | M8 CLI（`dsl parse/check/generate/build`，多文件目录入口、app 名清洗、诊断人话化；`packages/cli`，14 单测） | ✅ |
-| M3 逻辑补全+typecheck 加深 / M5 数据完整性 / P2 llm·cli·playground | ⬜ 未开始 |
+| M9 在线 TDSL Agent（`npm run server` 嵌入 pi SDK：聊天页+WS 流式、compile_tdsl 裁判、沙箱分片读写、产物落盘+导出 zip；`packages/server`，14 单测；设计见 dev/23） | ✅ |
+| M3 逻辑补全+typecheck 加深 / M5 数据完整性 / 评测基准 | ⬜ 未开始 |
 
 设计文档：`docs/dev/12~22`（各里程碑）；总路线：`docs/dev/14`；项目级设计：`docs/10_设计/设计总览.md`。
 
