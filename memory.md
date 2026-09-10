@@ -27,12 +27,26 @@
 | 2026-09 | 不用 Monaco TS 语言服务，自写 monarch 高亮 | TDSL 不是 TS，TS 语言服务会报无意义的红色波浪线 |
 | 2026-09 | 文档体系简化：10/20/30 三份设计合并为 `10_设计/设计总览.md`；删占位目录与 P0 历史切面 | 类型 SSoT 是 `packages/core/src/types.ts`，文档只留速览；P0 历史由教程 00-05 承载 |
 
-## 3. 当前状态快照（2026-09）
+## 3. 当前状态快照（2026-09，Playground 交付后）
 
 - **139 单测全绿**：core 5 / parser 37 / typecheck 32 / codegen-java 28 / codegen-react 18 / llm 13 / playground 6；七包 strict typecheck 通过。
-- 已完成：P0 五包闭环 → P1 CRUD → P2 复杂逻辑 → M1 命名空间 → M4 View 声明层 → M6 外部能力 → M2 查询语言 → Prompt Pack（packages/llm）→ Playground（packages/playground）。
 - 演示入口：`npm run playground`（http://localhost:5173，离线可用）；端到端：`npm run slice`。
 - **下一步**（按当前优先级）：CLI（`dsl parse/check/generate/build`，也是编译服务地基）→ 真实 LLM 接入（provider 适配层）→ 评测基准（可编译率/build 通过率）。
+
+### 3.1 进度日志（按切面交付序，逐条追加）
+
+| # | 日期 | 切面 | 交付物 | 提交 | 关键数 |
+|---|------|------|--------|------|--------|
+| 1 | 2026-09 | P0 五包闭环 | core/parser/typecheck/codegen-java/codegen-react + todo-app demo | （早期提交） | 26 单测，双端 build ✓ |
+| 2 | 2026-09 | P1 CRUD | interface 语法/Controller/真实 CRUD fetch | （早期提交） | — |
+| 3 | 2026-09 | P2 复杂逻辑 | 运算符/List 方法/where 单条件/@Transactional/Decimal 算术/主子表 UI | （早期提交） | 51 单测 |
+| 4 | 2026-09 | M1 命名空间 | 分层符号表/限定名 ds.Entity/歧义报错 | （早期提交） | — |
+| 5 | 2026-09 | M4 View 声明层 + M6 外部能力 + M2 查询语言 | page 声明/多页面路由/antd 映射；service+component；where 复合/链式/聚合 | （早期提交） | 120 单测 |
+| 6 | 2026-09 | 文档体系 | Tour（06_项目Tour）+ AGENTS.md 重写 + D4 口径修正 | 17079b2 | — |
+| 7 | 2026-09 | P2 Prompt Pack | packages/llm：示例矩阵/五层组装/诊断修复闭环/autoMatch | 3a7b519 | +13 单测 |
+| 8 | 2026-09 | 文档简化 | 三份设计合并设计总览；删占位与 P0 历史；调研文件正名 | 17079b2 | docs 29→18 文件 |
+| 9 | 2026-09 | P2 Playground | packages/playground：Monaco 本地打包/四面板/防抖编译 | f12e5ce + 13f8104 | +6 单测 |
+| 10 | 2026-09 | 项目记忆 | memory.md（本文档） | 13f8104 | — |
 
 ## 4. 踩过的坑（后来者必读）
 
