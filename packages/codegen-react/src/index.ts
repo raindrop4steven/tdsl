@@ -119,6 +119,11 @@ ReactDOM.render(
 `;
   return [
     {
+      path: '.npmrc',
+      content: `# 生成工程默认走公网 registry，不受使用机器的 npm 配置影响
+registry=https://registry.npmjs.org/`,
+    },
+    {
       path: 'package.json',
       content: `{
   "name": "${name}",
@@ -204,6 +209,14 @@ export default defineConfig({
 
 function typesFile(app: AppNode): GeneratedFile {
   const blocks: string[] = [];
+  // 枚举：TS 联合类型 + 同名常量对象（两者都要，页面可能只 import type 也可能用值）
+  for (const en of app.enums) {
+    const items = en.items.map((i) => i.name);
+    blocks.push(
+      `export type ${en.name} = ${items.map((s) => `'${s}'`).join(' | ')};\n` +
+        `export const ${en.name} = { ${items.map((i) => `${i}: '${i}'`).join(', ')} } as const;`,
+    );
+  }
   for (const ds of app.datasources) {
     for (const ent of ds.entities) {
       const fields = ent.properties.map((p) => `  ${p.name}: ${tsType(p.type)};`).join('\n');
@@ -495,25 +508,30 @@ function apiFunction(app: AppNode, itf: InterfaceNode, ep: EndpointNode): string
   const pathVars = ep.path.match(/\{(\w+)\}/g)?.map((m) => m.slice(1, -1)) ?? [];
   const queryParams = (logic?.params ?? []).filter((p) => !pathVars.includes(p.name));
   const method = ep.method;
+  // GET 的 query 参数可选化：调用方可少传（如只传搜索关键词），未传的参数不拼 query string
   const params: string[] = [
     ...pathVars.map((n) => {
       const p = logic?.params.find((pp) => pp.name === n);
       return `${n}: ${p ? tsType(p.type) : 'number'}`;
     }),
     ...(method === 'GET'
-      ? queryParams.map((p) => `${p.name}: ${tsType(p.type)}`)
+      ? queryParams.map((p) => `${p.name}?: ${tsType(p.type)}`)
       : queryParams.length > 0
         ? queryParams.map((p) => `body: ${tsType(p.type)}`)
         : []),
   ];
-  // URL：/api/orders/{id} → API + '/api/orders/' + id；GET 追加 query string
+  // URL：/api/orders/{id} → API + '/api/orders/' + id；GET 追加 query string（undefined 参数跳过）
   let urlExpr = buildUrlExpr(ep.path, pathVars);
   if (method === 'GET' && queryParams.length > 0) {
-    const qs = queryParams.map((p, i) => {
-      const sep = i === 0 ? '?' : '&';
-      return ` + '${sep}${p.name}=' + encodeURIComponent(String(${p.name}))`;
-    });
-    urlExpr = urlExpr + qs.join('');
+    const qsLines = queryParams
+      .map((p) => `  if (${p.name} !== undefined) qs.push('${p.name}=' + encodeURIComponent(String(${p.name})));`)
+    .join('\n');
+    urlExpr = `${urlExpr} + (qs.length ? '?' + qs.join('&') : '')`;
+    return `export function ${logicName}(${params.join(', ')}): Promise<${retType}> {
+  const qs: string[] = [];
+${qsLines}
+  return fetch(${urlExpr}).then((r) => r.json());
+}`;
   }
   const hasBody = method === 'POST' || method === 'PUT';
   const bodyExpr = hasBody && queryParams.length > 0 ? 'body' : undefined;
@@ -606,14 +624,19 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   const queryBindings = collectQueryBindings(v);
   const mutationBindings = collectMutationBindings(v);
   const navBindings = collectNavBindings(v);
-  const hasRoute = hasRouteParam(v.elements);
+  const hasTable = viewHasTable(v);
+  // detail 页模式：无 table 且 useQuery args 引用 row → row 别名 = 主查询结果，页面路由带 /:id
+  const rowSrc = hasTable ? undefined : queryBindings.find((b) => b.args.some((a) => exprHasIdent(a, 'row')));
+  const hasRoute = hasRouteParam(v.elements) || routeParamPages(app).has(v.name) || rowSrc !== undefined;
   const routePath = routePathOf(v) + (hasRoute ? '/:id' : '');
 
   // 查询 hooks 变量名：useQuery('listOrders') → qListOrders
   const queryVars = new Map<string, string>();
   queryBindings.forEach((b, i) => queryVars.set(b.target, `q${cap(logicNameOf(b.target))}`));
 
-  const body = v.elements.map((el) => genElement(app, el, queryVars)).join('\n\n');
+  // 页面级 state 名清单（input field + form 字段），供 button 的 mutation 实参适配引用
+  const pageStates = [...collectInputFields(v), ...collectFormStateLines(app, v).map((l) => l.match(/\[(\w+),/)?.[1] ?? '')].filter(Boolean);
+  const body = v.elements.map((el) => genElement(app, el, queryVars, pageStates)).join('\n\n');
 
   const imports: string[] = [];
   // hooks 按需导入（useQuery/useMutation 分开）
@@ -630,11 +653,19 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   if (hasRoute) {
     imports.push("import { useParams } from 'react-router-dom';");
   }
-  // form/repeat 需要 useState
-  if (viewHasForm(v)) {
+  // form/repeat/input 需要 useState
+  if (viewHasForm(v) || collectInputFields(v).length > 0) {
     imports.push("import { useState } from 'react';");
   }
   const typeNames = usedTypes(app, v);
+  // row 别名的类型也要 import（如 detail 页主查询返回 Contract）
+  if (rowSrc) {
+    const rt = logicOf(app, rowSrc.target)?.returns[0]?.type;
+    if (rt?.kind === 'reference') {
+      const n = nameFromPath(rt.path);
+      if (!typeNames.includes(n)) typeNames.push(n);
+    }
+  }
   if (typeNames.length > 0) {
     imports.push(`import type { ${typeNames.join(', ')} } from '../types';`);
   }
@@ -656,10 +687,37 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   if (navBindings.length > 0) {
     hooksInit.push(`  const nav = useNavigate();`);
   }
+  // 页面级 input（如搜索框）：每个 field 一个 state（声明在 query hook 之前，闭包引用更清晰）
+  const inputStates = collectInputFields(v);
+  for (const f of inputStates) {
+    hooksInit.push(`  const [${f}, set${cap(f)}] = useState('');`);
+  }
+  // 同一逻辑多个 useQuery binding（如按钮触发 + 表格数据源）→ 只声明一个 hook；args 取非空者（带参 binding 优先）
+  const hookArgs = new Map<string, string>();
   for (const b of queryBindings) {
-    const varname = queryVars.get(b.target)!;
-    const fn = `() => api.${logicNameOf(b.target)}(${bindingArgs(app, b, hasRoute)})`;
-    hooksInit.push(`  const ${varname} = useQuery(${fn});`);
+    const args = bindingArgs(app, b, hasRoute);
+    if (!hookArgs.has(b.target) || args.length > 0) hookArgs.set(b.target, args);
+  }
+  const rowArgsHook = new Set(
+    queryBindings.filter((b) => b !== rowSrc && b.args.some((a) => exprHasIdent(a, 'row'))).map((b) => b.target),
+  );
+  for (const target of new Set(queryBindings.map((b) => b.target))) {
+    const varname = queryVars.get(target)!;
+    const isRowSrc = rowSrc !== undefined && target === rowSrc.target;
+    if (isRowSrc) {
+      // 主查询：row.id → 路由参数 Number(id)
+      const args = rowSrc.args.map((a) => (exprHasIdent(a, 'row') ? 'Number(id)' : genBindingArg(a, hasRoute))).join(', ');
+      hooksInit.push(`  const ${varname} = useQuery(() => api.${logicNameOf(target)}(${args}));`);
+      const retType = logicOf(app, target)?.returns[0]?.type;
+      hooksInit.push(
+        `  // 页面级 row：主查询结果（detail 页模式，后续 row.* 引用它）`,
+        `  const row = ${varname}.data ?? ({} as ${retType ? tsType(retType) : 'Record<string, unknown>'});`,
+      );
+      continue;
+    }
+    // 其余引用 row 的查询（如明细 repeat）：row 变化后重查（JSON 序列化作依赖，引用稳定不循环）
+    const deps = rowArgsHook.has(target) ? ', [JSON.stringify(row)]' : '';
+    hooksInit.push(`  const ${varname} = useQuery(() => api.${logicNameOf(target)}(${hookArgs.get(target) ?? ''})${deps});`);
   }
   for (const b of mutationBindings) {
     const logic = logicOf(app, b.target);
@@ -671,7 +729,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
       `  const ${varname} = useMutation(async (${argSig}): Promise<${ret}> => api.${logicNameOf(b.target)}(${args.map((p) => p.name).join(', ')}));`,
     );
   }
-  // form 字段状态（hooks 提升到函数体顶部，避免内联 import）
+  // form/输入字段状态（hooks 提升到函数体顶部，避免内联 import）
   const formStateLines = collectFormStateLines(app, v);
   hooksInit.push(...formStateLines);
 
@@ -711,6 +769,26 @@ function usedTypes(app: AppNode, v: ViewNode): string[] {
     }
   };
   visit(v.elements);
+  // 展开：结构体同名字段的枚举会被生成 `state as Enum` 转换（stateCoerced），这些枚举要 import；
+  // 未被引用的成员类型不进 import（noUnusedLocals 会报未使用）
+  const stateSet = new Set([...collectInputFields(v), ...collectFormStateLines(app, v).map((l) => l.match(/\[(\w+),/)?.[1] ?? '').filter(Boolean)]);
+  let grew = true;
+  const seenStructs = new Set<string>();
+  while (grew) {
+    grew = false;
+    for (const n of names) {
+      if (seenStructs.has(n)) continue;
+      const s = app.structures.find((x) => x.name === n);
+      if (!s) continue;
+      seenStructs.add(n);
+      for (const p of s.properties) {
+        if (p.type.kind !== 'reference') continue;
+        const n = nameFromPath(p.type.path);
+        if (!stateSet.has(p.name) || !app.enums.some((e) => e.name === n)) continue;
+        if (!names.has(n)) { names.add(n); grew = true; }
+      }
+    }
+  }
   return [...names];
 }
 
@@ -806,14 +884,18 @@ function collectNavBindings(v: ViewNode): BindingNode[] {
 }
 
 /** ViewElement → JSX（table/column/button/form/input/repeat/text/detail + 第三方 component） */
-function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
+function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = []): string {
   switch (el.type) {
     case 'table':
-      return genTable(app, el, queryVars);
+      return genTable(app, el, queryVars, states);
     case 'button':
-      return genButton(app, el, queryVars);
+      return genButton(app, el, queryVars, { row: false, states });
     case 'form':
       return genForm(app, el, queryVars);
+    case 'input':
+      return genInput(el);
+    case 'repeat':
+      return genQueryRepeat(el, queryVars);
     case 'text':
       return genText(el);
     case 'detail':
@@ -890,20 +972,182 @@ function collectAntdComponents(v: ViewNode): string[] {
   return [...found];
 }
 
-/** table dataSource={useQuery('x')} → antd Table + 数据驱动 columns */
-function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
+/** input field="x" → 受控 antd Input（state 在 pageFile 顶部提升） */
+function genInput(el: ViewElementNode): string {
+  const field = String(el.props.field ?? '');
+  const placeholder = el.props.placeholder ? ` placeholder="${String(el.props.placeholder)}"` : '';
+  return `<Input${placeholder} value={${field}} onChange={(e) => set${cap(field)}(e.target.value)} />`;
+}
+
+/** 页面级 input 的 field 清单（去重保序；form 内的由 collectFormStateLines 负责，不重复收） */
+function collectInputFields(v: ViewNode): string[] {
+  const out: string[] = [];
+  const visit = (els: ViewElementNode[], inForm: boolean): void => {
+    for (const el of els) {
+      if (el.type === 'input' && !inForm) {
+        const f = String(el.props.field ?? '');
+        if (f && !out.includes(f)) out.push(f);
+      }
+      visit(el.children, inForm || el.type === 'form');
+    }
+  };
+  visit(v.elements, false);
+  return out;
+}
+
+/** 页面是否含 table（决定 row 别名机制是否启用） */
+function viewHasTable(v: ViewNode): boolean {
+  const visit = (els: ViewElementNode[]): boolean => {
+    for (const el of els) {
+      if (el.type === 'table') return true;
+      if (visit(el.children)) return true;
+    }
+    return false;
+  };
+  return visit(v.elements);
+}
+
+/** 表达式是否引用某标识符（row / $route 等） */
+function exprHasIdent(e: Expr, name: string): boolean {
+  switch (e.kind) {
+    case 'Ident':
+      return e.name === name;
+    case 'Member':
+      return e.obj.kind === 'Ident' ? e.obj.name === name : e.obj.kind === 'Member' && exprHasIdent(e.obj, name);
+    default:
+      return false;
+  }
+}
+
+/** 全 app 中被“带参 navigate”指向的页面名（这些页面路由需要 /:id） */
+function routeParamPages(app: AppNode): Set<string> {
+  const names = new Set<string>();
+  const visit = (els: ViewElementNode[]): void => {
+    for (const el of els) {
+      for (const b of el.bindings) {
+        if (b.name === 'navigate' && b.args.length > 0) names.add(b.target);
+      }
+      visit(el.children);
+    }
+  };
+  for (const v of app.views) visit(v.elements);
+  return names;
+}
+
+/** 页面名 → 路由基路径（驼峰转连字符小写，与 routePathOf 一致） */
+function routeBaseOf(target: string): string {
+  return target.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+}
+
+/** Page<T> 等 generic 返回类型 → 表格数据源取值表达式 */
+function tableDataSourceOf(app: AppNode, target: string, dataVar: string): string {
+  const retType = logicOf(app, target)?.returns[0]?.type;
+  if (retType?.kind === 'generic' && retType.name === 'Page') return `${dataVar}.data?.content ?? []`;
+  return `${dataVar}.data ?? []`;
+}
+
+/** state（string 型）→ 目标类型表达式（number/boolean/enum 转换，其余透传） */
+function stateCoerced(app: AppNode, name: string, tr: TypeRef): string {
+  switch (tr.kind) {
+    case 'primitive':
+      if (tr.builtin === 'Integer' || tr.builtin === 'Decimal') return `Number(${name})`;
+      if (tr.builtin === 'Boolean') return `(${name} === 'true')`;
+      return name;
+    case 'reference': {
+      const n = nameFromPath(tr.path);
+      if (app.enums.some((e) => e.name === n)) return `${name} as ${n}`;
+      return name;
+    }
+    default:
+      return name;
+  }
+}
+
+/** logic 参数缺省字面量（mutation 少传/结构体字段缺省时用） */
+function defaultLiteral(app: AppNode, tr: TypeRef): string {
+  switch (tr.kind) {
+    case 'primitive':
+      if (tr.builtin === 'Boolean') return 'false';
+      if (tr.builtin === 'Integer' || tr.builtin === 'Decimal') return '0';
+      return "''";
+    case 'generic':
+      if (tr.name === 'List' || tr.name === 'Page') return '[]';
+      if (tr.name === 'Map') return '{}';
+      return 'null';
+    case 'reference': {
+      const name = nameFromPath(tr.path);
+      const en = app.enums.find((e) => e.name === name);
+      if (en) return `'${en.items[0]?.name ?? ''}'`;
+      return "''";
+    }
+    case 'db':
+      return 'null';
+  }
+}
+
+/** mutation 实参 → 形参适配：结构体类型 + Ident 实参 → 对象字面量（命中 state 用之，缺省补字面量） */
+function coerceArg(app: AppNode, arg: Expr | undefined, param: { name: string; type: TypeRef }, states: string[]): string {
+  if (arg === undefined) return defaultLiteral(app, param.type);
+  const structName = param.type.kind === 'reference' ? nameFromPath(param.type.path) : null;
+  if (structName && arg.kind === 'Ident') {
+    const s = app.structures.find((x) => x.name === structName);
+    if (s) {
+      const parts = s.properties.map((fp) => {
+        if (fp.name === arg.name) return `${fp.name}: ${genBindingArg(arg, false)}`;
+        if (states.includes(fp.name)) {
+          const c = stateCoerced(app, fp.name, fp.type);
+          return c === fp.name ? fp.name : `${fp.name}: ${c}`;
+        }
+        return `${fp.name}: ${defaultLiteral(app, fp.type)}`;
+      });
+      return `{ ${parts.join(', ')} }`;
+    }
+  }
+  return genBindingArg(arg, false);
+}
+
+/** table 外的 repeat（data={useQuery('x')}）→ 列表区块（form 内 repeat 由 genForm 处理，不走这里） */
+function genQueryRepeat(el: ViewElementNode, queryVars: Map<string, string>): string {
+  const qB = el.bindings.find((b) => b.name === 'useQuery');
+  const varname = qB ? queryVars.get(qB.target) : undefined;
+  if (!varname) return '{/* repeat */}';
+  const texts = el.children
+    .filter((c) => c.type === 'text')
+    .map((c) => {
+      const f = String(c.props.field ?? '');
+      const title = String(c.props.title ?? f);
+      return `    <span style={{ marginRight: 24 }}>${title}: {row.${f}}</span>`;
+    })
+    .join('\n');
+  return `{(${varname}.data ?? []).map((row, i) => (
+  <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid #f0f0f0' }}>
+${texts}
+  </div>
+))}`;
+}
+
+/** table dataSource={useQuery('x')} → antd Table + 数据驱动 columns（Page<T> 返回自动取 .content；column navigate → onRow 跳转） */
+function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = []): string {
   const qBinding = el.bindings.find((b) => b.name === 'useQuery');
   const dataVar = qBinding ? queryVars.get(qBinding.target)! : 'data';
   const columns = el.children.filter((c) => c.type === 'column');
   const colDefs = columns.map(
-    (c) => `    { title: '${String(c.props.field ?? '')}', dataIndex: '${String(c.props.field ?? '')}' }`,
+    (c) => `    { title: '${String(c.props.title ?? c.props.field ?? '')}', dataIndex: '${String(c.props.field ?? '')}' }`,
   );
-  // 行内按钮（table 直接子 button）→ 操作列 render
+  // 行内按钮（table 直接子 button）→ 操作列 render（stopPropagation，避免触发 onRow）
   const rowButtons = el.children.filter((c) => c.type === 'button');
   const opCol = rowButtons.length > 0
-    ? `,\n    { title: '操作', key: 'op', render: (_, row) => (<>\n${rowButtons.map((b) => `      ${genButton(app, b, queryVars, { row: true })}`).join('\n')}\n    </>) }`
+    ? `,\n    { title: '操作', key: 'op', render: (_, row) => (<>\n${rowButtons.map((b) => `      ${genButton(app, b, queryVars, { row: true, states })}`).join('\n')}\n    </>) }`
     : '';
-  const dataSource = `${dataVar}.data ?? []`;
+  // 某列 navigate（row.id）→ 整行可点跳详情
+  const navCol = columns.find((c) => c.bindings.some((b) => b.name === 'navigate'));
+  let onRowAttr = '';
+  if (navCol) {
+    const nb = navCol.bindings.find((b) => b.name === 'navigate')!;
+    const argExpr = nb.args.length > 0 ? genBindingArg(nb.args[0], false) : 'row.id';
+    onRowAttr = `\n  onRow={(row) => ({ onClick: () => nav('/${routeBaseOf(nb.target)}/' + String(${argExpr})) })}`;
+  }
+  const dataSource = qBinding ? tableDataSourceOf(app, qBinding.target, dataVar) : 'data';
   const rowKey = String(columns[0]?.props.field ?? 'id');
   return `<Table
   dataSource={${dataSource}}
@@ -915,31 +1159,42 @@ ${colDefs.join(',\n')}${opCol}
 />`;
 }
 
-/** button action={useMutation(...)} / action={navigate(...)} → antd Button */
+/** button action={useMutation(...)} / onClick={useQuery(...)} / action={navigate(...)} → antd Button */
 function genButton(
   app: AppNode,
   el: ViewElementNode,
   queryVars: Map<string, string>,
-  opts?: { row?: boolean },
+  opts?: { row?: boolean; states?: string[] },
 ): string {
   const label = el.props['text'] ? String(el.props['text']) : '确定';
   const isRow = opts?.row ?? false;
+  const states = opts?.states ?? [];
+  // 行内按钮点击时不触发 table 的 onRow 跳转
+  const onClick = (expr: string): string => (isRow ? `(e) => { e.stopPropagation(); ${expr}; }` : `() => ${expr}`);
   const navB = el.bindings.find((b) => b.name === 'navigate');
   if (navB) {
-    const routeBase = navB.target.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
     if (navB.args.length > 0) {
       const argExpr = genBindingArg(navB.args[0], false);
-      return `<Button type="primary" onClick={() => nav('/${routeBase}/' + ${argExpr})}>${label}</Button>`;
+      return `<Button type="primary" onClick={${onClick(`nav('/${routeBaseOf(navB.target)}/' + String(${argExpr}))`)}}>${label}</Button>`;
     }
-    return `<Button type="primary" onClick={() => nav('/${routeBase}')}>${label}</Button>`;
+    return `<Button type="primary" onClick={${onClick(`nav('/${routeBaseOf(navB.target)}')`)}}>${label}</Button>`;
   }
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
   if (mutB) {
     const varname = `m${cap(logicNameOf(mutB.target))}`;
-    // 行内按钮的 arg 是 row 引用（row.id）→ 直接透传；页面级 mutation 传实际参数
-    const callArgs = mutB.args.length > 0 ? mutB.args.map((a) => genBindingArg(a, false)).join(', ') : '';
+    // 实参按 logic 形参逐个适配（缺参补字面量；结构体参数 + Ident 实参 → 对象字面量）
+    const logic = logicOf(app, mutB.target);
+    const callArgs = logic
+      ? logic.params.map((p, i) => coerceArg(app, mutB.args[i], p, states)).join(', ')
+      : mutB.args.map((a) => genBindingArg(a, false)).join(', ');
     const danger = label.includes('删') ? ' danger' : '';
-    return `<Button${danger} onClick={() => ${varname}.mutate(${callArgs})}>${label}</Button>`;
+    return `<Button${danger} onClick={${onClick(`${varname}.mutate(${callArgs})`)}}>${label}</Button>`;
+  }
+  // onClick={useQuery('x', args)} → 点击触发查询刷新（fn 闭包捕获最新 state，refetch 即用新值重查）
+  const qB = el.bindings.find((b) => b.name === 'useQuery');
+  if (qB) {
+    const varname = queryVars.get(qB.target) ?? `q${cap(logicNameOf(qB.target))}`;
+    return `<Button onClick={${onClick(`${varname}.refetch()`)}}>${label}</Button>`;
   }
   return `<Button>${label}</Button>`;
 }
@@ -947,7 +1202,17 @@ function genButton(
 /** form submit={useMutation('x')} → 表单 + 输入（state 已在 pageFile 顶部提升，此处只出 JSX） */
 function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
-  const varname = mutB ? `m${cap(logicNameOf(mutB.target))}` : 'mutation';
+  if (!mutB) {
+    // form 无 submit 绑定：不生成 onSubmit（不能引用不存在的 mutation）
+    const plainInputs = el.children.filter((c) => c.type === 'input')
+      .map((i) => {
+        const f = String(i.props.field ?? '');
+        return `<div><label>${f}: <Input value={${f}} onChange={(e) => set${cap(f)}(e.target.value)} /></label></div>`;
+      })
+      .join('\n');
+    return `<form>\n  ${plainInputs}\n</form>`;
+  }
+  const varname = `m${cap(logicNameOf(mutB.target))}`;
   const inputs = el.children.filter((c) => c.type === 'input');
   const repeats = el.children.filter((c) => c.type === 'repeat');
   const inputEls = inputs
@@ -990,9 +1255,21 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
 </div>`;
     })
     .join('\n');
-  // body 对象：input 字段 + repeat 字段
+  // body 对象：input 字段 + repeat 字段；每个字段按结构体形参类型转换（state 是 string）
+  const logic = logicOf(app, mutB.target);
+  const p0 = logic?.params[0]?.type;
+  const bodyStruct = p0?.kind === 'reference'
+    ? app.structures.find((x) => x.name === nameFromPath(p0.path))
+    : undefined;
   const bodyFields = [...inputs.map((i) => String(i.props.field ?? '')), ...repeats.map((r) => String(r.props.field ?? 'items'))];
-  const bodyObj = `{ ${bodyFields.join(', ')} }`;
+  const bodyObj = `{ ${bodyFields
+    .map((f) => {
+      const p = bodyStruct?.properties.find((pp) => pp.name === f);
+      if (!p) return f;
+      const c = stateCoerced(app, f, p.type);
+      return c === f ? f : `${f}: ${c}`;
+    })
+    .join(', ')} }`;
   return `<form onSubmit={(e) => { e.preventDefault(); ${varname}.mutate(${bodyObj}); }}>
   ${inputEls}
   ${repeatEls}
@@ -1102,7 +1379,7 @@ ${itemEls}
 function routerFile(app: AppNode): GeneratedFile {
   const routes = app.views
     .map((v) => {
-      const hasRoute = hasRouteParam(v.elements);
+      const hasRoute = hasRouteParam(v.elements) || routeParamPages(app).has(v.name);
       const path = routePathOf(v) + (hasRoute ? '/:id' : '');
       return `  <Route path="${path}" element={<${v.name} />} />`;
     })
@@ -1110,7 +1387,7 @@ function routerFile(app: AppNode): GeneratedFile {
   // 根路径重定向到第一个页面，避免打开 / 时空白
   const firstView = app.views[0];
   const firstRoute = firstView
-    ? routePathOf(firstView) + (hasRouteParam(firstView.elements) ? '/:id' : '')
+    ? routePathOf(firstView) + (hasRouteParam(firstView.elements) || routeParamPages(app).has(firstView.name) ? '/:id' : '')
     : null;
   const redirect = firstRoute ? `  <Route path="/" element={<Navigate to="${firstRoute}" replace />} />\n` : '';
   const imports = app.views.map((v) => `import ${v.name} from './pages/${v.name}';`).join('\n');

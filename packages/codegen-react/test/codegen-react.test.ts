@@ -32,12 +32,15 @@ describe('codegen-react', () => {
   it('scaffolds vite project files', () => {
     const files = generateReact(parse(SAMPLE));
     const names = files.map((f) => f.path);
+    expect(names).toContain('.npmrc');
     expect(names).toContain('package.json');
     expect(names).toContain('vite.config.ts');
     expect(names).toContain('tsconfig.json');
     expect(names).toContain('index.html');
     expect(names).toContain('src/main.tsx');
     expect(names).toContain('src/App.tsx');
+    // 内置 .npmrc 锁定公网 registry（机器上的内网/镜像配置不影响安装）
+    expect(files.find((f) => f.path === '.npmrc')!.content).toContain('registry=https://registry.npmjs.org/');
   });
 
   it('generates TS types from entity and structure', () => {
@@ -242,5 +245,45 @@ page P {
     expect(page).toContain('<ECharts data={qListOrders.data} option={null} />');
     const pkg = files.find((f) => f.path === 'package.json')!.content;
     expect(pkg).toContain('"echarts-for-react": "*"');
+  });
+});
+
+describe('codegen-react 搜索页回归（agent 2026-09 实际踩坑）', () => {
+  // 场景：同一逻辑被 button 触发 + table 数据源各绑一次；input 搜索框 + logic 多参数
+  const SRC = parse(`
+@datasource('defaultDS')
+entity Contract { id: Integer @pk; title: String; }
+@export
+logic searchContracts(keyword: String, page: Integer, size: Integer): List<Contract> { return Contract.all; }
+interface ContractApi {
+  GET '/api/contracts/search' -> searchContracts
+}
+page ContractList {
+  <input field="keyword" placeholder="搜索合同标题" />
+  <button text="搜索" onClick={useQuery('searchContracts', keyword)} />
+  <table dataSource={useQuery('searchContracts')}>
+    <column field="id" />
+  </table>
+}
+`);
+  it('同一逻辑多 binding → 只声明一个 query hook（不重复声明）', () => {
+    const page = generateReact(SRC).find((f) => f.path === 'src/pages/ContractList.tsx')!.content;
+    expect(page.match(/const qSearchContracts = useQuery/g)?.length).toBe(1);
+    expect(page).toContain("useQuery(() => api.searchContracts(keyword))");
+    expect(page).toContain('qSearchContracts.refetch()');
+  });
+
+  it('页面级 input → keyword state + 受控 Input 接线', () => {
+    const page = generateReact(SRC).find((f) => f.path === 'src/pages/ContractList.tsx')!.content;
+    expect(page).toContain("import { useState } from 'react';");
+    expect(page).toContain("const [keyword, setKeyword] = useState('');");
+    expect(page).toContain('<Input placeholder="搜索合同标题" value={keyword} onChange={(e) => setKeyword(e.target.value)} />');
+  });
+
+  it('GET 多参 logic 可少传 → api 参数可选 + 条件 query string', () => {
+    const api = generateReact(SRC).find((f) => f.path === 'src/api.ts')!.content;
+    expect(api).toContain('keyword?: string, page?: number, size?: number');
+    expect(api).toContain("if (page !== undefined) qs.push('page=' + encodeURIComponent(String(page)));");
+    expect(api).toContain("+ (qs.length ? '?' + qs.join('&') : '')");
   });
 });

@@ -62,8 +62,10 @@ export function runGenerate(input: TdslInput, outDir: string, targets: { java: b
 
   const java = targets.java ? generateJava(app) : [];
   const react = targets.react ? generateReact(app) : [];
+  // 双端各写各的子目录（与 runBuild 的 outDir/{java,react} 声明一致；合写根目录会混树）
+  if (targets.java) writeAll(join(outDir, 'java'), java);
+  if (targets.react) writeAll(join(outDir, 'react'), react);
   const wrote = [...java, ...react];
-  writeAll(outDir, wrote);
 
   const parts = [
     targets.java && `java: ${java.length} files → ${join(outDir, 'java')}`,

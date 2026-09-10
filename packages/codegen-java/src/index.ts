@@ -4,6 +4,7 @@ import {
   type AppNode,
   type EndpointNode,
   type EntityNode,
+  type EnumNode,
   type Expr,
   type GeneratedFile,
   type InterfaceNode,
@@ -274,6 +275,10 @@ export function generateJava(app: AppNode): GeneratedFile[] {
   const querySpecs = collectQuerySpecs(app);
 
   files.push(...scaffoldFiles(app));
+  // 枚举类（实体/结构体/Controller 可能引用，先于实体生成）
+  for (const en of app.enums) {
+    files.push(enumFile(pkg, en));
+  }
   for (const ent of entities) {
     files.push(entityFile(pkg, ent));
     files.push(repositoryFile(pkg, ent, querySpecs.get(ent.name) ?? []));
@@ -291,6 +296,21 @@ export function generateJava(app: AppNode): GeneratedFile[] {
     files.push(controllerFile(app, itf));
   }
   return files;
+}
+
+/** TDSL enum → Java enum（独立 enums 子包，各生成文件以 wildcard import 引用） */
+function enumFile(pkg: string, en: EnumNode): GeneratedFile {
+  const items = en.items.map((i) => `  ${i.name},`).join('\n');
+  return {
+    path: `src/main/java/${pkg.replaceAll('.', '/')}/enums/${en.name}.java`,
+    content: `package ${pkg}.enums;
+
+// TDSL enum：${en.name}
+public enum ${en.name} {
+${items}
+}
+`,
+  };
 }
 
 // ---------- External Service → Dubbo/Bean/Feign 接口 ----------
@@ -364,7 +384,7 @@ function structureFile(app: AppNode, s: StructureNode): GeneratedFile {
   });
   const content = `package ${pkg}.structure;
 
-${s.properties.length > 0 ? 'import java.util.*;\n' : ''}${referencesEntity ? `import ${pkg}.entity.*;\n` : ''}public class ${s.name} {
+${s.properties.length > 0 ? 'import java.util.*;\n' : ''}${referencesEntity ? `import ${pkg}.entity.*;\n` : ''}import ${pkg}.enums.*;public class ${s.name} {
 
 ${fields}
 
@@ -537,6 +557,7 @@ function entityFile(pkg: string, ent: EntityNode): GeneratedFile {
   const content = `package ${pkg}.entity;
 
 import javax.persistence.*;
+import ${pkg}.enums.*;
 
 @Entity
 @Table(name = "${table}")
@@ -682,9 +703,14 @@ function querySpecOf(app: AppNode, e: Expr): QuerySpec | null {
     if (!agg) return null;
     return { entity: ent.name, conditions: [], orderBy: [], pageable: false, aggregate: agg };
   }
-  // 链式方法：.orderBy / .page / .limit / .groupBy（接收者是查询调用）
+  // 链式方法：.orderBy / .page / .limit / .groupBy（接收者是查询调用或 X.all）
   if (m.prop === 'orderBy' || m.prop === 'page' || m.prop === 'limit' || m.prop === 'groupBy') {
-    const base = querySpecOf(app, m.obj);
+    let base = querySpecOf(app, m.obj);
+    if (!base && m.obj.kind === 'Member' && m.obj.prop === 'all') {
+      // X.all.orderBy(...)/.page(...)：无条件的全量查询基座
+      const allEnt = entityNameOfReceiver(app, m.obj.obj);
+      if (allEnt) base = { entity: allEnt, conditions: [], orderBy: [], pageable: false };
+    }
     if (!base) return null;
     const spec: QuerySpec = { ...base, orderBy: [...base.orderBy] };
     if (m.prop === 'orderBy') {
@@ -748,16 +774,17 @@ function extractAggregate(app: AppNode, ent: EntityNode, args: Expr[]): QuerySpe
   return { fn, field };
 }
 
-/** 从 orderBy 参数提取排序：[field, 'asc'|'desc'|缺省, ...] */
+/** 从 orderBy 参数提取排序：[field, 'asc'|'desc'|缺省, ...]（desc/asc 可能被 parser 解析为 Ident 参数） */
 function extractOrderBy(args: Expr[]): Array<{ field: string; dir: 'asc' | 'desc' }> {
   const out: Array<{ field: string; dir: 'asc' | 'desc' }> = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a.kind !== 'Ident') continue;
     const dirArg = args[i + 1];
-    const dir: 'asc' | 'desc' = dirArg?.kind === 'String' && dirArg.value === 'desc' ? 'desc' : 'asc';
+    const dirName = dirArg?.kind === 'String' ? dirArg.value : dirArg?.kind === 'Ident' ? dirArg.name : undefined;
+    const dir: 'asc' | 'desc' = dirName === 'desc' ? 'desc' : 'asc';
     out.push({ field: a.name, dir });
-    if (dirArg?.kind === 'String') i++;
+    if (dirName === 'desc' || dirName === 'asc') i++;
   }
   return out;
 }
@@ -865,6 +892,7 @@ function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[]): Gener
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import ${pkg}.entity.${ent.name};
+import ${pkg}.enums.*;
 
 public interface ${ent.name}Repository extends JpaRepository<${ent.name}, ${idType}> {
 ${methodBlock}}
@@ -882,6 +910,11 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
   const className = `${cap(logic.name)}Service`;
   const usedEntities = collectUsedEntities(app, logic);
   const usedServices = collectUsedServices(app, logic);
+  // logic 间调用 → 注入目标 logic 的 service（genContractNo() → genContractNoService.genContractNo()）
+  const usedLogics = collectUsedLogics(app, logic);
+  const logicFields = usedLogics
+    .map((n) => `  @Autowired\n  private ${cap(n)}Service ${n}Service;`)
+    .join('\n');
 
   const repoFields = [...usedEntities.values()]
     .map((ent) => `  private final ${ent.name}Repository ${repoVar(ent)};`)
@@ -933,6 +966,9 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
     'import org.springframework.stereotype.Service;',
     ...(transactionalImport ? [transactionalImport.trim()] : []),
     ...(usedEntities.size > 0 ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
+    `import ${pkg}.enums.*;`,
+    // logic 间调用注入（@Autowired 字段）
+    ...(collectUsedLogics(app, logic).length > 0 ? ['import org.springframework.beans.factory.annotation.Autowired;'] : []),
     // 外部服务注入注解 import
     ...(usedServices.some((s) => s.kind_ === 'dubbo')
       ? ['import org.apache.dubbo.config.annotation.DubboReference;']
@@ -953,7 +989,7 @@ ${imports}
 ${serviceApiImport}
 @Service
 public class ${className} {
-${repoFields}${serviceFields ? `\n${serviceFields}` : ''}
+${repoFields}${serviceFields ? `\n${serviceFields}` : ''}${logicFields ? `\n${logicFields}` : ''}
 
   public ${className}(${ctorParams}) {
 ${ctorAssign}
@@ -1085,6 +1121,7 @@ function controllerFile(app: AppNode, itf: InterfaceNode): GeneratedFile {
 import org.springframework.web.bind.annotation.*;
 import ${pkg}.service.*;
 ${structureImport}import ${pkg}.entity.*;
+import ${pkg}.enums.*;
 @RestController
 @CrossOrigin(origins = "*")
 public class ${cap(itf.name)}Controller {
@@ -1154,8 +1191,10 @@ function genStatement(
         return [`    ${st.name} = ${initStr};`];
       }
       const elemType = st.init?.kind === 'NewList' ? st.init.elem : undefined;
-      // 识别 Todo.get(id) / erp.Order.get(id) / new Todo() / new OrderDetail() 推断类型（实体或结构）
+      // 识别 Todo.get(id) / erp.Order.get(id) / new Todo() / new OrderDetail() 推断类型（实体或结构）；
+      // 查询链（X.where/aggregate…）推断为 List<实体>，使后续 ForEach 能拿到元素类型
       const getInit = st.init;
+      const queryInit = getInit?.kind === 'Call' ? querySpecOf(app, getInit) : null;
       const inferredType =
         getInit?.kind === 'Call' &&
         getInit.callee.kind === 'Member' &&
@@ -1163,7 +1202,9 @@ function genStatement(
           ? findEntityByName(app, entityNameOfReceiver(app, getInit.callee.obj) ?? '')?.name
           : getInit?.kind === 'New' && getInit.type.kind === 'reference'
             ? typeNameFromPath(getInit.type.path)
-            : undefined;
+            : queryInit && !queryInit.aggregate
+              ? `java.util.List<${findEntityByName(app, queryInit.entity)?.name ?? 'Object'}>`
+              : undefined;
       const typeStr = st.type
         ? javaType(st.type)
         : elemType
@@ -1262,6 +1303,69 @@ function genStatement(
 }
 
 // ---------- 表达式 Java 类型推断（Decimal 算术需要类型感知） ----------
+
+/** 枚举字面量所属枚举名（DRAFT → ContractStatus；非枚举项返回 null） */
+function enumItemOwner(app: AppNode, name: string): string | null {
+  for (const en of app.enums) {
+    if (en.items.some((i) => i.name === name)) return en.name;
+  }
+  return null;
+}
+
+/** logic 体内调用的其它 logic（logic 间调用 → 注入对方 service）；排除自身 */
+function collectUsedLogics(app: AppNode, logic: LogicNode): string[] {
+  const names = new Set<string>();
+  const visit = (e: Expr): void => {
+    switch (e.kind) {
+      case 'Call': {
+        const c = e.callee;
+        if (c.kind === 'Ident' && c.name !== logic.name && app.logics.some((l) => l.name === c.name)) {
+          names.add(c.name);
+        }
+        if (c.kind === 'Member') visit(c.obj);
+        e.args.forEach(visit);
+        break;
+      }
+      case 'Member':
+        visit(e.obj);
+        break;
+      case 'New':
+        e.args.forEach(visit);
+        break;
+      case 'NewList':
+        e.items.forEach(visit);
+        break;
+    }
+  };
+  const scanStmt = (st: Statement): void => {
+    switch (st.kind) {
+      case 'VarDecl':
+        if (st.init) visit(st.init);
+        break;
+      case 'Assign':
+        if (st.target.kind === 'Member') visit(st.target.obj);
+        visit(st.value);
+        break;
+      case 'Return':
+        if (st.value) visit(st.value);
+        break;
+      case 'If':
+        visit(st.cond);
+        st.then.forEach(scanStmt);
+        if (st.else) st.else.forEach(scanStmt);
+        break;
+      case 'ForEach':
+        visit(st.container);
+        st.body.forEach(scanStmt);
+        break;
+      case 'CallStmt':
+        visit(st.call);
+        break;
+    }
+  };
+  logic.body.forEach(scanStmt);
+  return [...names];
+}
 
 /** 推断表达式 Java 类型（尽力而为；无法推断返回 null） */
 function exprJavaType(
@@ -1436,8 +1540,13 @@ function genExpr(
   vars: VarScope,
 ): string {
   switch (e.kind) {
-    case 'Ident':
+    case 'Ident': {
+      // 变量优先；裸枚举字面量（如 DRAFT）→ 枚举名限定（Java 无裸枚举常量）
+      if (lookupVar(vars, e.name)) return e.name;
+      const owner = enumItemOwner(app, e.name);
+      if (owner) return `${owner}.${e.name}`;
       return e.name;
+    }
     case 'Member': {
       // list.count → .size()
       if (e.prop === 'count') {
@@ -1468,6 +1577,11 @@ function genExpr(
     }
     case 'Call': {
       const callee = e.callee;
+      // logic 间调用：genContractNo() → genContractNoService.genContractNo(...)（服务字段由 collectUsedLogics 注入）
+      if (callee.kind === 'Ident' && app.logics.some((l) => l.name === callee.name)) {
+        const args = e.args.map((a) => genExpr(app, a, entities, vars)).join(', ');
+        return `${callee.name}Service.${callee.name}(${args})`;
+      }
       // 实体静态方法：Todo.all / Todo.get(id) / Todo.where(...) / erp.Order.all
       if (callee.kind === 'Member') {
         // 实体查询链（where 多条件 / orderBy / page / limit / groupBy / aggregate）→ Repository 方法调用

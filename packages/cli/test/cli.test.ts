@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -108,6 +108,10 @@ describe('cli/commands', () => {
     expect(r.code).toBe(0);
     const app = r.app!;
     expect(app.name).toBe(sanitizeAppName(dir.split(/[\\/]/).pop()!));
+    // 双端各写各的子目录（runBuild 依赖 outDir/{java,react}）
+    expect(existsSync(join(out, 'java', 'pom.xml'))).toBe(true);
+    expect(existsSync(join(out, 'react', 'index.html'))).toBe(true);
+    expect(existsSync(join(out, 'react', '.npmrc'))).toBe(true);
   });
 
   it('generate --java：只生成 Java 端', () => {
