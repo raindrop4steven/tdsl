@@ -333,3 +333,53 @@ page ContractForm {
     expect(pkg).toContain('"dayjs": "^1.11.0"');
   });
 });
+
+describe('codegen-react dialog（右侧抽屉）', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+entity Car { id: Integer @pk; plate: String; status: CarStatus; }
+enum CarStatus { DRAFT, ACTIVE }
+struct CarInput { plate: String; status: CarStatus; }
+@export
+logic listCars(): List<Car> { return Car.all; }
+@export
+logic saveCar(input: CarInput): Car { return new Car(); }
+interface CarApi {
+  GET '/api/cars'        -> listCars
+  POST  '/api/cars'      -> saveCar
+}
+page CarList {
+  <button text="新增车辆" onClick={openDialog('CarForm')} />
+  <table dataSource={useQuery('listCars')}><column field="plate" /></table>
+}
+dialog CarForm {
+  <form submit={useMutation('saveCar')}>
+    <input field="plate" />
+  </form>
+}
+`);
+  it('dialog 页面：Drawer 组件 + open/onClose props + 提交成功自动关闭', () => {
+    const files = generateReact(SRC);
+    const form = files.find((f) => f.path === 'src/pages/CarForm.tsx')!.content;
+    expect(form).toMatch(/import \{[^}]*Drawer[^}]*\} from 'antd'/);
+    expect(form).toContain('function CarForm({ open, onClose }: { open: boolean; onClose: () => void })');
+    expect(form).toContain('<Drawer title="CarForm" open={open} onClose={onClose} width={560}');
+    expect(form).toContain('.then(() => onClose())');
+  });
+
+  it('父页面：openDialog 按钮 onClick 开抽屉；关闭时自动 refetch 列表', () => {
+    const files = generateReact(SRC);
+    const list = files.find((f) => f.path === 'src/pages/CarList.tsx')!.content;
+    expect(list).toContain('const [showCarForm, setShowCarForm] = useState(false);');
+    expect(list).toContain("onClick={() => setShowCarForm(true)}");
+    expect(list).toContain("<CarForm open={showCarForm} onClose={() => { setShowCarForm(false); qListCars.refetch(); }} />");
+    expect(list).toContain("import CarForm from './pages/CarForm';");
+  });
+
+  it('dialog 不进路由与菜单（不作为首页）', () => {
+    const app = generateReact(SRC).find((f) => f.path === 'src/App.tsx')!.content;
+    expect(app).toContain('<Route path="/car-list" element={<CarList />} />');
+    expect(app).not.toContain('<Route path="/car-form"');
+    expect(app).not.toContain("label: 'CarForm'");
+  });
+});

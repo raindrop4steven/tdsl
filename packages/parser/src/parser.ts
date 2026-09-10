@@ -451,7 +451,7 @@ class Parser {
       elements.push(this.parseViewElement());
     }
     this.expect('}');
-    return { ...createNode('View'), name, viewKind: 'page', elements };
+    return { ...createNode('View'), name, viewKind, elements };
   }
 
   /** JSX 子集元素：<tag attr={expr} attr="str"> children </tag> 或 <tag ... /> */
@@ -1122,12 +1122,15 @@ function resolveTypeRef(table: TypeSymbolTable, ref: string, ctxDs?: string): st
   return full;
 }
 
-/** 从表达式提取 useQuery/useMutation/navigate 绑定（props 里的 {useQuery('logic')} 形态） */
+/** 从表达式提取 useQuery/useMutation/navigate/openDialog 绑定（props 里的 {useQuery('logic')} 形态） */
 function extractBinding(e: Expr): BindingNode | null {
   if (
     e.kind === 'Call' &&
     e.callee.kind === 'Ident' &&
-    (e.callee.name === 'useQuery' || e.callee.name === 'useMutation' || e.callee.name === 'navigate')
+    (e.callee.name === 'useQuery' ||
+      e.callee.name === 'useMutation' ||
+      e.callee.name === 'navigate' ||
+      e.callee.name === 'openDialog')
   ) {
     const target = e.args[0]?.kind === 'String' ? e.args[0].value : '';
     return { ...createNode('Binding'), name: e.callee.name, target, args: e.args.slice(1) };

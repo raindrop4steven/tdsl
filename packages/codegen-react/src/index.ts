@@ -682,8 +682,8 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   if (hasRoute) {
     imports.push("import { useParams } from 'react-router-dom';");
   }
-  // form/repeat/input 需要 useState
-  if (viewHasForm(v) || collectInputFields(v).length > 0) {
+  // form/repeat/input/openDialog 开关 需要 useState
+  if (viewHasForm(v) || collectInputFields(v).length > 0 || collectOpenDialogTargets(v).length > 0) {
     imports.push("import { useState } from 'react';");
   }
   const typeNames = usedTypes(app, v);
@@ -702,8 +702,15 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   for (const comp of collectUsedComponents(app, v)) {
     imports.push(`import ${comp.name} from '${comp.pkg}';`);
   }
-  // Card 页面容器 + antd 升级控件统一入 import
-  const antdNames = [...new Set([...collectAntdComponents(v), ...collectFormAntd(app, v), 'Card'])];
+  // Card 页面容器 + antd 升级控件统一入 import；dialog 页面用 Drawer（不进路由）
+  const isDialog = v.viewKind === 'dialog';
+  const antdNames = [
+    ...new Set([
+      ...collectAntdComponents(v),
+      ...collectFormAntd(app, v),
+      isDialog ? 'Drawer' : 'Card',
+    ]),
+  ];
   if (antdNames.length > 0) {
     imports.push(`import { ${antdNames.join(', ')} } from 'antd';`);
   }
@@ -762,27 +769,48 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     );
   }
   // form/输入字段状态（hooks 提升到函数体顶部，避免内联 import）
-  // 管理端排版：有 table 的页面 → 页面级 input/button（搜索框+主操作）上提为工具栏一行；正文包进 Card
+  // 管理端排版：有 table 的页面 → 页面级 input/button（搜索框+主操作）上提为工具栏一行；正文包进 Card；dialog 页面包进 Drawer
   const toolbarEls = hasTable ? v.elements.filter((el) => el.type === 'input' || el.type === 'button') : [];
   const restEls = v.elements.filter((el) => !toolbarEls.includes(el));
-  const body = restEls.map((el) => genElement(app, el, queryVars, pageStates)).join('\n\n');
+  const body = restEls.map((el) => genElement(app, el, queryVars, pageStates, isDialog ? 'onClose' : undefined)).join('\n\n');
   const toolbar =
     toolbarEls.length > 0
       ? `<div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>` +
         `\n${toolbarEls.map((el) => genElement(app, el, queryVars, pageStates)).join('\n')}\n</div>`
       : '';
+  // 父页面 openDialog 接线：开关 state + Drawer 组件渲染（关闭时自动 refetch 主查询刷新列表）
+  const dialogTargets = collectOpenDialogTargets(v);
+  for (const t of dialogTargets) {
+    hooksInit.push(`  const [show${cap(t)}, setShow${cap(t)}] = useState(false);`);
+    imports.push(`import ${t} from './pages/${t}';`);
+  }
+  const firstQueryVar = queryBindings.length > 0 ? queryVars.get(queryBindings[0].target) : undefined;
+  const dialogRenders = dialogTargets
+    .map(
+      (t) =>
+        `    <${t} open={show${cap(t)}} onClose={() => { setShow${cap(t)}(false);${firstQueryVar ? ` ${firstQueryVar}.refetch();` : ''} }} />`,
+    )
+    .join('\n');
   const formStateLines = collectFormStateLines(app, v);
   hooksInit.push(...formStateLines);
 
+  const compSig = isDialog
+    ? `export default function ${v.name}({ open, onClose }: { open: boolean; onClose: () => void }) {`
+    : `export default function ${v.name}() {`;
+  const wrapperOpen = isDialog
+    ? `    <Drawer title="${v.name}" open={open} onClose={onClose} width={560} destroyOnClose>`
+    : `    <Card style={{ margin: '0 auto' }}>\n      <h2 style={{ marginTop: 0 }}>${v.name}</h2>`;
+  const wrapperClose = isDialog ? `    </Drawer>` : `    </Card>`;
+
   const content = `${imports.join('\n')}
 
-export default function ${v.name}() {
+${compSig}
 ${hooksInit.join('\n')}
   return (
-    <Card style={{ margin: '0 auto' }}>
-      <h2 style={{ marginTop: 0 }}>${v.name}</h2>
+${wrapperOpen}
 ${toolbar}${body}
-    </Card>
+${wrapperClose}
+${dialogRenders}
   );
 }
 `;
@@ -926,14 +954,14 @@ function collectNavBindings(v: ViewNode): BindingNode[] {
 }
 
 /** ViewElement → JSX（table/column/button/form/input/repeat/text/detail + 第三方 component） */
-function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = []): string {
+function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = [], onCloseExpr?: string): string {
   switch (el.type) {
     case 'table':
       return genTable(app, el, queryVars, states);
     case 'button':
       return genButton(app, el, queryVars, { row: false, states });
     case 'form':
-      return genForm(app, el, queryVars);
+      return genForm(app, el, queryVars, onCloseExpr);
     case 'input':
       return genInput(el);
     case 'repeat':
@@ -1268,7 +1296,27 @@ function genButton(
     const varname = queryVars.get(qB.target) ?? `q${cap(logicNameOf(qB.target))}`;
     return `<Button onClick={${onClick(`${varname}.refetch()`)}}>${label}</Button>`;
   }
+  // onClick={openDialog('X')} → 打开右侧抽屉（X 为 dialog 页面，父页面持有开关 state）
+  const odB = el.bindings.find((b) => b.name === 'openDialog');
+  if (odB) {
+    return `<Button type="primary" onClick={${onClick(`setShow${cap(odB.target)}(true)`)}}>${label}</Button>`;
+  }
   return `<Button>${label}</Button>`;
+}
+
+/** 父页面 openDialog 目标清单（去重保序） */
+function collectOpenDialogTargets(v: ViewNode): string[] {
+  const out: string[] = [];
+  const visit = (els: ViewElementNode[]): void => {
+    for (const el of els) {
+      for (const b of el.bindings) {
+        if (b.name === 'openDialog' && !out.includes(b.target)) out.push(b.target);
+      }
+      visit(el.children);
+    }
+  };
+  visit(v.elements);
+  return out;
 }
 
 /** 表单输入控件升级：枚举→Select、日期/日期时间→DatePicker、时间→TimePicker、数字→InputNumber，其余 Input */
@@ -1321,8 +1369,12 @@ function collectFormAntd(app: AppNode, v: ViewNode): string[] {
             if (t.builtin === 'Time') out.add('TimePicker');
           }
         }
-        // form 有 submit 绑定时 genForm 会自动补提交按钮（htmlType=submit）→ Button 需在 import 中
-        if (mutB) out.add('Button');
+        // form 有 submit 绑定时 genForm 会自动补提交按钮（htmlType=submit）→ Button 需在 import 中；双列栅格用 Row/Col
+        if (mutB) {
+          out.add('Button');
+          out.add('Row');
+          out.add('Col');
+        }
       }
       visit(el.children);
     }
@@ -1337,7 +1389,7 @@ function needsDayjs(app: AppNode, v: ViewNode): boolean {
 }
 
 /** form submit={useMutation('x')} → 表单 + 输入（state 已在 pageFile 顶部提升，此处只出 JSX） */
-function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
+function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, onCloseExpr?: string): string {
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
   if (!mutB) {
     // form 无 submit 绑定：不生成 onSubmit（不能引用不存在的 mutation）
@@ -1356,10 +1408,11 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
   const logic = logicOf(app, mutB.target);
   const p0 = logic?.params[0]?.type;
   const bodyStruct = p0?.kind === 'reference' ? app.structures.find((x) => x.name === nameFromPath(p0.path)) : undefined;
+  // 双列栅格排布（管理端表单观感）
   const inputEls = inputs
     .map((i) => {
       const f = String(i.props.field ?? '');
-      return `<div><label>${f}: ${formInputJsx(app, bodyStruct, f)}</label></div>`;
+      return `      <Col span={12}><div style={{ marginBottom: 12 }}><label>${f}: ${formInputJsx(app, bodyStruct, f)}</label></div></Col>`;
     })
     .join('\n');
   // repeat 明细行
@@ -1406,10 +1459,12 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
       return c === f ? f : `${f}: ${c}`;
     })
     .join(', ')} }`;
-  return `<form onSubmit={(e) => { e.preventDefault(); ${varname}.mutate(${bodyObj}); }}>
-  ${inputEls}
+  return `<form onSubmit={(e) => { e.preventDefault(); ${varname}.mutate(${bodyObj})${onCloseExpr ? `.then(() => ${onCloseExpr}())` : ''}; }}>
+  <Row gutter={16}>\n${inputEls}\n  </Row>
   ${repeatEls}
-  <Button type="primary" htmlType="submit">提交</Button>
+  <div style={{ textAlign: 'right', marginTop: 8 }}>
+    <Button type="primary" htmlType="submit">提交</Button>
+  </div>
 </form>`;
 }
 
