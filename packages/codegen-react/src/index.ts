@@ -1279,6 +1279,8 @@ function collectFormAntd(app: AppNode, v: ViewNode): string[] {
             if (t.builtin === 'Time') out.add('TimePicker');
           }
         }
+        // form 有 submit 绑定时 genForm 会自动补提交按钮（htmlType=submit）→ Button 需在 import 中
+        if (mutB) out.add('Button');
       }
       visit(el.children);
     }

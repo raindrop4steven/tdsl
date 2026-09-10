@@ -310,12 +310,14 @@ page ContractForm {
   </form>
 }
 `);
-  it('枚举字段→Select（选项来自 enum 项）；数字→InputNumber；日期→DatePicker；DateTime 带 showTime', () => {
+  it('表单字段类型升级：枚举字段→Select（选项来自 enum 项）；数字→InputNumber；日期→DatePicker；DateTime 带 showTime；submit 自动补 Button import', () => {
     const page = generateReact(SRC).find((f) => f.path === 'src/pages/ContractForm.tsx')!.content;
     expect(page).toContain(`<Select style={{ width: '100%' }} options={[{ value: 'DRAFT', label: 'DRAFT' }, { value: 'ACTIVE', label: 'ACTIVE' }]}`);
     expect(page).toContain('<InputNumber');
     expect(page).toContain('<DatePicker style={{ width: \'100%\' }} value={signDate ? dayjs(signDate) : null}');
     expect(page).toContain('<DatePicker showTime');
+    // genForm 自产的提交按钮 → Button 必须在 import 中（否则 ReferenceError: Button is not defined）
+    expect(page).toMatch(/import \{ [^}]*Button[^}]*\} from 'antd'/);
   });
 
   it('页面 import 含升级控件与 dayjs；package.json 含 dayjs 依赖；提交走 onSubmit + htmlType=submit', () => {
