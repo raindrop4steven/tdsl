@@ -84,8 +84,8 @@ function projectFiles(app: AppNode): GeneratedFile[] {
   const name = `${app.name}-react`;
   const hasViews = app.views.length > 0;
   const routerDep = hasViews ? `,\n    "react-router-dom": "^6.30.0"` : '';
-  // antd：页面声明（M4）默认 UI 组件库，提供样式
-  const antdDep = hasViews ? `,\n    "antd": "^5.0.0"` : '';
+  // antd：页面声明（M4）默认 UI 组件库，提供样式；dayjs：DatePicker 值转换（antd 生态标准）
+  const antdDep = hasViews ? `,\n    "antd": "^5.0.0",\n    "dayjs": "^1.11.0"` : '';
   // 第三方组件依赖（component 注册的 pkg）
   const compDeps = app.components
     .map((c) => `,\n    "${c.pkg}": "*"`)
@@ -673,10 +673,13 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   for (const comp of collectUsedComponents(app, v)) {
     imports.push(`import ${comp.name} from '${comp.pkg}';`);
   }
-  // 页面用到的 antd 组件 → import { Table, Button } from 'antd'
-  const antdNames = collectAntdComponents(v);
+  // 页面用到的 antd 组件 → import { Table, Button } from 'antd'（含 form 字段类型升级的 Select/DatePicker 等）
+  const antdNames = [...new Set([...collectAntdComponents(v), ...collectFormAntd(app, v)])];
   if (antdNames.length > 0) {
     imports.push(`import { ${antdNames.join(', ')} } from 'antd';`);
+  }
+  if (needsDayjs(app, v)) {
+    imports.push("import dayjs from 'dayjs';");
   }
 
   const hooksInit: string[] = [];
@@ -1199,6 +1202,66 @@ function genButton(
   return `<Button>${label}</Button>`;
 }
 
+/** 表单输入控件升级：枚举→Select、日期/日期时间→DatePicker、时间→TimePicker、数字→InputNumber，其余 Input */
+function formInputJsx(app: AppNode, struct: StructureNode | undefined, f: string): string {
+  const p = struct?.properties.find((pp) => pp.name === f);
+  const t = p?.type;
+  if (t?.kind === 'reference') {
+    const en = app.enums.find((e) => e.name === nameFromPath(t.path));
+    if (en) {
+      const opts = en.items.map((i) => `{ value: '${i.name}', label: '${i.name}' }`).join(', ');
+      return `<Select style={{ width: '100%' }} options={[${opts}]} value={${f}} onChange={(v) => set${cap(f)}(v)} />`;
+    }
+  }
+  if (t?.kind === 'primitive') {
+    if (t.builtin === 'Integer' || t.builtin === 'Decimal') {
+      return `<InputNumber style={{ width: '100%' }} value={${f} === '' ? null : Number(${f})} onChange={(v) => set${cap(f)}(v == null ? '' : String(v))} />`;
+    }
+    if (t.builtin === 'Date') {
+      return `<DatePicker style={{ width: '100%' }} value={${f} ? dayjs(${f}) : null} onChange={(_, s) => set${cap(f)}(s ?? '')} />`;
+    }
+    if (t.builtin === 'DateTime') {
+      return `<DatePicker showTime style={{ width: '100%' }} value={${f} ? dayjs(${f}) : null} onChange={(_, s) => set${cap(f)}(s ?? '')} />`;
+    }
+    if (t.builtin === 'Time') {
+      return `<TimePicker style={{ width: '100%' }} value={${f} ? dayjs(${f}, 'HH:mm:ss') : null} onChange={(_, s) => set${cap(f)}(s ?? '')} />`;
+    }
+  }
+  return `<Input value={${f}} onChange={(e) => set${cap(f)}(e.target.value)} />`;
+}
+
+/** genForm 字段升级用到的额外 antd 组件名（Select/InputNumber/DatePicker/TimePicker） */
+function collectFormAntd(app: AppNode, v: ViewNode): string[] {
+  const out = new Set<string>();
+  const visit = (els: ViewElementNode[]): void => {
+    for (const el of els) {
+      if (el.type === 'form') {
+        const mutB = el.bindings.find((b) => b.name === 'useMutation');
+        const logic = mutB ? logicOf(app, mutB.target) : undefined;
+        const p0 = logic?.params[0]?.type;
+        const struct = p0?.kind === 'reference' ? app.structures.find((x) => x.name === nameFromPath(p0.path)) : undefined;
+        for (const i of el.children.filter((c) => c.type === 'input')) {
+          const t = struct?.properties.find((pp) => pp.name === String(i.props.field ?? ''))?.type;
+          if (t?.kind === 'reference' && app.enums.some((e) => e.name === nameFromPath(t.path))) out.add('Select');
+          if (t?.kind === 'primitive') {
+            if (t.builtin === 'Integer' || t.builtin === 'Decimal') out.add('InputNumber');
+            if (t.builtin === 'Date' || t.builtin === 'DateTime') out.add('DatePicker');
+            if (t.builtin === 'Time') out.add('TimePicker');
+          }
+        }
+      }
+      visit(el.children);
+    }
+  };
+  visit(v.elements);
+  return [...out];
+}
+
+/** form/页面字段是否含日期类字段（需 dayjs import 与依赖） */
+function needsDayjs(app: AppNode, v: ViewNode): boolean {
+  return collectFormAntd(app, v).some((n) => n === 'DatePicker' || n === 'TimePicker');
+}
+
 /** form submit={useMutation('x')} → 表单 + 输入（state 已在 pageFile 顶部提升，此处只出 JSX） */
 function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
@@ -1215,10 +1278,14 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
   const varname = `m${cap(logicNameOf(mutB.target))}`;
   const inputs = el.children.filter((c) => c.type === 'input');
   const repeats = el.children.filter((c) => c.type === 'repeat');
+  // 表单字段类型升级：枚举→Select、日期→DatePicker、数字→InputNumber（字段类型来自 submit mutation 的首参结构体）
+  const logic = logicOf(app, mutB.target);
+  const p0 = logic?.params[0]?.type;
+  const bodyStruct = p0?.kind === 'reference' ? app.structures.find((x) => x.name === nameFromPath(p0.path)) : undefined;
   const inputEls = inputs
     .map((i) => {
       const f = String(i.props.field ?? '');
-      return `<div><label>${f}: <Input value={${f}} onChange={(e) => set${cap(f)}(e.target.value)} /></label></div>`;
+      return `<div><label>${f}: ${formInputJsx(app, bodyStruct, f)}</label></div>`;
     })
     .join('\n');
   // repeat 明细行
@@ -1256,11 +1323,6 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
     })
     .join('\n');
   // body 对象：input 字段 + repeat 字段；每个字段按结构体形参类型转换（state 是 string）
-  const logic = logicOf(app, mutB.target);
-  const p0 = logic?.params[0]?.type;
-  const bodyStruct = p0?.kind === 'reference'
-    ? app.structures.find((x) => x.name === nameFromPath(p0.path))
-    : undefined;
   const bodyFields = [...inputs.map((i) => String(i.props.field ?? '')), ...repeats.map((r) => String(r.props.field ?? 'items'))];
   const bodyObj = `{ ${bodyFields
     .map((f) => {

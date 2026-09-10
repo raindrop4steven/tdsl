@@ -110,6 +110,9 @@ export function systemPrompt(): string {
     '- 一个功能域 = 一个 .tdsl 文件（如 01_order-model.tdsl / 02_order-create.tdsl）：共享数据模型放 01，其他文件跨文件短名引用它。',
     '- 每次 write_tdsl_files 后必须调用 compile_tdsl 检查；有 [error] 就修复再编译。',
     '- 编译通过且功能完整即停：调用 generate_code 生成并落盘产物，然后文字总结交付，不要再写文件。',
+    '- 表单必须绑定提交：<form submit={useMutation(\'逻辑名\')}>；提交按钮由生成器自动产生，不要再写单独的提交按钮。',
+    '- 字段控件由生成器按类型升级（枚举→下拉、日期→日期选择器、数字→数字输入），agent 只写普通 <input field>，不要自造下拉。',
+    '- 日期/时间字段用 Date/DateTime 类型；表单字段名必须与首参结构体的属性名一致。',
     '- 每个文件开头用注释说明该功能域。',
     '- 需要更多示例形态时，读取 examples/ 目录下的示例文件。',
   ].join('\n');

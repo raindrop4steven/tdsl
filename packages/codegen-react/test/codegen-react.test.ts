@@ -287,3 +287,45 @@ page ContractList {
     expect(api).toContain("+ (qs.length ? '?' + qs.join('&') : '')");
   });
 });
+
+describe('codegen-react 表单字段类型升级', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+entity Contract { id: Integer @pk; title: String; type: ContractType; amount: Decimal; signDate: Date; createdAt: DateTime; }
+enum ContractType { DRAFT, ACTIVE }
+struct ContractInput { title: String; type: ContractType; amount: Decimal; signDate: Date; createdAt: DateTime; }
+@export
+logic createContract(input: ContractInput): Contract { return new Contract(); }
+interface ContractApi {
+  POST '/api/contracts' -> createContract
+}
+page ContractForm {
+  <form submit={useMutation('createContract')}>
+    <input field="title" />
+    <input field="type" />
+    <input field="amount" />
+    <input field="signDate" />
+    <input field="createdAt" />
+  </form>
+}
+`);
+  it('枚举字段→Select（选项来自 enum 项）；数字→InputNumber；日期→DatePicker；DateTime 带 showTime', () => {
+    const page = generateReact(SRC).find((f) => f.path === 'src/pages/ContractForm.tsx')!.content;
+    expect(page).toContain(`<Select style={{ width: '100%' }} options={[{ value: 'DRAFT', label: 'DRAFT' }, { value: 'ACTIVE', label: 'ACTIVE' }]}`);
+    expect(page).toContain('<InputNumber');
+    expect(page).toContain('<DatePicker style={{ width: \'100%\' }} value={signDate ? dayjs(signDate) : null}');
+    expect(page).toContain('<DatePicker showTime');
+  });
+
+  it('页面 import 含升级控件与 dayjs；package.json 含 dayjs 依赖；提交走 onSubmit + htmlType=submit', () => {
+    const files = generateReact(SRC);
+    const page = files.find((f) => f.path === 'src/pages/ContractForm.tsx')!.content;
+    expect(page).toMatch(/import \{ [^}]*Select[^}]*\} from 'antd'/);
+    expect(page).toMatch(/import \{ [^}]*InputNumber[^}]*\} from 'antd'/);
+    expect(page).toMatch(/import \{ [^}]*DatePicker[^}]*\} from 'antd'/);
+    expect(page).toContain("import dayjs from 'dayjs';");
+    expect(page).toContain('htmlType="submit"');
+    const pkg = files.find((f) => f.path === 'package.json')!.content;
+    expect(pkg).toContain('"dayjs": "^1.11.0"');
+  });
+});
