@@ -56,6 +56,7 @@
 | 17 | 2026-09 | M10 实战调试周 | 连环真机调试与修复：①OpenCode Go 网关要求会话头（MissingSessionID）→ compat 强制 sendSessionAffinityHeaders；②agent 诊断日志（agentEventLogger→logs/agent.log）+ 浏览器 🐞 调试面板 + GLM 超时放宽 5min/重试 5；③会话持久化（.sessions 固定目录 + 恢复 + 恢复失败自动换新）；④思考状态可视化（🤔 计时器）；⑤上下文按需拉取（read 只给清单/诊断封顶 10 条/generate 目录聚合）；⑥运行面板手动启停按钮 | c73149d..1a5df38 共 6 commits | server 22，全仓 199 全绿 |
 | 18 | 2026-09 | typecheck 端点暴露拦截 | agent 车辆租赁应用漏写 interface → api.ts 缺函数 → 前端白屏（反馈闭环首次真跑通：client-error 回流→定位→checker 补漏）；checkBinding 新增'绑定逻辑必须被 interface 端点暴露'；示例矩阵抓到 external-service 示例自身不合规并修复 | 83cf582 | typecheck 37，199 全绿 |
 | 19 | 2026-09 | genForm 自产 Button import 缺失 | form 自动提交按钮不在 antd import 收集范围 → ReferenceError 白屏；collectFormAntd 强制计入（覆盖 repeat 明细块自产按钮）；顺手用修好的生成器重刷了用户沙箱产物 | 1a5df38 | 199 全绿 |
+| 20 | 2026-09 | dialog 抽屉完整闭环实战 | 用户白屏三连修复：dialog import 相对路径（页面内 importer 应 ./X，原 ./pages/X 解析到 src/pages/pages/）→ Fragment 包裹兄弟 JSX → 沙箱孤儿 Java 主类（CLI 手动重刷不清旧产物致 mvn 双主类失败，generate_code 已根治，CLI 后续对齐）→ 后端 restart 后接口 200（H2 建表+数据在）| 84f5f3e 等 3 commits | 用户实测车辆租赁应用全链路跑通 |
 
 ## 4. 踩过的坑（后来者必读）
 
@@ -76,6 +77,7 @@
 | 机器 npmrc 指向陈旧内网镜像（react-router-dom 停在 5.x）→ 生成工程装不上依赖 | 生成工程内置 .npmrc 锁公网 registry；机器级 registry 问题先 `npm view pkg version --registry=xxx` 验证，别猜版本号 |
 | codegen 自产内容（自动提交按钮/repeat 操作列）不在 import 收集范围 → 白屏 | codegen 的'隐含产物'必须计入 import/类型收集器；根治方向：静态扫描产物 JSX 组件 ∈ import 集合 |
 | agent 忘写 interface 但 @export 齐全 → api.ts 缺函数白屏，typecheck 原先放行 | '宽松放行'只适用于语义不明的场景；语义明确的真缺陷（端点暴露/悬空引用）该拦就拦 |
+| 手动用 CLI 重刷沙箱产物不清旧文件 → 新旧 Java 主类并存 → mvn 'Unable to find a single main class' | CLI 与服务端 generate 应共享'生成前清空'语义；测试/演示数据别混在用户会话沙箱里 |
 
 ## 5. 文档地图（简化后的最终形态）
 
