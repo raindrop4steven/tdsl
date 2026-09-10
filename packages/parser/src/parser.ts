@@ -203,8 +203,8 @@ class Parser {
         app.logics.push(this.parseLogic());
       } else if (kw === 'interface') {
         app.interfaces.push(this.parseInterface());
-      } else if (kw === 'page') {
-        app.views.push(this.parsePage());
+      } else if (kw === 'page' || kw === 'dialog') {
+        app.views.push(this.parseView());
       } else if (kw === 'service') {
         const cfg = pendingServiceConfig ?? {};
         pendingServiceConfig = null;
@@ -437,8 +437,10 @@ class Parser {
   }
 
   /** page Name { <el ...>...</el> } —— JSX 子集，解析为 ViewNode */
-  private parsePage(): ViewNode {
-    this.expect('page');
+  /** page → 路由页面；dialog → 抽屉/弹窗组件（不进路由，由页面 openDialog 打开） */
+  private parseView(): ViewNode {
+    const viewKind = this.peek().value === 'dialog' ? 'dialog' : 'page';
+    this.next();
     const name = this.expectIdent();
     this.expect('{');
     const elements: ViewElementNode[] = [];

@@ -130,6 +130,8 @@ export function systemPrompt(): string {
     '- 每次 write_tdsl_files 后必须调用 compile_tdsl 检查；有 [error] 就修复再编译。',
     '- 编译通过且功能完整即停：调用 generate_code 生成并落盘产物，然后文字总结交付，不要再写文件。',
     '- 表单必须绑定提交：<form submit={useMutation(\'逻辑名\')}>；提交按钮由生成器自动产生，不要再写单独的提交按钮。',
+    '- 新增/编辑类表单用 dialog 声明（不进路由、不占菜单），列表页用 openDialog(\'DialogName\') 打开；dialog 内 form 提交成功后自动关闭。',
+    '- 常用组件已内置：tag（状态标签，颜色可用 color= 指定）、statistic（统计卡）、tabs>pane（标签页）、switch/checkbox/radio、avatar/badge/card。枚举表格列自动彩色标签，Boolean 字段自动开关。',
     '- 字段控件由生成器按类型升级（枚举→下拉、日期→日期选择器、数字→数字输入），agent 只写普通 <input field>，不要自造下拉。',
     '- 日期/时间字段用 Date/DateTime 类型；表单字段名必须与首参结构体的属性名一致。',
     '- 编译通过不是交付标准：改完必须 run_app restart 并读 logs 确认无 ERROR 后再总结。',

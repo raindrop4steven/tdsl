@@ -943,6 +943,9 @@ function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, st
     case 'detail':
       return genDetail(app, el, queryVars);
     default: {
+      // 管理端常用组件（tag/statistic/tabs/checkbox/switch/radio/avatar/badge/card）
+      const common = genCommonElement(app, el, queryVars, states);
+      if (common !== undefined) return common;
       // 第三方组件：component 注册命中 → <ECharts data={...} option={...} />
       const comp = app.components.find((c) => c.name === el.type);
       if (comp) return genComponentElement(app, comp, el, queryVars);
@@ -997,6 +1000,17 @@ const ANTD_OF: Record<string, string> = {
   button: 'Button',
   input: 'Input',
   detail: 'Descriptions',
+  // 管理端常用组件集
+  tag: 'Tag',
+  statistic: 'Statistic',
+  tabs: 'Tabs',
+  pane: 'Tabs.TabPane（用 items）',
+  checkbox: 'Checkbox',
+  radio: 'Radio',
+  switch: 'Switch',
+  avatar: 'Avatar',
+  badge: 'Badge',
+  card: 'Card',
 };
 
 /** 页面用到哪些 antd 组件（去重、保持稳定顺序） */
@@ -1172,10 +1186,26 @@ ${texts}
 function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = []): string {
   const qBinding = el.bindings.find((b) => b.name === 'useQuery');
   const dataVar = qBinding ? queryVars.get(qBinding.target)! : 'data';
+  // 枚举列自动彩色 Tag：从查询返回实体解析字段类型（状态列不再裸文本）
+  const logic = qBinding ? logicOf(app, qBinding.target) : undefined;
+  const retType = logic?.returns[0]?.type;
+  const entName = retType?.kind === 'reference' ? nameFromPath(retType.path) : null;
+  const ent = entName
+    ? app.datasources.flatMap((ds) => ds.entities).find((e) => e.name === entName)
+    : undefined;
   const columns = el.children.filter((c) => c.type === 'column');
-  const colDefs = columns.map(
-    (c) => `    { title: '${String(c.props.title ?? c.props.field ?? '')}', dataIndex: '${String(c.props.field ?? '')}' }`,
-  );
+  const colDefs = columns.map((c) => {
+    const field = String(c.props.field ?? '');
+    const title = String(c.props.title ?? field);
+    const enumType = ent?.properties.find((p) => p.name === field)?.type;
+    const en = enumType?.kind === 'reference' ? app.enums.find((e) => e.name === nameFromPath(enumType.path)) : undefined;
+    if (en) {
+      // 枚举项→颜色映射在生成期确定，运行期按 row 值取色（生成代码不含未知符号）
+      const colorMap = `{ ${en.items.map((i) => `'${i.name}': '${tagColorFor(i.name)}'`).join(', ')} }`;
+      return `    { title: '${title}', dataIndex: '${field}', render: (_, row) => { const colors: Record<string, string> = ${colorMap}; return <Tag color={colors[String(row.${field})] ?? 'blue'}>{String(row.${field})}</Tag>; } }`;
+    }
+    return `    { title: '${title}', dataIndex: '${field}' }`;
+  });
   // 行内按钮（table 直接子 button）→ 操作列 render（stopPropagation，避免触发 onRow）
   const rowButtons = el.children.filter((c) => c.type === 'button');
   const opCol = rowButtons.length > 0
@@ -1255,6 +1285,9 @@ function formInputJsx(app: AppNode, struct: StructureNode | undefined, f: string
   if (t?.kind === 'primitive') {
     if (t.builtin === 'Integer' || t.builtin === 'Decimal') {
       return `<InputNumber style={{ width: '100%' }} value={${f} === '' ? null : Number(${f})} onChange={(v) => set${cap(f)}(v == null ? '' : String(v))} />`;
+    }
+    if (t.builtin === 'Boolean') {
+      return `<Switch checked={${f} === 'true'} onChange={(v) => set${cap(f)}(String(v))} />`;
     }
     if (t.builtin === 'Date') {
       return `<DatePicker style={{ width: '100%' }} value={${f} ? dayjs(${f}) : null} onChange={(_, s) => set${cap(f)}(s ?? '')} />`;
@@ -1459,6 +1492,82 @@ function genText(el: ViewElementNode): string {
   return `<span>{data${safePath}}</span>`;
 }
 
+/** 枚举值 → Tag 颜色（语义关键词映射，未知项蓝色兜底） */
+function tagColorFor(value: string): string {
+  const v = value.toUpperCase();
+  if (/APPROV|SUCCESS|ACTIVE|OK|ENABLE|PAID|COMPLET|DONE|NORMAL/.test(v)) return 'green';
+  if (/REJECT|FAIL|ERROR|CANCEL|TERMINAT|VOID|DISABLE|OVERDUE/.test(v)) return 'red';
+  if (/PENDING|WAIT|DRAFT|REVIEW|AUDIT|PROCESS|HOLD/.test(v)) return 'orange';
+  if (/CLOSE|ARCHIVE|INACTIVE|EXPIRE|STOP/.test(v)) return 'default';
+  return 'blue';
+}
+
+/** 管理端常用元素：tag / statistic / tabs / checkbox / switch / radio / avatar / badge / card */
+function genCommonElement(
+  app: AppNode,
+  el: ViewElementNode,
+  queryVars: Map<string, string>,
+  states: string[],
+): string | undefined {
+  const label = String(el.props.text ?? el.props.title ?? el.props.field ?? '');
+  switch (el.type) {
+    case 'tag': {
+      const color = String(el.props.color ?? 'blue');
+      const v = el.props.value !== undefined ? genBindingArg(el.props.value as Expr, false) : `'${label}'`;
+      return `<Tag color="${color}">{${v}}</Tag>`;
+    }
+    case 'statistic': {
+      const v = el.props.value !== undefined ? genBindingArg(el.props.value as Expr, false) : 'null';
+      return `<Statistic title="${String(el.props.title ?? '')}" value={${v}} />`;
+    }
+    case 'tabs': {
+      const panes = el.children.filter((c) => c.type === 'pane');
+      const items = panes
+        .map(
+          (p, i) =>
+            `{ key: 't${i}', label: '${String(p.props.title ?? p.props.field ?? '')}', children: (
+      <>${p.children.map((c) => genElement(app, c, queryVars, states)).join('\n')}</>
+    ) }`,
+        )
+        .join(',\n');
+      return `<Tabs items={[\n${items}\n]} />`;
+    }
+    case 'checkbox': {
+      const f = String(el.props.field ?? '');
+      return `<Checkbox checked={${f} === 'true'} onChange={(e) => set${cap(f)}(String(e.target.checked))}>${label}</Checkbox>`;
+    }
+    case 'switch': {
+      const f = String(el.props.field ?? '');
+      return `<Switch checked={${f} === 'true'} onChange={(v) => set${cap(f)}(String(v))} />`;
+    }
+    case 'radio': {
+      const f = String(el.props.field ?? '');
+      const options = String(el.props.options ?? '')
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+      const opts = options.length > 0 ? options.map((o) => `'${o}'`).join(', ') : '';
+      return `<Radio.Group options={[${opts}]} value={${f}} onChange={(e) => set${cap(f)}(e.target.value)} />`;
+    }
+    case 'avatar': {
+      const v = el.props.value !== undefined ? genBindingArg(el.props.value as Expr, false) : `'${label.slice(0, 1)}'`;
+      return `<Avatar style={{ backgroundColor: '#1677ff' }}>{${v}}</Avatar>`;
+    }
+    case 'badge': {
+      const v = el.props.count !== undefined ? genBindingArg(el.props.count as Expr, false) : `0`;
+      const status = el.props.status ? ` status="${String(el.props.status)}"` : '';
+      const text = label && !el.props.count ? ` text="${label}"` : '';
+      return `<Badge${status} count={${v}}${text} />`;
+    }
+    case 'card': {
+      const title = String(el.props.title ?? '');
+      const inner = el.children.map((c) => genElement(app, c, queryVars, states)).join('\n');
+      return `<Card title="${title}">${inner}</Card>`;
+    }
+  }
+  return undefined;
+}
+
 /** detail dataSource={useQuery('x')} → antd Descriptions 详情块 */
 function genDetail(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>): string {
   const qBinding = el.bindings.find((b) => b.name === 'useQuery');
@@ -1480,23 +1589,25 @@ ${itemEls}
 // ---------- App.tsx：路由表 ----------
 
 function routerFile(app: AppNode): GeneratedFile {
-  const routes = app.views
+  // dialog 页面（右侧抽屉）不进路由/菜单：由列表页 openDialog 挂载
+  const routed = app.views.filter((v) => v.viewKind !== 'dialog');
+  const routes = routed
     .map((v) => {
       const hasRoute = hasRouteParam(v.elements) || routeParamPages(app).has(v.name);
       const path = routePathOf(v) + (hasRoute ? '/:id' : '');
       return `  <Route path="${path}" element={<${v.name} />} />`;
     })
     .join('\n');
-  // 根路径重定向到第一个页面，避免打开 / 时空白
-  const firstView = app.views[0];
+  // 根路径重定向到第一个路由页面（dialog 不作为首页）
+  const firstView = routed[0];
   const firstRoute = firstView
     ? routePathOf(firstView) + (hasRouteParam(firstView.elements) || routeParamPages(app).has(firstView.name) ? '/:id' : '')
     : null;
   const redirect = firstRoute ? `  <Route path="/" element={<Navigate to="${firstRoute}" replace />} />\n` : '';
-  const imports = app.views.map((v) => `import ${v.name} from './pages/${v.name}';`).join('\n');
+  const imports = routed.map((v) => `import ${v.name} from './pages/${v.name}';`).join('\n');
   const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
-  // 管理端布局：顶部 Header（应用名）+ 左侧 Sider 菜单 + 右侧内容区（路由出口）
-  const menuItems = app.views.map((v) => `  { key: '${routePathOf(v)}', label: '${v.name}' },`).join('\n');
+  // 管理端布局：顶部 Header（应用名）+ 左侧 Sider 菜单 + 右侧内容区（路由出口）；dialog 不进菜单
+  const menuItems = routed.map((v) => `  { key: '${routePathOf(v)}', label: '${v.name}' },`).join('\n');
   const content = `// 自动生成：页面路由 + 管理端布局（TDSL page）
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Layout, Menu } from 'antd';

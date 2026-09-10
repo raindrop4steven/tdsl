@@ -320,6 +320,35 @@ page CarList {
     expect(check(app).ok).toBe(true);
   });
 
+  it('管理端常用组件（tag/statistic/tabs/switch/badge/card）不再视为未知类型', () => {
+    const app = parse(`
+entity Car { id: Integer @pk; plate: String; }
+@export
+logic stats(): Decimal { return Car.aggregate(count(id)); }
+@export
+logic listCars(): List<Car> { return Car.all; }
+interface CarApi { GET '/api/cars' -> listCars GET '/api/cars/stats' -> stats }
+page Dashboard {
+  <statistic title="总数" value={qStats.data} />
+  <tabs>
+    <pane title="车辆">
+      <tag color="green" text="在租" />
+      <avatar text="张" />
+    </pane>
+    <pane title="明细">
+      <switch field="on" />
+      <checkbox field="agree" />
+      <radio field="type" options="A,B" />
+      <badge count={qStats.data} text="告警" />
+      <card title="卡" />
+    </pane>
+  </tabs>
+}
+`);
+    const r = check(app);
+    expect(r.diagnostics.filter((d) => d.message.includes('未知页面组件类型'))).toEqual([]);
+  });
+
 it('rejects dangling navigate page', () => {
     const app = parse(`
 entity Order { id: Integer @pk; }

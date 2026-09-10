@@ -266,9 +266,11 @@ function fileOfPath(map: Map<string, string>, path: string): string | undefined 
   }
 }
 
-/** 已知 ViewElement 组件类型 */
+/** 已知 ViewElement 组件类型（管理系统常用集） */
 const KNOWN_VIEW_TYPES = new Set([
   'table', 'column', 'button', 'form', 'input', 'repeat', 'text', 'detail',
+  // 管理端常用：标签/统计/标签页/布尔与选项控件/头像/徽标/分格
+  'tag', 'statistic', 'tabs', 'pane', 'checkbox', 'radio', 'switch', 'avatar', 'badge', 'card',
 ]);
 
 /** View 校验：组件类型已知 + useQuery/useMutation 逻辑存在 + navigate 页面存在 */
@@ -319,11 +321,33 @@ function checkBinding(
         severity: 'error',
       });
     }
+  } else if (b.name === 'openDialog') {
+    const target = app.views.find((v) => v.name === b.target);
+    if (!target) {
+      diagnostics.push({
+        path: ownerPath(b),
+        message: `页面绑定 openDialog 悬空页面: ${b.target}`,
+        severity: 'error',
+      });
+    } else if (target.viewKind !== 'dialog') {
+      diagnostics.push({
+        path: ownerPath(b),
+        message: `openDialog 目标 '${b.target}' 是 page 而非 dialog；page 用 navigate 跳转，dialog 才用 openDialog`,
+        severity: 'error',
+      });
+    }
   } else if (b.name === 'navigate') {
-    if (!app.views.some((v) => v.name === b.target)) {
+    const target = app.views.find((v) => v.name === b.target);
+    if (!target) {
       diagnostics.push({
         path: ownerPath(b),
         message: `页面绑定 navigate 悬空页面: ${b.target}`,
+        severity: 'error',
+      });
+    } else if (target.viewKind === 'dialog') {
+      diagnostics.push({
+        path: ownerPath(b),
+        message: `'${b.target}' 是 dialog 页面（右侧抽屉），不进路由；请改用 openDialog('${b.target}')`,
         severity: 'error',
       });
     }

@@ -15,8 +15,10 @@ interface OrderApi { GET '/api/orders/{id}' -> getOrderDetail }        // GET/PO
 @service(kind = 'http', baseUrl = 'http://x') service ErpApi { GET '/path' -> opName(id: Integer): Order; }
 component RichTable { pkg: 'npm-pkg-name'; defaultProps: { data: Json }; events: ['onClick'] }
 page OrderList { <table dataSource={useQuery('listOrders')}> <column field="id" /> </table> }
-//   页面绑定: useQuery('logic') / useMutation('logic', args...) / navigate('PageName', row.id)
-//   组件: table/column/button/form/input/repeat/text/detail 内置；三方组件用 component 注册名
+//   页面绑定: useQuery('logic') / useMutation('logic', args...) / navigate('PageName', row.id) / openDialog('DialogName')
+//   内置组件: table/column/button/form/input/repeat/text/detail；管理端常用: tag(color)/statistic(title,value)
+//     tabs > pane(title) / checkbox / switch / radio(options="A,B") / avatar / badge(count) / card(title)——枚举列自动彩色标签、Boolean 字段自动开关
+//   新增/编辑类表单用 dialog 声明（不进路由），列表页用 openDialog('DialogName') 打开；三方组件用 component 注册名
 
 // ---- 逻辑（TS 风格 + 两处有意偏离，勿写成 TS！）----
 @export
