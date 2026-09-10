@@ -66,6 +66,11 @@ export class Workspace {
       .map((name) => ({ path: name, content: readFileSync(join(dir, name), 'utf8') }));
   }
 
+  /** 清空 generated/<target>/（重新生成前调用，防止删除的页面残留为孤儿文件破坏 tsc/vite build） */
+  clearGenerated(target: 'java' | 'react'): void {
+    rmSync(join(this.root, 'generated', target), { recursive: true, force: true });
+  }
+
   /** 批量写入 codegen 产物到 generated/<target>/（路径安全校验，拒绝 .. 穿越） */
   writeGenerated(target: 'java' | 'react', files: Array<{ path: string; content: string | Buffer }>): number {
     const base = resolve(join(this.root, 'generated', target));

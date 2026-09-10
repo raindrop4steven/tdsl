@@ -373,7 +373,7 @@ dialog CarForm {
     expect(list).toContain('const [showCarForm, setShowCarForm] = useState(false);');
     expect(list).toContain("onClick={() => setShowCarForm(true)}");
     expect(list).toContain("<CarForm open={showCarForm} onClose={() => { setShowCarForm(false); qListCars.refetch(); }} />");
-    expect(list).toContain("import CarForm from './pages/CarForm';");
+    expect(list).toContain("import CarForm from './CarForm';");
   });
 
   it('dialog 不进路由与菜单（不作为首页）', () => {

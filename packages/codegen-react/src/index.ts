@@ -782,7 +782,8 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   const dialogTargets = collectOpenDialogTargets(v);
   for (const t of dialogTargets) {
     hooksInit.push(`  const [show${cap(t)}, setShow${cap(t)}] = useState(false);`);
-    imports.push(`import ${t} from './pages/${t}';`);
+    // importer 本身在 src/pages/ 内 → 相对路径 ./X（routerFile 的 './pages/X' 只适用于 src/App.tsx）
+    imports.push(`import ${t} from './${t}';`);
   }
   const firstQueryVar = queryBindings.length > 0 ? queryVars.get(queryBindings[0].target) : undefined;
   const dialogRenders = dialogTargets

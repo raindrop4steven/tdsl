@@ -92,6 +92,9 @@ export function generateAndSave(
   try {
     const java: GeneratedFile[] = generateJava(app);
     const react: GeneratedFile[] = generateReact(app);
+    // 先清空旧产物再写入：TDSL 迭代删除的页面/文件不留孤儿（孤儿会让 vite build/tsc 失败）
+    ws.clearGenerated('java');
+    ws.clearGenerated('react');
     ws.writeGenerated('java', java);
     ws.writeGenerated('react', react);
     // 按目录聚合（规模感知）；逐文件清单仅在显式要求时给出
