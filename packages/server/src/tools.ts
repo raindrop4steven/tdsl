@@ -49,11 +49,15 @@ export function compileSandbox(ws: Workspace, appName: string): CompileReport {
         app,
       };
     }
+    // 诊断封顶 10 条：连锁错误会随修复消失，先修已列出的即可（大项目不撑爆上下文）
+    const shown = result.diagnostics.slice(0, 10);
+    const rest = result.diagnostics.length - shown.length;
+    const diagText =
+      shown.map(formatDiagnostic).join('\n') +
+      (rest > 0 ? `\n…另有 ${rest} 条（先修以上错误，连锁错误会消失）` : '');
     return {
       ok: false,
-      feedback:
-        result.diagnostics.map(formatDiagnostic).join('\n') +
-        '\n请修复以上问题后重新调用 compile_tdsl。',
+      feedback: diagText + '\n请修复以上问题后重新调用 compile_tdsl。',
       diagnostics: result.diagnostics.map((d) => ({ ...d, col: d.col ?? 0 })),
       app,
     };
@@ -79,20 +83,34 @@ function formatDiagnostic(d: { severity: string; file?: string; path: string; me
   return `[${d.severity}]${file} ${d.path}: ${d.message}`;
 }
 
-/** generate_code 的逻辑层：双端 codegen 并落盘到沙箱 generated/{java,react}/，返回清单摘要 */
-export function generateAndSave(ws: Workspace, app: AppNode): { ok: boolean; feedback: string } {
+/** generate_code 的逻辑层：双端 codegen 并落盘到沙箱 generated/{java,react}/，反馈按目录聚合（大项目不拉全清单） */
+export function generateAndSave(
+  ws: Workspace,
+  app: AppNode,
+  opts?: { list?: boolean },
+): { ok: boolean; feedback: string } {
   try {
     const java: GeneratedFile[] = generateJava(app);
     const react: GeneratedFile[] = generateReact(app);
     ws.writeGenerated('java', java);
     ws.writeGenerated('react', react);
-    const list = (files: GeneratedFile[]): string => files.map((f) => `  ${f.path}`).join('\n');
+    // 按目录聚合（规模感知）；逐文件清单仅在显式要求时给出
+    const byDir = (files: GeneratedFile[]): string => {
+      const m = new Map<string, number>();
+      for (const f of files) {
+        const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '(根目录)';
+        m.set(dir, (m.get(dir) ?? 0) + 1);
+      }
+      const summary = [...m.entries()].sort().map(([d, n]) => `  ${d}/ (${n} 个文件)`).join('\n');
+      return opts?.list ? `${summary}\n全部路径：\n${files.map((f) => `  ${f.path}`).join('\n')}` : summary;
+    };
     return {
       ok: true,
       feedback:
-        `Java ${java.length} 个文件（已落盘 generated/java/）：\n${list(java)}\n` +
-        `React ${react.length} 个文件（已落盘 generated/react/）：\n${list(react)}\n` +
-        '产物已在会话沙箱落盘，可在页面导出 zip（Java / React / 全部含 tdsl 源码）。',
+        `Java ${java.length} 个文件（已落盘 generated/java/）：\n${byDir(java)}\n` +
+        `React ${react.length} 个文件（已落盘 generated/react/）：\n${byDir(react)}\n` +
+        '产物已落盘，页面可导出 zip（Java / React / 全部含 tdsl 源码）。' +
+        '\n建议调用 run_app restart 让改动生效（vite 页面热更，后端需重启）。',
     };
   } catch (e) {
     return { ok: false, feedback: `codegen 失败: ${e instanceof Error ? e.message : String(e)}` };
@@ -117,6 +135,7 @@ export function systemPrompt(): string {
     '- 编译通过不是交付标准：改完必须 run_app restart 并读 logs 确认无 ERROR 后再总结。',
     '- 用户提供运行反馈（如“保存报 500”“页面白屏”）→ 先 run_app logs 定位，再改 DSL，编译→生成→restart→日志验证。',
     '- 首次编译通过后主动 run_app up，并告知用户前端页面地址。',
+    '- 上下文节约：分片多时先 read_tdsl_files 看清单再按需读具体文件；诊断超过 10 条先修已列出的；generate_code 默认只看目录摘要，需要路径才带 list=true。',
     '- 每个文件开头用注释说明该功能域。',
     '- 需要更多示例形态时，读取 examples/ 目录下的示例文件。',
   ].join('\n');
@@ -178,14 +197,21 @@ export function buildTools(
   const readFiles = defineTool({
     name: 'read_tdsl_files',
     label: '读取 TDSL 分片',
-    description: '读取沙箱内 .tdsl 文件（paths 缺省返回全部分片）',
+    description: '读取沙箱内 .tdsl 文件；不带 paths 先返回清单（含行数），带 paths 读具体内容——大项目按需读取，别一次读全部',
     parameters: Type.Object({
-      paths: Type.Optional(Type.Array(Type.String(), { description: '要读取的文件名，缺省=全部' })),
+      paths: Type.Optional(Type.Array(Type.String(), { description: '要读取的文件名；缺省只返回清单' })),
     }),
     execute: async (_id: string, params: { paths?: string[] }) => {
       const all = ws.listTdsl();
-      const picked = params.paths?.length ? all.filter((f) => params.paths!.includes(f.path)) : all;
-      if (picked.length === 0) return textResult('tdsl/ 目录为空');
+      if (all.length === 0) return textResult('tdsl/ 目录为空');
+      // 缺省只给清单（行数），agent 按需选读（pi grep/read 哲学：模型决定拉什么）
+      if (!params.paths?.length) {
+        const list = all.map((f) => `  ${f.path} (${f.content.split('\n').length} 行)`).join('\n');
+        return textResult(`共 ${all.length} 个分片：\n${list}\n需要内容时用 paths 参数按文件读取。`);
+      }
+      const want = params.paths ?? [];
+      const picked = all.filter((f) => want.includes(f.path));
+      if (picked.length === 0) return textResult(`未找到：${want.join(', ')}（可用清单对照文件名）`);
       return textResult(picked.map((f) => `=== ${f.path} ===\n${f.content}`).join('\n\n'));
     },
   });
@@ -201,12 +227,14 @@ export function buildTools(
   const genCode = defineTool({
     name: 'generate_code',
     label: '生成产物',
-    description: '对当前 TDSL 生成 Java/React 代码并落盘到沙箱 generated/ 目录，返回文件清单（交付前自检与展示）',
-    parameters: Type.Object({}),
-    execute: async () => {
+    description: '对当前 TDSL 生成 Java/React 代码并落盘到沙箱 generated/ 目录，返回按目录聚合的摘要；list=true 时附带逐文件路径',
+    parameters: Type.Object({
+      list: Type.Optional(Type.Boolean({ description: '是否附带逐文件路径清单（默认按目录聚合）' })),
+    }),
+    execute: async (_id: string, params: { list?: boolean }) => {
       const report = compileSandbox(ws, appName);
       if (!report.ok || !report.app) return textResult(`先让编译通过再生成: ${report.feedback}`);
-      const r = generateAndSave(ws, report.app);
+      const r = generateAndSave(ws, report.app, { list: params.list });
       if (r.ok) {
         return textResult(`${r.feedback}\n生成完成后建议调用 run_app restart 让改动生效（vite 页面会热更新，后端需重启）。`);
       }

@@ -135,8 +135,12 @@ describe('server/tools.generateAndSave', () => {
     expect(r.ok).toBe(true);
     expect(r.feedback).toContain('generated/java/');
     expect(r.feedback).toContain('generated/react/');
-    expect(r.feedback).toContain('.java');
-    expect(r.feedback).toContain('src/App.tsx');
+    expect(r.feedback).toContain('src/main/java');
+    // 默认按目录聚合（不拉全清单）；list=true 才给逐文件路径
+    expect(r.feedback).not.toContain('src/App.tsx');
+    const r2 = generateAndSave(ws, app!, { list: true });
+    expect(r2.feedback).toContain('.java');
+    expect(r2.feedback).toContain('src/App.tsx');
     expect(ws.hasGenerated('java')).toBe(true);
     expect(ws.hasGenerated('react')).toBe(true);
   });
