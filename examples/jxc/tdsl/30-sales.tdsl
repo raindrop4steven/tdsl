@@ -1,0 +1,218 @@
+// 进销存 · 销售管理功能域：销货单（主子表）查询/暂存/提交/删除/复制/整单退货 + 接口 + 页面
+// 与采购同构（客户方向）；销售单价取商品 salePrice
+
+@export
+logic searchSalesBills(billNo: String, status: DocStatus): List<SalesBill> {
+  return SalesBill.where(billNo like '%' + billNo + '%', status = status);
+}
+
+@export
+logic saveSalesBill(input: SalesBillInput): SalesBill {
+  existing := input.id !== null && input.id > 0;
+  bill := new SalesBill();
+  if (existing) {
+    bill := SalesBill.get(input.id);
+  }
+  bill.billNo = input.billNo;
+  bill.billDate = input.billDate;
+  bill.customerId = input.customerId;
+  bill.contractNo = input.contractNo;
+  bill.invoiceNo = input.invoiceNo;
+  bill.logisticsCompany = input.logisticsCompany;
+  bill.logisticsNo = input.logisticsNo;
+  bill.settleMode = input.settleMode;
+  bill.remark = input.remark;
+  bill.status = DocStatus.DRAFT;
+  bill.totalAmount = 0;
+  bill.save();
+  if (input.items.count > 0) {
+    for (ol in SalesBillItem.where(billId = bill.id)) {
+      ol.delete();
+    }
+    bill.totalAmount = 0;
+    for (it in input.items) {
+      g := Goods.get(it.goodsId);
+      item := new SalesBillItem();
+      item.billId = bill.id;
+      item.goodsId = it.goodsId;
+      item.goodsCode = g.code;
+      item.goodsName = g.name;
+      item.category = g.category;
+      item.spec = g.spec;
+      item.unit = g.unit;
+      item.qty = it.qty;
+      item.price = it.price;
+      item.amount = it.qty * it.price;
+      item.save();
+      bill.totalAmount = bill.totalAmount + it.qty * it.price;
+    }
+    bill.save();
+  }
+  return bill;
+}
+
+@export
+logic submitSalesBill(id: Integer): Boolean {
+  bill := SalesBill.get(id);
+  if (bill.status !== DocStatus.DRAFT) {
+    return false;
+  }
+  bill.status = DocStatus.SUBMITTED;
+  bill.save();
+  rec := new Receivable();
+  rec.billNo = bill.billNo;
+  rec.customerId = bill.customerId;
+  rec.amount = bill.totalAmount;
+  rec.paidAmount = 0;
+  rec.status = PayStatus.WAIT_CONFIRM;
+  rec.remark = '';
+  rec.save();
+  return true;
+}
+
+@export
+logic deleteSalesBill(id: Integer): Boolean {
+  bill := SalesBill.get(id);
+  if (bill.status !== DocStatus.DRAFT) {
+    return false;
+  }
+  for (it in SalesBillItem.where(billId = id)) {
+    it.delete();
+  }
+  bill.delete();
+  return true;
+}
+
+@export
+logic copySalesBill(id: Integer): SalesBill {
+  src := SalesBill.get(id);
+  bill := new SalesBill();
+  bill.billNo = 'COPY-' + src.billNo;
+  bill.status = DocStatus.DRAFT;
+  bill.billDate = src.billDate;
+  bill.customerId = src.customerId;
+  bill.contractNo = src.contractNo;
+  bill.invoiceNo = src.invoiceNo;
+  bill.logisticsCompany = src.logisticsCompany;
+  bill.logisticsNo = src.logisticsNo;
+  bill.settleMode = src.settleMode;
+  bill.remark = src.remark;
+  bill.totalAmount = src.totalAmount;
+  bill.save();
+  for (si in SalesBillItem.where(billId = id)) {
+    item := new SalesBillItem();
+    item.billId = bill.id;
+    item.goodsId = si.goodsId;
+    item.goodsCode = si.goodsCode;
+    item.goodsName = si.goodsName;
+    item.category = si.category;
+    item.spec = si.spec;
+    item.unit = si.unit;
+    item.qty = si.qty;
+    item.price = si.price;
+    item.amount = si.amount;
+    item.remark = si.remark;
+    item.save();
+  }
+  return bill;
+}
+
+@export
+logic returnSalesBill(id: Integer): SalesReturnBill {
+  src := SalesBill.get(id);
+  ret := new SalesReturnBill();
+  ret.billNo = 'RT-' + src.billNo;
+  ret.status = DocStatus.DRAFT;
+  ret.returnDate = src.billDate;
+  ret.sourceBillNo = src.billNo;
+  ret.totalAmount = src.totalAmount;
+  ret.remark = src.remark;
+  ret.save();
+  for (si in SalesBillItem.where(billId = id)) {
+    item := new SalesReturnItem();
+    item.billId = ret.id;
+    item.goodsId = si.goodsId;
+    item.goodsCode = si.goodsCode;
+    item.goodsName = si.goodsName;
+    item.qty = si.qty;
+    item.price = si.price;
+    item.amount = si.amount;
+    item.save();
+  }
+  return ret;
+}
+
+@export
+logic searchSalesReturns(billNo: String): List<SalesReturnBill> {
+  return SalesReturnBill.where(billNo like '%' + billNo + '%');
+}
+
+// @title('销货退货列表') 已生成
+@title('销货退货列表')
+@menu('销售管理')
+page SalesReturnList {
+  <input field="billNo" label="退货单号" />
+  <table dataSource={useQuery('searchSalesReturns')}>
+    <column field="billNo" title="退货单号" />
+    <column field="returnDate" title="退货日期" />
+    <column field="sourceBillNo" title="原销货单号" />
+    <column field="totalAmount" title="总金额" />
+    <column field="status" title="单证状态" />
+  </table>
+}
+
+interface SalesApi {
+  GET    '/api/sales-bills'              -> searchSalesBills
+  POST   '/api/sales-bills'              -> saveSalesBill
+  POST   '/api/sales-bills/submit'       -> submitSalesBill
+  DELETE '/api/sales-bills/{id}'         -> deleteSalesBill
+  POST   '/api/sales-bills/copy'         -> copySalesBill
+  POST   '/api/sales-bills/return'       -> returnSalesBill
+  GET    '/api/sales-returns'            -> searchSalesReturns
+}
+
+// ---- 页面 ----
+
+// @title('销货单列表') 已生成
+@title('销货单列表')
+@menu('销售管理')
+page SalesBillList {
+  <input field="billNo" label="销货单号" />
+  <input field="status" label="单证状态" />
+  <table dataSource={useQuery('searchSalesBills')}>
+    <column field="billNo" title="销货单号" />
+    <column field="billDate" title="销货日期" />
+    <column field="customerId" title="客户" />
+    <column field="status" title="单证状态" />
+    <column field="totalAmount" title="总金额" />
+    <column field="settleMode" title="结算方式" />
+    <button text="编辑" action={openDialog('SalesBillEdit', row)} />
+    <button text="删除" action={useMutation('deleteSalesBill', row.id)} />
+    <button text="复制" fold="true" action={useMutation('copySalesBill', row.id)} />
+    <button text="整单退货" fold="true" action={useMutation('returnSalesBill', row.id)} />
+  </table>
+  <button text="新增销货单" action={openDialog('SalesBillEdit')} />
+}
+
+@title('销货单编辑')
+@menu('销售管理')
+dialog SalesBillEdit {
+  <form submit={useMutation('saveSalesBill')}>
+    <input field="billNo" label="销货单号" />
+    <input field="billDate" label="销货日期" />
+    <input field="customerId" label="客户" />
+    <input field="contractNo" label="合同号" />
+    <input field="invoiceNo" label="发票号" />
+    <input field="logisticsCompany" label="物流公司" />
+    <input field="logisticsNo" label="物流单号" />
+    <input field="settleMode" label="结算方式" />
+    <input field="remark" label="备注" />
+    <repeat field="items">
+      <input field="goodsId" label="商品" />
+      <input field="qty" label="数量" />
+      <input field="price" label="单价" />
+    </repeat>
+    <button text="暂存" />
+  </form>
+  <button text="提交" action={useMutation('submitSalesBill')} />
+}

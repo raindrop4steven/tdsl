@@ -1,0 +1,222 @@
+// 进销存 · 采购管理功能域：进货单（主子表）查询/暂存/提交/删除/复制/整单退货 + 接口 + 页面
+// 业务规则（spec）：提交后不可编辑删除；明细商品信息按 goodsId 自动带出；金额 = 数量 × 单价
+
+@export
+logic searchPurchaseBills(billNo: String, status: DocStatus): List<PurchaseBill> {
+  return PurchaseBill.where(billNo like '%' + billNo + '%', status = status);
+}
+
+// 暂存：新增（id=0）建 DRAFT 单；编辑（id>0）更新表头，明细非空才整体替换
+// 明细行按 goodsId 带出商品档案并计算金额
+@export
+logic savePurchaseBill(input: PurchaseBillInput): PurchaseBill {
+  existing := input.id !== null && input.id > 0;
+  bill := new PurchaseBill();
+  if (existing) {
+    bill := PurchaseBill.get(input.id);
+  }
+  bill.billNo = input.billNo;
+  bill.billDate = input.billDate;
+  bill.supplierId = input.supplierId;
+  bill.contractNo = input.contractNo;
+  bill.invoiceNo = input.invoiceNo;
+  bill.logisticsCompany = input.logisticsCompany;
+  bill.logisticsNo = input.logisticsNo;
+  bill.settleMode = input.settleMode;
+  bill.remark = input.remark;
+  bill.status = DocStatus.DRAFT;
+  bill.totalAmount = 0;
+  bill.save();  if (input.items.count > 0) {
+    for (ol in PurchaseBillItem.where(billId = bill.id)) {
+      ol.delete();
+    }
+    bill.totalAmount = 0;
+    for (it in input.items) {
+      g := Goods.get(it.goodsId);
+      item := new PurchaseBillItem();
+      item.billId = bill.id;
+      item.goodsId = it.goodsId;
+      item.goodsCode = g.code;
+      item.goodsName = g.name;
+      item.category = g.category;
+      item.spec = g.spec;
+      item.unit = g.unit;
+      item.qty = it.qty;
+      item.price = it.price;
+      item.amount = it.qty * it.price;
+      item.save();
+      bill.totalAmount = bill.totalAmount + it.qty * it.price;
+    }
+    bill.save();
+  }
+  return bill;
+}
+
+// 提交：仅 DRAFT 可提交，提交后不可编辑删除；提交即生成应付款（待确认）
+@export
+logic submitPurchaseBill(id: Integer): Boolean {
+  bill := PurchaseBill.get(id);
+  if (bill.status !== DocStatus.DRAFT) {
+    return false;
+  }
+  bill.status = DocStatus.SUBMITTED;
+  bill.save();
+  pay := new Payable();
+  pay.billNo = bill.billNo;
+  pay.supplierId = bill.supplierId;
+  pay.amount = bill.totalAmount;
+  pay.paidAmount = 0;
+  pay.status = PayStatus.WAIT_CONFIRM;
+  pay.remark = '';
+  pay.save();
+  return true;
+}
+
+@export
+logic deletePurchaseBill(id: Integer): Boolean {
+  bill := PurchaseBill.get(id);
+  if (bill.status !== DocStatus.DRAFT) {
+    return false;
+  }
+  for (it in PurchaseBillItem.where(billId = id)) {
+    it.delete();
+  }
+  bill.delete();
+  return true;
+}
+
+// 复制：以上一单为模板快速开新 DRAFT 单
+@export
+logic copyPurchaseBill(id: Integer): PurchaseBill {
+  src := PurchaseBill.get(id);
+  bill := new PurchaseBill();
+  bill.billNo = 'COPY-' + src.billNo;
+  bill.status = DocStatus.DRAFT;
+  bill.billDate = src.billDate;
+  bill.supplierId = src.supplierId;
+  bill.contractNo = src.contractNo;
+  bill.invoiceNo = src.invoiceNo;
+  bill.logisticsCompany = src.logisticsCompany;
+  bill.logisticsNo = src.logisticsNo;
+  bill.settleMode = src.settleMode;
+  bill.remark = src.remark;
+  bill.totalAmount = src.totalAmount;
+  bill.save();
+  for (si in PurchaseBillItem.where(billId = id)) {
+    item := new PurchaseBillItem();
+    item.billId = bill.id;
+    item.goodsId = si.goodsId;
+    item.goodsCode = si.goodsCode;
+    item.goodsName = si.goodsName;
+    item.category = si.category;
+    item.spec = si.spec;
+    item.unit = si.unit;
+    item.qty = si.qty;
+    item.price = si.price;
+    item.amount = si.amount;
+    item.remark = si.remark;
+    item.save();
+  }
+  return bill;
+}
+
+// 整单退货：复制为退货单
+@export
+logic returnPurchaseBill(id: Integer): PurchaseReturnBill {
+  src := PurchaseBill.get(id);
+  ret := new PurchaseReturnBill();
+  ret.billNo = 'RT-' + src.billNo;
+  ret.status = DocStatus.DRAFT;
+  ret.returnDate = src.billDate;
+  ret.sourceBillNo = src.billNo;
+  ret.totalAmount = src.totalAmount;
+  ret.remark = src.remark;
+  ret.save();
+  for (si in PurchaseBillItem.where(billId = id)) {
+    item := new PurchaseReturnItem();
+    item.billId = ret.id;
+    item.goodsId = si.goodsId;
+    item.goodsCode = si.goodsCode;
+    item.goodsName = si.goodsName;
+    item.qty = si.qty;
+    item.price = si.price;
+    item.amount = si.amount;
+    item.save();
+  }
+  return ret;
+}
+
+@export
+logic searchPurchaseReturns(billNo: String): List<PurchaseReturnBill> {
+  return PurchaseReturnBill.where(billNo like '%' + billNo + '%');
+}
+
+// @title('进货退货列表') 已生成
+@title('进货退货列表')
+@menu('采购管理')
+page PurchaseReturnList {
+  <input field="billNo" label="退货单号" />
+  <table dataSource={useQuery('searchPurchaseReturns')}>
+    <column field="billNo" title="退货单号" />
+    <column field="returnDate" title="退货日期" />
+    <column field="sourceBillNo" title="原进货单号" />
+    <column field="totalAmount" title="总金额" />
+    <column field="status" title="单证状态" />
+  </table>
+}
+
+interface PurchaseApi {
+  GET    '/api/purchase-bills'              -> searchPurchaseBills
+  POST   '/api/purchase-bills'              -> savePurchaseBill
+  POST   '/api/purchase-bills/submit'       -> submitPurchaseBill
+  DELETE '/api/purchase-bills/{id}'         -> deletePurchaseBill
+  POST   '/api/purchase-bills/copy'         -> copyPurchaseBill
+  POST   '/api/purchase-bills/return'       -> returnPurchaseBill
+  GET    '/api/purchase-returns'            -> searchPurchaseReturns
+}
+
+// ---- 页面 ----
+
+// @title('进货单列表') 已生成
+@title('进货单列表')
+@menu('采购管理')
+page PurchaseBillList {
+  <input field="billNo" label="进货单号" />
+  <input field="status" label="单证状态" />
+  <table dataSource={useQuery('searchPurchaseBills')}>
+    <column field="billNo" title="进货单号" />
+    <column field="billDate" title="进货日期" />
+    <column field="supplierId" title="供应商" />
+    <column field="status" title="单证状态" />
+    <column field="totalAmount" title="总金额" />
+    <column field="settleMode" title="结算方式" />
+    <button text="编辑" action={openDialog('PurchaseBillEdit', row)} />
+    <button text="删除" action={useMutation('deletePurchaseBill', row.id)} />
+    <button text="复制" fold="true" action={useMutation('copyPurchaseBill', row.id)} />
+    <button text="整单退货" fold="true" action={useMutation('returnPurchaseBill', row.id)} />
+  </table>
+  <button text="新增进货单" action={openDialog('PurchaseBillEdit')} />
+}
+
+@title('进货单编辑')
+@menu('采购管理')
+dialog PurchaseBillEdit {
+  <form submit={useMutation('savePurchaseBill')}>
+    <input field="billNo" label="进货单号" />
+    <input field="billDate" label="进货日期" />
+    <input field="supplierId" label="供应商" />
+    <input field="contractNo" label="合同号" />
+    <input field="invoiceNo" label="发票号" />
+    <input field="logisticsCompany" label="物流公司" />
+    <input field="logisticsNo" label="物流单号" />
+    <input field="settleMode" label="结算方式" />
+    <input field="remark" label="备注" />
+    <repeat field="items">
+      <input field="goodsId" label="商品" />
+      <input field="qty" label="数量" />
+      <input field="price" label="单价" />
+    </repeat>
+    <button text="暂存" />
+  </form>
+  <button text="提交" action={useMutation('submitPurchaseBill')} />
+}

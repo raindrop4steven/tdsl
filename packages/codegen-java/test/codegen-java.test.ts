@@ -487,3 +487,81 @@ describe('codegen-java M7 多文件工程', () => {
     expect(main.path).toBe('src/main/java/com/todomulti/TodomultiApplication.java');
   });
 });
+
+// ---------- jxc spec 对拍暴露的缺陷回归（List<struct> import / Decimal 比较 / Integer 累加器） ----------
+
+describe('codegen-java spec 对拍修复（jxc）', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+struct Row { code: String; qty: Integer; }
+entity Item { id: Integer @pk; orderId: Integer; qty: Integer; price: Decimal; }
+entity Head { id: Integer @pk; amount: Decimal; }
+@export
+logic summary(): List<Row> {
+  rows := new List<Row>();
+  r := new Row();
+  rows.add(r);
+  return rows;
+}
+@export
+logic adjust(id: Integer, amount: Decimal): Boolean {
+  h := Head.get(id);
+  if (h.amount >= amount) {
+    h.amount = h.amount - amount;
+    h.save();
+  }
+  return true;
+}
+@export
+logic tally(id: Integer): Integer {
+  n := 0;
+  for (it in Item.where(orderId = id)) {
+    n = n + it.qty;
+  }
+  return n;
+}
+interface Api {
+  GET  '/api/summary' -> summary
+  POST '/api/adjust'  -> adjust
+  POST '/api/tally'   -> tally
+}
+`);
+  it('List<struct> 作返回值 → Service 补 structure.* import（泛型实参中的结构引用此前漏收集）', () => {
+    const svc = generateJava(SRC).find((f) => f.path.endsWith('SummaryService.java'))!.content;
+    expect(svc).toContain('import com.todo.structure.*;');
+  });
+
+  it('logic 体内 Decimal 比较 → compareTo（BigDecimal 无运算符重载，此前直出 >= 编译错）', () => {
+    const svc = generateJava(SRC).find((f) => f.path.endsWith('AdjustService.java'))!.content;
+    expect(svc).toContain('.compareTo(');
+    expect(svc).toMatch(/>= 0\)/);
+    expect(svc).toContain('.subtract(');
+  });
+
+  it('整数字面量 := 累加器 → long（实体 Integer 字段 getter 为 Long，int+long 精度损失编译错）', () => {
+    const svc = generateJava(SRC).find((f) => f.path.endsWith('TallyService.java'))!.content;
+    expect(svc).toContain('long n = 0L;');
+  });
+
+  it('无枚举 app → 不发射 enums wildcard import（enums 包目录不存在，javac 找不到包；slice:multi 回归）', () => {
+    const svc = generateJava(SRC).find((f) => f.path.endsWith('TallyService.java'))!.content;
+    expect(svc).not.toContain('import com.todo.enums.*;');
+  });
+
+  it('where 查询 null 宽松：eq/like 条件 → JPQL（?n IS NULL OR 谓词），方法名不变（jxc F9：可选参数缺省默认全量而非空集）', () => {
+    const repo = generateJava(SRC).find((f) => f.path.endsWith('ItemRepository.java'))!.content;
+    expect(repo).toContain('IS NULL OR');
+    expect(repo).toContain('findByOrderId');
+  });
+});
+
+  it('Java enum 带 label 构造器与 getter（G1 中文字典）', () => {
+    const src = parse(`
+@datasource('defaultDS')
+enum SettleMode { CASH('现金'), ACCOUNT('对账') }
+entity E { id: Integer @pk; mode: SettleMode; }
+`);
+    const ef = generateJava(src).find((f) => f.path.endsWith('SettleMode.java'))!.content;
+    expect(ef).toContain('CASH("现金"),');
+    expect(ef).toContain('public String getLabel()');
+  });

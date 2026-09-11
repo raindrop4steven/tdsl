@@ -80,6 +80,8 @@ export interface EnumNode extends BaseNode {
 export interface EnumItemNode extends BaseNode {
   kind: 'EnumItem';
   name: string;
+  /** 显示标签（可选，中文业务字典等）：KEY('暂存') */
+  label?: string;
 }
 
 /** 逻辑：后端业务方法（body 为小语言语句序列） */

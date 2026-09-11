@@ -765,3 +765,18 @@ page OrderCreate {
     expect(app.logics[0].file).toBe('<stdin>');
   });
 });
+
+describe('parser/G1 中文化语法', () => {
+  it('枚举项带显示标签 KEY(中文)；page 前置 @title 注解挂在 ViewNode.annotations', () => {
+    const app = parse(`
+@datasource('defaultDS')
+enum SettleMode { CASH('现金'), ACCOUNT('对账') }
+@title('商品列表')
+page GoodsList { <text value="x" /> }
+`);
+    const en = app.enums.find((e) => e.name === 'SettleMode')!;
+    expect(en.items.map((i) => i.label)).toEqual(["现金", "对账"]);
+    const v = app.views.find((x) => x.name === 'GoodsList')!;
+    expect(v.annotations?.find((a) => a.name === 'title')?.args?.['value']).toBe('商品列表');
+  });
+});

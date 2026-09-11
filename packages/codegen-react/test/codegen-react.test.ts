@@ -46,11 +46,11 @@ describe('codegen-react', () => {
   it('generates TS types from entity and structure', () => {
     const files = generateReact(parse(SAMPLE));
     const types = files.find((f) => f.path.endsWith('types/index.ts'))!.content;
-    expect(types).toContain('export interface Todo');
+    expect(types).toContain('export type Todo = {');
     expect(types).toContain('id: number;');
     expect(types).toContain('title: string;');
     expect(types).toContain('done: boolean;');
-    expect(types).toContain('export interface TodoInput');
+    expect(types).toContain('export type TodoInput = {');
   });
 
   it('generates App.tsx with real CRUD fetch (data-driven)', () => {
@@ -362,8 +362,8 @@ dialog CarForm {
     const files = generateReact(SRC);
     const form = files.find((f) => f.path === 'src/pages/CarForm.tsx')!.content;
     expect(form).toMatch(/import \{[^}]*Drawer[^}]*\} from 'antd'/);
-    expect(form).toContain('function CarForm({ open, onClose }: { open: boolean; onClose: () => void })');
-    expect(form).toContain('<Drawer title="CarForm" open={open} onClose={onClose} width={560}');
+    expect(form).toContain('function CarForm({ open, onClose, initial }: { open: boolean; onClose: () => void; initial?: Record<string, unknown> | null })');
+    expect(form).toContain('<Drawer title="CarForm" open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.6, 760)} destroyOnClose');
     expect(form).toContain('.then(() => onClose())');
   });
 
@@ -371,8 +371,8 @@ dialog CarForm {
     const files = generateReact(SRC);
     const list = files.find((f) => f.path === 'src/pages/CarList.tsx')!.content;
     expect(list).toContain('const [showCarForm, setShowCarForm] = useState(false);');
-    expect(list).toContain("onClick={() => setShowCarForm(true)}");
-    expect(list).toContain("<CarForm open={showCarForm} onClose={() => { setShowCarForm(false); qListCars.refetch(); }} />");
+    expect(list).toContain('onClick={() => { setCarFormInitial(null); setShowCarForm(true) }}');
+    expect(list).toContain('<CarForm open={showCarForm} onClose={() => { setShowCarForm(false); qListCars.refetch(); }} initial={CarFormInitial} />');
     expect(list).toContain("import CarForm from './CarForm';");
   });
 
@@ -381,5 +381,143 @@ dialog CarForm {
     expect(app).toContain('<Route path="/car-list" element={<CarList />} />');
     expect(app).not.toContain('<Route path="/car-form"');
     expect(app).not.toContain("label: 'CarForm'");
+  });
+});
+
+// ---------- jxc spec 对拍暴露的缺陷回归（POST 多参数 body 打包 / DatePicker onChange 类型） ----------
+
+describe('codegen-react spec 对拍修复（jxc）', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+struct PayableInput { amount: Decimal; signAt: DateTime; }
+entity Payable { id: Integer @pk; amount: Decimal; }
+@export
+logic listPayables(): List<Payable> { return Payable.all; }
+@export
+logic pay(id: Integer, amount: Decimal): Boolean { return true; }
+@export
+logic savePayable(input: PayableInput): Payable { return new Payable(); }
+interface Api {
+  GET  '/api/payables' -> listPayables
+  POST '/api/pay'      -> pay
+  POST '/api/payables' -> savePayable
+}
+page PayableList {
+  <table dataSource={useQuery('listPayables')}>
+    <column field="id" />
+    <button text="回款" action={useMutation('pay', row.id)} />
+  </table>
+}
+page PayableForm {
+  <form submit={useMutation('savePayable')}>
+    <input field="signAt" />
+  </form>
+}
+`);
+  it('POST 多参数 → 具名参数 + body 打包对象（此前逐参数命名 body 重复标识符）', () => {
+    const api = generateReact(SRC).find((f) => f.path === 'src/api.ts')!.content;
+    expect(api).toContain('export function pay(id: number, amount: number)');
+    expect(api).toContain('body: JSON.stringify({ id, amount })');
+    // 单参数保持原契约：参数直传
+    expect(api).toContain('body: JSON.stringify(input)');
+  });
+
+  it('DateTime 表单 DatePicker onChange 用 String() 归一（antd dateString 为 string | string[]）', () => {
+    const page = generateReact(SRC).find((f) => f.path === 'src/pages/PayableForm.tsx')!.content;
+    expect(page).toContain("String(s ?? '')");
+  });
+});
+
+// ---------- jxc 编辑闭环（G6）：openDialog('X', row) 带参 → initial 预填表单，提交按 id 更新 ----------
+
+describe('codegen-react 编辑闭环（G6）', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+struct GoodsInput { id: Integer; code: String; }
+entity Goods { id: Integer @pk; code: String; }
+@export
+logic listGoods(): List<Goods> { return Goods.all; }
+@export
+logic saveGoods(input: GoodsInput): Goods { return new Goods(); }
+interface Api {
+  GET  '/api/goods' -> listGoods
+  POST '/api/goods' -> saveGoods
+}
+page GoodsList {
+  <button text="新增商品" onClick={openDialog('GoodsEdit')} />
+  <table dataSource={useQuery('listGoods')}>
+    <column field="code" />
+    <button text="编辑" action={openDialog('GoodsEdit', row)} />
+  </table>
+}
+dialog GoodsEdit {
+  <form submit={useMutation('saveGoods')}>
+    <input field="code" />
+  </form>
+}
+`);
+  it('dialog 接收 initial prop；打开时预填/新增时清空（useEffect）', () => {
+    const dialog = generateReact(SRC).find((f) => f.path === 'src/pages/GoodsEdit.tsx')!.content;
+    expect(dialog).toContain('initial?: Record<string, unknown> | null');
+    expect(dialog).toContain('import { useEffect, useState } from ' + "'react';");
+    expect(dialog).toContain("setCode(initial?.code != null ? String(initial.code) : '');");
+    expect(dialog).toContain("setCode('')");
+  });
+
+  it('父页面带参 openDialog → setXInitial(row)；无参 → 置 null（新增不残留上次数据）', () => {
+    const list = generateReact(SRC).find((f) => f.path === 'src/pages/GoodsList.tsx')!.content;
+    expect(list).toContain('onClick={() => { setGoodsEditInitial(null); setShowGoodsEdit(true) }}');
+    expect(list).toContain('onClick={(e) => { e.stopPropagation(); setGoodsEditInitial(row); setShowGoodsEdit(true); }}');
+    expect(list).toContain('initial={GoodsEditInitial}');
+  });
+
+  it('结构体含 id 字段 → 提交体带 id: Number(initial?.id ?? 0)', () => {
+    const dialog = generateReact(SRC).find((f) => f.path === 'src/pages/GoodsEdit.tsx')!.content;
+    expect(dialog).toContain('id: Number(initial?.id ?? 0)');
+  });
+});
+
+// ---------- G1 中文化：枚举 label ----------
+
+describe('codegen-react G1 枚举 label', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+enum SettleMode { CASH('现金'), ACCOUNT('对账') }
+entity Goods { id: Integer @pk; mode: SettleMode; }
+struct GoodsInput { mode: SettleMode; }
+@export
+logic saveGoods(input: GoodsInput): Goods { return new Goods(); }
+@title('商品列表')
+page GoodsList {
+  <form submit={useMutation('saveGoods')}><input field="mode" /></form>
+}
+`);
+  it('Select 选项 label 用枚举标签；页面标题用 @title', () => {
+    const files = generateReact(SRC);
+    const page = files.find((f) => f.path === 'src/pages/GoodsList.tsx')!.content;
+    expect(page).toContain("label: '现金'");
+    expect(page).toContain('<h2 style={{ marginTop: 0 }}>商品列表</h2>');
+  });
+});
+
+describe('codegen-react 折叠菜单（@menu 分组）', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+entity G { id: Integer @pk; code: String; }
+@export
+logic listG(): List<G> { return G.all; }
+interface Api { GET '/api/gs' -> listG }
+@title('商品列表')
+@menu('基础数据')
+page GoodsList { <table dataSource={useQuery('listG')}><column field="code" /></table> }
+@title('汇总表')
+@menu('库存查询')
+page Summary { <table dataSource={useQuery('listG')}><column field="code" /></table> }
+`);
+  it('@menu 视图归入 SubMenu，defaultOpenKeys 全展开', () => {
+    const app = generateReact(SRC).find((f) => f.path === 'src/App.tsx')!.content;
+    expect(app).toContain("key: 'group-基础数据'");
+    expect(app).toContain("label: '商品列表'");
+    expect(app).toMatch(/defaultOpenKeys=\{\['基础数据', '库存查询'\]\}/);
   });
 });

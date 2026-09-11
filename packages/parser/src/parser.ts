@@ -164,10 +164,12 @@ class Parser {
       components: [],
     };
     let currentDs: DataSourceNode | null = null;
+    // @title('中文') / @menu('模块') → 紧随其后的 page/dialog 显示名与菜单分组（中文化 + 折叠菜单）
     let pendingServiceConfig: Record<string, string> | null = null;
+    const pendingViewAnnos = new Map<string, string>();
 
     while (this.peek().type !== 'eof') {
-      // 顶层注解：@datasource('name') 声明/切换当前数据源；@service(...) 暂存配置；其余（@export 等）跳过
+      // 顶层注解：@datasource('name') 声明/切换当前数据源；@service(...) 暂存配置；@title('x') 暂存视图标题；其余（@export 等）跳过
       if (this.peek().value === '@') {
         this.next();
         const ann = this.expectIdent();
@@ -183,6 +185,10 @@ class Parser {
           }
         } else if (ann === 'service') {
           pendingServiceConfig = this.parseServiceConfig();
+        } else if (ann === 'title' || ann === 'menu') {
+          this.expect('(');
+          pendingViewAnnos.set(ann, this.expectString());
+          this.expect(')');
         }
         continue;
       }
@@ -204,7 +210,16 @@ class Parser {
       } else if (kw === 'interface') {
         app.interfaces.push(this.parseInterface());
       } else if (kw === 'page' || kw === 'dialog') {
-        app.views.push(this.parseView());
+        const view = this.parseView();
+        if (pendingViewAnnos.size > 0) {
+          view.annotations = [...pendingViewAnnos.entries()].map(([name, value]) => ({
+            kind: 'Annotation',
+            name,
+            args: { value },
+          }));
+          pendingViewAnnos.clear();
+        }
+        app.views.push(view);
       } else if (kw === 'service') {
         const cfg = pendingServiceConfig ?? {};
         pendingServiceConfig = null;
@@ -374,7 +389,15 @@ class Parser {
     this.expect('{');
     const items: EnumItemNode[] = [];
     while (this.peek().value !== '}') {
-      items.push({ ...createNode('EnumItem'), name: this.expectIdent() });
+      const itemName = this.expectIdent();
+      // 可选显示标签 KEY('暂存')（G1：业务字典中文）
+      let label: string | undefined;
+      if (this.peek().value === '(') {
+        this.next();
+        label = this.expectString();
+        this.expect(')');
+      }
+      items.push({ ...createNode('EnumItem'), name: itemName, label });
       if (this.peek().value === ',') this.next();
     }
     this.expect('}');

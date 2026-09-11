@@ -280,8 +280,8 @@ export function generateJava(app: AppNode): GeneratedFile[] {
     files.push(enumFile(pkg, en));
   }
   for (const ent of entities) {
-    files.push(entityFile(pkg, ent));
-    files.push(repositoryFile(pkg, ent, querySpecs.get(ent.name) ?? []));
+    files.push(entityFile(pkg, ent, app.enums.length > 0));
+    files.push(repositoryFile(pkg, ent, querySpecs.get(ent.name) ?? [], app.enums.length > 0));
   }
   for (const s of app.structures) {
     files.push(structureFile(app, s));
@@ -300,7 +300,8 @@ export function generateJava(app: AppNode): GeneratedFile[] {
 
 /** TDSL enum → Java enum（独立 enums 子包，各生成文件以 wildcard import 引用） */
 function enumFile(pkg: string, en: EnumNode): GeneratedFile {
-  const items = en.items.map((i) => `  ${i.name},`).join('\n');
+  // label：Java enum 恒带 label 字段（无 TDSL 标签时退化为枚举名），供后端显示/接口字典使用
+  const items = en.items.map((i) => `  ${i.name}("${i.label ?? i.name}"),`).join('\n');
   return {
     path: `src/main/java/${pkg.replaceAll('.', '/')}/enums/${en.name}.java`,
     content: `package ${pkg}.enums;
@@ -308,6 +309,17 @@ function enumFile(pkg: string, en: EnumNode): GeneratedFile {
 // TDSL enum：${en.name}
 public enum ${en.name} {
 ${items}
+;
+
+  private final String label;
+
+  ${en.name}(String label) {
+    this.label = label;
+  }
+
+  public String getLabel() {
+    return label;
+  }
 }
 `,
   };
@@ -384,7 +396,7 @@ function structureFile(app: AppNode, s: StructureNode): GeneratedFile {
   });
   const content = `package ${pkg}.structure;
 
-${s.properties.length > 0 ? 'import java.util.*;\n' : ''}${referencesEntity ? `import ${pkg}.entity.*;\n` : ''}import ${pkg}.enums.*;public class ${s.name} {
+${s.properties.length > 0 ? 'import java.util.*;\n' : ''}${referencesEntity ? `import ${pkg}.entity.*;\n` : ''}${enumsImport(pkg, app.enums.length > 0)}public class ${s.name} {
 
 ${fields}
 
@@ -548,7 +560,7 @@ function tableNameOf(ent: EntityNode): string {
   return SQL_RESERVED.has(base) ? `\\"${base}\\"` : base;
 }
 
-function entityFile(pkg: string, ent: EntityNode): GeneratedFile {
+function entityFile(pkg: string, ent: EntityNode, hasEnums: boolean): GeneratedFile {
   const className = ent.name;
   const table = tableNameOf(ent);
   const fields = ent.properties
@@ -558,7 +570,8 @@ function entityFile(pkg: string, ent: EntityNode): GeneratedFile {
         lines.push('  @Id');
         lines.push('  @GeneratedValue(strategy = GenerationType.IDENTITY)');
       } else {
-        lines.push(`  @Column(nullable = ${p.nullable !== true})`);
+        // F11 修复（原判定反向）：@nullable → 列可空；未标记（必填语义）默认 Hibernate 可空列（写入约束由前端/服务校验兜底，避免存量 demo 插入崩）
+        if (p.nullable === true) lines.push('  @Column(nullable = true)');
       }
       lines.push(`  private ${javaType(p.type)} ${p.name};`);
       return lines.join('\n');
@@ -578,9 +591,7 @@ function entityFile(pkg: string, ent: EntityNode): GeneratedFile {
   const content = `package ${pkg}.entity;
 
 import javax.persistence.*;
-import ${pkg}.enums.*;
-
-@Entity
+${enumsImport(pkg, hasEnums)}@Entity
 @Table(name = "${table}")
 public class ${className} {
 
@@ -627,7 +638,19 @@ function collectQuerySpecs(app: AppNode): Map<string, QuerySpec[]> {
   const map = new Map<string, QuerySpec[]>();
   const add = (spec: QuerySpec): void => {
     const list = map.get(spec.entity) ?? [];
-    if (!list.some((s) => sameSpec(s, spec))) list.push(spec);
+    // 去重键 = sameSpec 或「派生方法名 + 分页形态」相同：valueKind 等内部差异不影响生成方法名/签名，
+    // 按细键去重会漏——同名方法重复声明 → javac 报重复定义（jxc 对拍发现）
+    const ent = app.datasources.flatMap((ds) => ds.entities).find((e) => e.name === spec.entity);
+    const collides = ent
+      ? (s: QuerySpec) =>
+          sameSpec(s, spec) ||
+          (s.pageable === spec.pageable &&
+            s.limit === spec.limit &&
+            !s.aggregate &&
+            !spec.aggregate &&
+            derivedMethodName(ent, s) === derivedMethodName(ent, spec))
+      : (s: QuerySpec) => sameSpec(s, spec);
+    if (ent && !list.some(collides)) list.push(spec);
     map.set(spec.entity, list);
   };
   const scan = (e: Expr): void => {
@@ -898,13 +921,36 @@ function repoMethod(ent: EntityNode, spec: QuerySpec): string {
   // 派生查询
   const name = derivedMethodName(ent, spec);
   const params = spec.conditions.map((c) => `${condParamJavaType(ent, c)} ${c.field}`);
+  // null 宽松：无 in/or/limit 的 where 查询 → JPQL（?n IS NULL OR 谓词），
+  // 可选参数缺省（null）不做过滤——列表页无条件打开时默认全量，而非 status = NULL 永假空集（jxc 对拍 F9）
+  const hasIn = spec.conditions.some((c) => c.op === 'in');
+  const hasOr = spec.conditions.some((c) => c.connector === 'or');
+  if (!hasIn && !hasOr && spec.limit === undefined && spec.conditions.length > 0) {
+    const preds = spec.conditions
+      .map((c, i) => {
+        const col = `${alias}.${c.field}`;
+        const inner =
+          c.op === 'like'
+            ? `${col} LIKE CONCAT('%', ?${i + 1}, '%')`
+            : `${col} ${c.op} ?${i + 1}`;
+        return `(?${i + 1} IS NULL OR ${inner})`;
+      })
+      .join(' AND ');
+    const order = spec.orderBy.map((o) => ` ${alias}.${o.field} ${o.dir.toUpperCase()}`).join(', ');
+    const orderClause = order ? ` ORDER BY${order}` : '';
+    if (spec.pageable) {
+      params.push('org.springframework.data.domain.Pageable pageable');
+      return `  @org.springframework.data.jpa.repository.Query("SELECT ${alias} FROM ${ent.name} ${alias} WHERE ${preds}${orderClause}")\n  org.springframework.data.domain.Page<${ent.name}> ${name}(${params.join(', ')});`;
+    }
+    return `  @org.springframework.data.jpa.repository.Query("SELECT ${alias} FROM ${ent.name} ${alias} WHERE ${preds}${orderClause}")\n  java.util.List<${ent.name}> ${name}(${params.join(', ')});`;
+  }
   // limit 返回 List；page 返回 Page
   const ret = spec.pageable && spec.limit === undefined ? `org.springframework.data.domain.Page<${ent.name}>` : `java.util.List<${ent.name}>`;
   if (spec.pageable) params.push('org.springframework.data.domain.Pageable pageable');
   return `  ${ret} ${name}(${params.join(', ')});`;
 }
 
-function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[]): GeneratedFile {
+function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[], hasEnums: boolean): GeneratedFile {
   const idProp = ent.properties.find((p) => p.primary);
   const idType = idProp ? javaType(idProp.type) : 'Long';
   const methods = specs.map((s) => repoMethod(ent, s)).join('\n');
@@ -913,9 +959,7 @@ function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[]): Gener
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import ${pkg}.entity.${ent.name};
-import ${pkg}.enums.*;
-
-public interface ${ent.name}Repository extends JpaRepository<${ent.name}, ${idType}> {
+${enumsImport(pkg, hasEnums)}public interface ${ent.name}Repository extends JpaRepository<${ent.name}, ${idType}> {
 ${methodBlock}}
 `;
   return {
@@ -987,7 +1031,7 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
     'import org.springframework.stereotype.Service;',
     ...(transactionalImport ? [transactionalImport.trim()] : []),
     ...(usedEntities.size > 0 ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
-    `import ${pkg}.enums.*;`,
+    ...(app.enums.length > 0 ? [`import ${pkg}.enums.*;`] : []),
     // logic 间调用注入（@Autowired 字段）
     ...(collectUsedLogics(app, logic).length > 0 ? ['import org.springframework.beans.factory.annotation.Autowired;'] : []),
     // 外部服务注入注解 import
@@ -997,9 +1041,9 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
     ...(usedServices.some((s) => s.kind_ !== 'dubbo')
       ? ['import org.springframework.beans.factory.annotation.Autowired;']
       : []),
-    // 参数或返回类型引用 structure 时补 import
-    ...(logic.params.some((p) => p.type.kind === 'reference' && isStructure(app, p.type)) ||
-      logic.returns.some((r) => r.type.kind === 'reference' && isStructure(app, r.type))
+    // 参数/返回类型引用 structure 时补 import（含泛型实参：List<Struct> / Page<Struct>）
+    ...(logic.params.some((p) => typeUsesStructure(app, p.type)) ||
+      logic.returns.some((r) => typeUsesStructure(app, r.type))
       ? [`import ${pkg}.structure.*;`]
       : []),
   ].join('\n');
@@ -1098,6 +1142,20 @@ function isStructure(app: AppNode, tr: { kind: string; path?: string }): boolean
   return app.structures.some((s) => s.name === name);
 }
 
+/** enums wildcard import：仅当 app 声明了枚举才发射（无枚举 app 的 enums 包目录不存在，javac 找不到包） */
+function enumsImport(pkg: string, hasEnums: boolean): string {
+  return hasEnums ? `import ${pkg}.enums.*;\n` : '';
+}
+
+/** 类型是否引用结构：直接引用或泛型实参（List<Struct> / Page<Struct> 递归） */
+function typeUsesStructure(app: AppNode, t: { kind: string; path?: string; args?: unknown }): boolean {
+  if (isStructure(app, t)) return true;
+  if (t.kind === 'generic' && Array.isArray(t.args)) {
+    return (t.args as { kind: string; path?: string }[]).some((a) => typeUsesStructure(app, a));
+  }
+  return false;
+}
+
 // ---------- Interface → Controller ----------
 
 const HTTP_ANNOTATION: Record<EndpointNode['method'], string> = {
@@ -1130,10 +1188,13 @@ function controllerFile(app: AppNode, itf: InterfaceNode): GeneratedFile {
     .map((ep) => genEndpointMethod(app, ep, serviceVars))
     .join('\n\n');
 
-  // 是否需要 import structure（@RequestBody 结构类型）
+  // 是否需要 import structure（@RequestBody 结构参数 / 返回 List<Struct> 等泛型实参）
   const usesStructure = itf.endpoints.some((ep) => {
     const logic = app.logics.find((l) => l.name === (ep.logicRef?.split('.').pop() ?? ep.name));
-    return (logic?.params ?? []).some((p) => isStructure(app, p.type));
+    return (
+      (logic?.params ?? []).some((p) => typeUsesStructure(app, p.type)) ||
+      (logic?.returns ?? []).some((r) => typeUsesStructure(app, r.type))
+    );
   });
   const structureImport = usesStructure ? `import ${pkg}.structure.*;\n` : '';
 
@@ -1142,8 +1203,7 @@ function controllerFile(app: AppNode, itf: InterfaceNode): GeneratedFile {
 import org.springframework.web.bind.annotation.*;
 import ${pkg}.service.*;
 ${structureImport}import ${pkg}.entity.*;
-import ${pkg}.enums.*;
-@RestController
+${enumsImport(pkg, app.enums.length > 0)}@RestController
 @CrossOrigin(origins = "*")
 public class ${cap(itf.name)}Controller {
 ${fields.length > 0 ? fields.join('\n') + '\n' : ''}
@@ -1246,6 +1306,10 @@ function genStatement(
       if (st.type) vars.vars.set(st.name, javaType(st.type));
       else if (elemType) vars.vars.set(st.name, `java.util.List<${javaType(elemType)}>`);
       else if (inferredType) vars.vars.set(st.name, inferredType);
+      // 整数字面量累加器 → long：实体 Integer 字段 getter 是 Long，int + long 会精度损失报错
+      if (typeStr === 'var' && st.init?.kind === 'Numeric' && Number.isInteger(st.init.value)) {
+        return [`    long ${st.name} = ${st.init.value}L;`];
+      }
       return [`    ${typeStr} ${st.name} = ${initStr};`];
     }
     case 'Assign': {
@@ -1681,6 +1745,11 @@ function genExpr(
           (lt === 'java.math.BigDecimal' || rt === 'java.math.BigDecimal')) {
         const m = e.operator === '+' ? 'add' : e.operator === '*' ? 'multiply' : 'subtract';
         return `(${toBigDecimal(app, e.left, entities, vars)}.${m}(${toBigDecimal(app, e.right, entities, vars)}))`;
+      }
+      // Decimal 比较：>/< 形运算符 → compareTo（BigDecimal 无运算符重载）
+      if ((e.operator === '<' || e.operator === '<=' || e.operator === '>' || e.operator === '>=') &&
+          (lt === 'java.math.BigDecimal' || rt === 'java.math.BigDecimal')) {
+        return `(${toBigDecimal(app, e.left, entities, vars)}.compareTo(${toBigDecimal(app, e.right, entities, vars)}) ${op} 0)`;
       }
       return `(${genExpr(app, e.left, entities, vars)} ${op} ${genExpr(app, e.right, entities, vars)})`;
     }

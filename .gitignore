@@ -1,6 +1,7 @@
 node_modules/
 examples/todo-app/generated/
 examples/todo-multi/generated/
+examples/jxc/generated/
 packages/server/.sessions/
 *.log
 .DS_Store

@@ -5,7 +5,8 @@
   "workspaces": [
     "packages/*",
     "examples/todo-app",
-    "examples/todo-multi"
+    "examples/todo-multi",
+    "examples/jxc"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",

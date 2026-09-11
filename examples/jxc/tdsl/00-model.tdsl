@@ -1,0 +1,288 @@
+// 进销存 · 数据模型：枚举 + 实体 + 输入结构（来自 spec.yaml data 节，逐字段对照）
+
+@datasource('defaultDS')
+
+// ---- 枚举（数据字典） ----
+
+enum GoodsCategory { FOOD('食品'), DAILY('日用品'), CLOTH('服装'), OTHER('其他') }
+
+enum Unit { PIECE('个'), KILOGRAM('千克'), BOX('箱'), BOTTLE('瓶') }
+
+enum SettleMode { CASH('现金'), ACCOUNT('对账') }
+
+enum DocStatus { DRAFT('暂存'), SUBMITTED('已提交') }
+
+enum PayStatus { WAIT_CONFIRM('待确认'), WAIT_INVOICE('待开票'), WAIT_PAY('待回款'), DONE('已完结') }
+
+// ---- 基础数据实体 ----
+
+entity Goods {
+  id: Integer @pk;
+  code: String;
+  name: String;
+  category: GoodsCategory;
+  spec: String @nullable;
+  origin: String @nullable;
+  unit: Unit;
+  purchasePrice: Decimal;
+  salePrice: Decimal;
+  safetyStock: Integer @nullable;
+  remark: String @nullable;
+}
+
+entity Supplier {
+  id: Integer @pk;
+  name: String;
+  shortName: String @nullable;
+  creditCode: String;
+  contact: String @nullable;
+  phone: String @nullable;
+  address: String @nullable;
+  invoiceAddress: String @nullable;
+  invoicePhone: String @nullable;
+  bankName: String @nullable;
+  bankAccount: String @nullable;
+  remark: String @nullable;
+}
+
+entity Customer {
+  id: Integer @pk;
+  name: String;
+  shortName: String @nullable;
+  creditCode: String;
+  contact: String @nullable;
+  phone: String @nullable;
+  address: String @nullable;
+  invoiceAddress: String @nullable;
+  invoicePhone: String @nullable;
+  bankName: String @nullable;
+  bankAccount: String @nullable;
+  remark: String @nullable;
+}
+
+// ---- 单据实体（主子表：XxxBill + XxxBillItem，外键 billId 扁平关联） ----
+
+entity PurchaseBill {
+  id: Integer @pk;
+  billNo: String;
+  status: DocStatus;
+  billDate: DateTime;
+  supplierId: Integer;
+  contractNo: String @nullable;
+  invoiceNo: String @nullable;
+  logisticsCompany: String @nullable;
+  logisticsNo: String @nullable;
+  totalAmount: Decimal @nullable;
+  settleMode: SettleMode;
+  remark: String @nullable;
+}
+
+entity PurchaseBillItem {
+  id: Integer @pk;
+  billId: Integer;
+  goodsId: Integer;
+  goodsCode: String @nullable;
+  goodsName: String @nullable;
+  category: GoodsCategory @nullable;
+  spec: String @nullable;
+  unit: Unit @nullable;
+  qty: Integer;
+  price: Decimal;
+  amount: Decimal;
+  remark: String @nullable;
+}
+
+entity SalesBill {
+  id: Integer @pk;
+  billNo: String;
+  status: DocStatus;
+  billDate: DateTime;
+  customerId: Integer;
+  contractNo: String @nullable;
+  invoiceNo: String @nullable;
+  logisticsCompany: String @nullable;
+  logisticsNo: String @nullable;
+  totalAmount: Decimal @nullable;
+  settleMode: SettleMode;
+  remark: String @nullable;
+}
+
+entity SalesBillItem {
+  id: Integer @pk;
+  billId: Integer;
+  goodsId: Integer;
+  goodsCode: String @nullable;
+  goodsName: String @nullable;
+  category: GoodsCategory @nullable;
+  spec: String @nullable;
+  unit: Unit @nullable;
+  qty: Integer;
+  price: Decimal;
+  amount: Decimal;
+  remark: String @nullable;
+}
+
+entity PurchaseReturnBill {
+  id: Integer @pk;
+  billNo: String;
+  status: DocStatus;
+  returnDate: DateTime;
+  sourceBillNo: String;
+  totalAmount: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity PurchaseReturnItem {
+  id: Integer @pk;
+  billId: Integer;
+  goodsId: Integer;
+  goodsCode: String @nullable;
+  goodsName: String @nullable;
+  qty: Integer;
+  price: Decimal;
+  amount: Decimal;
+}
+
+entity SalesReturnBill {
+  id: Integer @pk;
+  billNo: String;
+  status: DocStatus;
+  returnDate: DateTime;
+  sourceBillNo: String;
+  totalAmount: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity SalesReturnItem {
+  id: Integer @pk;
+  billId: Integer;
+  goodsId: Integer;
+  goodsCode: String @nullable;
+  goodsName: String @nullable;
+  qty: Integer;
+  price: Decimal;
+  amount: Decimal;
+}
+
+entity Payable {
+  id: Integer @pk;
+  billNo: String;
+  supplierId: Integer;
+  amount: Decimal;
+  invoiceNo: String @nullable;
+  paidAmount: Decimal @nullable;
+  status: PayStatus;
+  remark: String @nullable;
+}
+
+entity Receivable {
+  id: Integer @pk;
+  billNo: String;
+  customerId: Integer;
+  amount: Decimal;
+  invoiceNo: String @nullable;
+  paidAmount: Decimal @nullable;
+  status: PayStatus;
+  remark: String @nullable;
+}
+
+// ---- 输入结构（DTO） ----
+
+struct GoodsInput {
+  id: Integer;
+  code: String;
+  name: String;
+  category: GoodsCategory;
+  spec: String;
+  origin: String;
+  unit: Unit;
+  purchasePrice: Decimal;
+  salePrice: Decimal;
+  safetyStock: Integer;
+  remark: String;
+}
+
+struct SupplierInput {
+  id: Integer;
+  name: String;
+  shortName: String;
+  creditCode: String;
+  contact: String;
+  phone: String;
+  address: String;
+  invoiceAddress: String;
+  invoicePhone: String;
+  bankName: String;
+  bankAccount: String;
+  remark: String;
+}
+
+struct CustomerInput {
+  id: Integer;
+  name: String;
+  shortName: String;
+  creditCode: String;
+  contact: String;
+  phone: String;
+  address: String;
+  invoiceAddress: String;
+  invoicePhone: String;
+  bankName: String;
+  bankAccount: String;
+  remark: String;
+}
+
+struct PurchaseBillInput {
+  id: Integer;
+  billNo: String;
+  billDate: DateTime;
+  supplierId: Integer;
+  contractNo: String;
+  invoiceNo: String;
+  logisticsCompany: String;
+  logisticsNo: String;
+  settleMode: SettleMode;
+  remark: String;
+  items: List<PurchaseBillItemInput>;
+}
+
+struct PurchaseBillItemInput {
+  goodsId: Integer;
+  qty: Integer;
+  price: Decimal;
+}
+
+struct SalesBillInput {
+  id: Integer;
+  billNo: String;
+  billDate: DateTime;
+  customerId: Integer;
+  contractNo: String;
+  invoiceNo: String;
+  logisticsCompany: String;
+  logisticsNo: String;
+  settleMode: SettleMode;
+  remark: String;
+  items: List<SalesBillItemInput>;
+}
+
+struct SalesBillItemInput {
+  goodsId: Integer;
+  qty: Integer;
+  price: Decimal;
+}
+
+// 进销存汇总行（跨四张明细表聚合的内存合并结果）
+struct InventoryRow {
+  goodsCode: String;
+  goodsName: String;
+  category: GoodsCategory;
+  spec: String;
+  unit: Unit;
+  safetyStock: Integer;
+  inQty: Integer;
+  inRetQty: Integer;
+  outQty: Integer;
+  outRetQty: Integer;
+  stock: Integer;
+}
