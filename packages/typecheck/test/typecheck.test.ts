@@ -787,3 +787,17 @@ page P {
     expect(badFieldApp.diagnostics.some((d) => d.message.includes('带出不可达'))).toBe(true);
   });
 });
+
+describe('typecheck dev/30 A1 throw', () => {
+  it('logic 内 throw 字符串消息通过；未编目成员的 throw 消息沿 FFI 报', () => {
+    const r = check(parse(`
+@datasource('defaultDS')
+@export
+function f(x: Integer): Boolean {
+  if (x === 0) { throw 'x 不能为 0'; }
+  return true;
+}
+`));
+    expect(r.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  });
+});

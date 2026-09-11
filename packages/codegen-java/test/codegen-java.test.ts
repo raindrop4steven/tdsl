@@ -565,3 +565,24 @@ entity E { id: Integer @pk; mode: SettleMode; }
     expect(ef).toContain('CASH("现金"),');
     expect(ef).toContain('public String getLabel()');
   });
+
+  it('throw 语句 → 框架 TdslError + advice 文件（dev/30 A1）', () => {
+    const src = parse(`
+@datasource('defaultDS')
+@export
+function checkIt(x: Integer): Boolean {
+  if (x === 0) {
+    throw 'x 不能为 0';
+  }
+  return true;
+}
+interface Api {
+  POST '/api/check' -> checkIt
+}
+`);
+    const files = generateJava(src);
+    const svc = files.find((f) => f.path.endsWith('CheckItService.java'))!.content;
+    expect(svc).toContain('throw new com.todo.support.TdslError("x 不能为 0")');
+    expect(files.find((f) => f.path.endsWith('TdslError.java'))).toBeDefined();
+    expect(files.find((f) => f.path.endsWith('GlobalAdvice.java'))!.content).toContain('@RestControllerAdvice');
+  });

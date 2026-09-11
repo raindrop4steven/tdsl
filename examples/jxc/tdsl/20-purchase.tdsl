@@ -57,7 +57,7 @@ function savePurchaseBill(input: PurchaseBillInput): PurchaseBill {
 function submitPurchaseBill(id: Integer): Boolean {
   const bill = PurchaseBill.get(id);
   if (bill.status !== DocStatus.DRAFT) {
-    return false;
+    throw '仅暂存单可提交';
   }
   bill.status = DocStatus.SUBMITTED;
   bill.save();

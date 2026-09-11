@@ -8,4 +8,5 @@ export type Statement =
   | { kind: 'Return'; value?: Expr }
   | { kind: 'If'; cond: Expr; then: Statement[]; else?: Statement[] }
   | { kind: 'ForEach'; item: string; container: Expr; body: Statement[] }
-  | { kind: 'CallStmt'; call: Expr };
+  | { kind: 'CallStmt'; call: Expr }
+  | { kind: 'Throw'; message: Expr };

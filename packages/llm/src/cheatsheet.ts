@@ -46,6 +46,9 @@ Order.aggregate(sum(field))                // 聚合: sum/avg/max/min/count；�
 Integer Decimal String Boolean Date Time DateTime   // 内置（没有 number/string/Date）
 List<T> Map<T> Page<T>                              // 泛型；实体/结构/枚举短名；跨源同名用 dsName.Entity
 
+// ---- 抛出（后端事务语义；advice 统一映 4xx {code, message}，前端 hooks.error 展示）----
+// throw '仅暂存单可提交';            // → HTTP 400 {code:'GENERIC', message:'仅暂存单可提交'}
+
 // ---- 禁止事项 ----
 // 变量声明用 const/let（类型可标：const n: Integer = 0）；遍历用 for-of（不是 for-in 键遍历）
 // 无三元 ?:；无模板字符串；无 ==（用 ===）；逻辑声明用 function（不用箭头函数）；

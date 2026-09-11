@@ -295,6 +295,8 @@ export function generateJava(app: AppNode): GeneratedFile[] {
   for (const itf of app.interfaces) {
     files.push(controllerFile(app, itf));
   }
+  files.push(tdslErrorFile(pkg));
+  files.push(tdslAdviceFile(pkg));
   return files;
 }
 
@@ -1390,6 +1392,10 @@ function genStatement(
     }
     case 'CallStmt':
       return [`    ${genExpr(app, st.call, entities, vars)};`];
+    case 'Throw': {
+      // dev/30 A1：框架错误类（全局 advice 映 HTTP 4xx）
+      return [`    throw new ${pkgOf(app)}.support.TdslError(${genExpr(app, st.message, entities, vars)});`];
+    }
     default: {
       const _never: never = st;
       return [_never];
@@ -1760,4 +1766,69 @@ function genExpr(
       return _never;
     }
   }
+}
+// ---------- dev/30 A1：框架错误类 + 全局 advice（TDSL 逻辑忍不住时体面地大声） ----------
+
+/** TdslError：TDSL 抛出的业务错误（ Advice 统一映 400 {code, message}） */
+function tdslErrorFile(pkg: string): GeneratedFile {
+  const pathBase = `src/main/java/${pkg.replaceAll('.', '/')}/support`;
+  return {
+    path: `${pathBase}/TdslError.java`,
+    content: `package ${pkg}.support;
+
+/** TDSL 业务错误（throw 语句的框架载体；全局 advice 映 4xx {code, message}） */
+public class TdslError extends RuntimeException {
+  private final String code;
+
+  public TdslError(String message) {
+    super(message);
+    this.code = "GENERIC";
+  }
+
+  public TdslError(String code, String message) {
+    super(message);
+    this.code = code;
+  }
+
+  public String getCode() {
+    return code;
+  }
+}
+`,
+  };
+}
+
+/** 全局 advice：TdslError → 400 {error, message}（前端 hooks.error 直接展示） */
+function tdslAdviceFile(pkg: string): GeneratedFile {
+  const pathBase = `src/main/java/${pkg.replaceAll('.', '/')}/support`;
+  return {
+    path: `${pathBase}/GlobalAdvice.java`,
+    content: `package ${pkg}.support;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/** 统一错误面：TdslError → 400 {code, message}；其余异常 → 500 {message} */
+@RestControllerAdvice
+public class GlobalAdvice {
+  @ExceptionHandler(TdslError.class)
+  public org.springframework.http.ResponseEntity<java.util.Map<String, Object>> tdslError(TdslError e) {
+    java.util.Map<String, Object> body = new java.util.HashMap<>();
+    body.put("code", e.getCode());
+    body.put("message", e.getMessage());
+    return org.springframework.http.ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+  }
+
+  @ExceptionHandler(Exception.class)
+  public org.springframework.http.ResponseEntity<java.util.Map<String, Object>> unexpected(Exception e) {
+    java.util.Map<String, Object> body = new java.util.HashMap<>();
+    body.put("code", "INTERNAL");
+    body.put("message", e.getMessage());
+    return org.springframework.http.ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
+  }
+}
+`,
+  };
 }

@@ -564,6 +564,14 @@ class Parser {
       return { kind: 'If', cond, then, else: else_ };
     }
 
+    if (t.value === 'throw') {
+      // dev/30 A1：抛出（后端事务语义；消息复用共享表达式）
+      this.next();
+      const message = this.parseExpr();
+      this.expect(';');
+      return { kind: 'Throw', message };
+    }
+
     if (t.value === 'const' || t.value === 'let') {
       // TS 词法双面：const x = / const x: T = （legacy `x := y` 仍兼容）
       this.next();

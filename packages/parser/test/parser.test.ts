@@ -830,3 +830,21 @@ function createOrder(input: OrderInput): Order {
     expect((modernFor as { body: { kind: string }[] }).body.map((s) => s.kind)).toEqual(['Assign']);
   });
 });
+
+describe('parser/dev30 A1 throw 语句', () => {
+  it('throw <expr>; → Throw 节点（message 表达式）', () => {
+    const app = parse(`
+@datasource('defaultDS')
+@export
+function f(x: Integer): Boolean {
+  if (x === 0) { throw 'x 不可为 0'; }
+  return true;
+}
+`);
+    const fn = app.logics[0];
+    const t = fn.body.find((s) => s.kind === 'Throw') ?? fn.body.flatMap((s) => s.kind === 'If' ? s.then : [])
+      .find((s) => s.kind === 'Throw');
+    expect(t).toBeDefined();
+    expect((t as { kind: string; message: unknown }).kind).toBe('Throw');
+  });
+});
