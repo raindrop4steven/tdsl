@@ -62,4 +62,5 @@
 | 22 | 2026-09 | P11 书写面 TS 词法化 | parser 双语法兼容（logic↔function、:=↔const(: T)、for-in↔for-of，AST 同构零改动）；jxc/todo/multi/llm 矩阵全量新语法；D4 口径修正 |
 | 23 | 2026-09 | FFI：Java 一等公民（dev/27） | core/stdlib 目录模型（每方法 java/js 模板选填=单端/双端；String/BigDecimal/LocalDate/LocalDateTime/List 四域）+ typecheck 4.6 道（成员解析可解则解、未知放行 + 静态/实例错配/目录外成员附 bundle-jar 补录口径）；jar dump 通用机制/react js 模板翻译/d.ts 投影/jxc 标准库重写为余项 | （本次） | 221 全绿 |
 | 24 | 2026-09 | G2-1 前端表达式域（dev/29） | typecheck 第 5 道（derive 纯函数声明/IO 禁令、carryBy 可达校验、min-max-pattern）+ codegen-react（derive 计算 readOnly、carryBy 拉档填回、属性拦截并入 reqCheck、页面级 required 覆盖）；dev/28 分层 roadmap（语言/代码生成/工具链/外壳） | 2cae02a | 226 全绿 |
+| 25 | 2026-09 | FFI 收口打样（dev/27 B2/C1/C3） | cli 新增 bundle-jar（jar→类清单→javap 反射→目录 JSON，frontend:false 不对称）；jxc 全库挂标准库 trim() ×11（语义保留）；javap descriptor 解析质量为余项 | 97b99ed | 226 全绿，双端 build+spec 100% |
 
