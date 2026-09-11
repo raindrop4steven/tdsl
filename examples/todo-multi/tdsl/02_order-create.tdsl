@@ -2,16 +2,16 @@
 // 跨文件短名引用：Order/OrderInput 来自 01_order-model.tdsl（无 import，全局命名空间）
 
 @export
-logic createOrder(input: OrderInput): Order {
+function createOrder(input: OrderInput): Order {
   if (input.items.count === 0) {
     return null;
   }
-  order := new Order();
+  const order = new Order();
   order.customer = input.customer;
   order.total = 0;
   order.save();
-  for (it in input.items) {
-    item := new OrderItem();
+  for (const it of input.items) {
+    const item = new OrderItem();
     item.orderId = order.id;
     item.product = it.product;
     item.price = it.price;

@@ -2,26 +2,26 @@
 // 汇总口径：stock = 进货 - 进货退货 - 销货 + 销货退货
 
 @export
-logic inventorySummary(goodsCode: String): List<InventoryRow> {
-  rows := new List<InventoryRow>();
-  for (g in Goods.where(code like '%' + goodsCode + '%')) {
-    inQty := 0;
-    for (pi in PurchaseBillItem.where(goodsId = g.id)) {
+function inventorySummary(goodsCode: String): List<InventoryRow> {
+  const rows = new List<InventoryRow>();
+  for (const g of Goods.where(code like '%' + goodsCode + '%')) {
+    const inQty = 0;
+    for (const pi of PurchaseBillItem.where(goodsId = g.id)) {
       inQty = inQty + pi.qty;
     }
-    inRetQty := 0;
-    for (pi in PurchaseReturnItem.where(goodsId = g.id)) {
+    const inRetQty = 0;
+    for (const pi of PurchaseReturnItem.where(goodsId = g.id)) {
       inRetQty = inRetQty + pi.qty;
     }
-    outQty := 0;
-    for (pi in SalesBillItem.where(goodsId = g.id)) {
+    const outQty = 0;
+    for (const pi of SalesBillItem.where(goodsId = g.id)) {
       outQty = outQty + pi.qty;
     }
-    outRetQty := 0;
-    for (pi in SalesReturnItem.where(goodsId = g.id)) {
+    const outRetQty = 0;
+    for (const pi of SalesReturnItem.where(goodsId = g.id)) {
       outRetQty = outRetQty + pi.qty;
     }
-    row := new InventoryRow();
+    const row = new InventoryRow();
     row.goodsCode = g.code;
     row.goodsName = g.name;
     row.category = g.category;

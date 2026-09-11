@@ -205,8 +205,9 @@ class Parser {
         app.structures.push(this.parseStructure());
       } else if (kw === 'enum') {
         app.enums.push(this.parseEnum());
-      } else if (kw === 'logic') {
-        app.logics.push(this.parseLogic());
+      } else if (kw === 'logic' || kw === 'function') {
+        // 双语法：logic（legacy）/ function（TS 面）——同一 LogicNode
+        app.logics.push(this.parseLogic(kw));
       } else if (kw === 'interface') {
         app.interfaces.push(this.parseInterface());
       } else if (kw === 'page' || kw === 'dialog') {
@@ -404,13 +405,13 @@ class Parser {
     return { ...createNode('Enum'), name, items };
   }
 
-  private parseLogic(): LogicNode {
+  private parseLogic(kw: string): LogicNode {
     // 可选注解 @export 等
     while (this.peek().value === '@') {
       this.next();
       this.expectIdent();
     }
-    this.expect('logic');
+    this.expect(kw === 'function' ? 'function' : 'logic');
     const name = this.expectIdent();
     this.expect('(');
     const params: ParamNode[] = [];
@@ -563,11 +564,32 @@ class Parser {
       return { kind: 'If', cond, then, else: else_ };
     }
 
+    if (t.value === 'const' || t.value === 'let') {
+      // TS 词法双面：const x = / const x: T = （legacy `x := y` 仍兼容）
+      this.next();
+      const name = this.expectIdent();
+      let type: TypeRef | undefined;
+      if (this.peek().value === ':') {
+        this.next();
+        type = this.parseTypeRef();
+      }
+      this.expect('=');
+      const init = this.parseExpr();
+      this.expect(';');
+      return { kind: 'VarDecl', name, init, type };
+    }
+
     if (t.value === 'for') {
       this.next();
       this.expect('(');
-      const item = this.expectIdent();
-      this.expect('in');
+      // 双语法：`x in y`（legacy）/ `const x of y`（TS 面）
+      let item: string;
+      if (this.peek().value === 'const' || this.peek().value === 'let') {
+        this.next();
+      }
+      item = this.expectIdent();
+      const conn = this.next().value;
+      if (conn !== 'in' && conn !== 'of') this.fail(`expected 'in' or 'of' in for statement, got '${conn}'`);
       const container = this.parseExpr();
       this.expect(')');
       this.expect('{');

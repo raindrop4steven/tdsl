@@ -6,8 +6,7 @@
 
 ## 1. 项目定位
 
-自研低代码 DSL（TDSL）：**大模型/人写 TS 风格 DSL（书写面；非严格 TS 子集——表达式/控制流照 TS 手感，
-entity/page/where 等为领域扩展，`:=` 与 for-in 是两处有意偏离，tsc 不适用，自家 parser 为权威校验）→ parser → Typed AST（语义核/SSoT）→ typecheck → codegen → React + Java**。
+自研低代码 DSL（TDSL）：**大模型/人写 TS 词法面（function/const/for-of；骨架声明用领域关键词 entity/page/interface）→ parser → Typed AST（语义核/SSoT，类型体系自持：Date/Decimal 等独立于 JS/Java）→ typecheck → codegen → React + Java**。
 对标网易 CodeWave NASL（调研见 `docs/00_参考资料/NASL调研.md`），但用强类型 AST 替代 JSON AST 作唯一事实来源。
 
 ```

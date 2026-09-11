@@ -2,18 +2,18 @@
 // 业务规则（spec）：提交后不可编辑删除；明细商品信息按 goodsId 自动带出；金额 = 数量 × 单价
 
 @export
-logic searchPurchaseBills(billNo: String, status: DocStatus): List<PurchaseBill> {
+function searchPurchaseBills(billNo: String, status: DocStatus): List<PurchaseBill> {
   return PurchaseBill.where(billNo like '%' + billNo + '%', status = status);
 }
 
 // 暂存：新增（id=0）建 DRAFT 单；编辑（id>0）更新表头，明细非空才整体替换
 // 明细行按 goodsId 带出商品档案并计算金额
 @export
-logic savePurchaseBill(input: PurchaseBillInput): PurchaseBill {
-  existing := input.id !== null && input.id > 0;
-  bill := new PurchaseBill();
+function savePurchaseBill(input: PurchaseBillInput): PurchaseBill {
+  const existing = input.id !== null && input.id > 0;
+  const bill = new PurchaseBill();
   if (existing) {
-    bill := PurchaseBill.get(input.id);
+    const bill = PurchaseBill.get(input.id);
   }
   bill.billNo = input.billNo;
   bill.billDate = input.billDate;
@@ -27,13 +27,13 @@ logic savePurchaseBill(input: PurchaseBillInput): PurchaseBill {
   bill.status = DocStatus.DRAFT;
   bill.totalAmount = 0;
   bill.save();  if (input.items.count > 0) {
-    for (ol in PurchaseBillItem.where(billId = bill.id)) {
+    for (const ol of PurchaseBillItem.where(billId = bill.id)) {
       ol.delete();
     }
     bill.totalAmount = 0;
-    for (it in input.items) {
-      g := Goods.get(it.goodsId);
-      item := new PurchaseBillItem();
+    for (const it of input.items) {
+      const g = Goods.get(it.goodsId);
+      const item = new PurchaseBillItem();
       item.billId = bill.id;
       item.goodsId = it.goodsId;
       item.goodsCode = g.code;
@@ -54,14 +54,14 @@ logic savePurchaseBill(input: PurchaseBillInput): PurchaseBill {
 
 // 提交：仅 DRAFT 可提交，提交后不可编辑删除；提交即生成应付款（待确认）
 @export
-logic submitPurchaseBill(id: Integer): Boolean {
-  bill := PurchaseBill.get(id);
+function submitPurchaseBill(id: Integer): Boolean {
+  const bill = PurchaseBill.get(id);
   if (bill.status !== DocStatus.DRAFT) {
     return false;
   }
   bill.status = DocStatus.SUBMITTED;
   bill.save();
-  pay := new Payable();
+  const pay = new Payable();
   pay.billNo = bill.billNo;
   pay.supplierId = bill.supplierId;
   pay.amount = bill.totalAmount;
@@ -73,12 +73,12 @@ logic submitPurchaseBill(id: Integer): Boolean {
 }
 
 @export
-logic deletePurchaseBill(id: Integer): Boolean {
-  bill := PurchaseBill.get(id);
+function deletePurchaseBill(id: Integer): Boolean {
+  const bill = PurchaseBill.get(id);
   if (bill.status !== DocStatus.DRAFT) {
     return false;
   }
-  for (it in PurchaseBillItem.where(billId = id)) {
+  for (const it of PurchaseBillItem.where(billId = id)) {
     it.delete();
   }
   bill.delete();
@@ -87,9 +87,9 @@ logic deletePurchaseBill(id: Integer): Boolean {
 
 // 复制：以上一单为模板快速开新 DRAFT 单
 @export
-logic copyPurchaseBill(id: Integer): PurchaseBill {
-  src := PurchaseBill.get(id);
-  bill := new PurchaseBill();
+function copyPurchaseBill(id: Integer): PurchaseBill {
+  const src = PurchaseBill.get(id);
+  const bill = new PurchaseBill();
   bill.billNo = 'COPY-' + src.billNo;
   bill.status = DocStatus.DRAFT;
   bill.billDate = src.billDate;
@@ -102,8 +102,8 @@ logic copyPurchaseBill(id: Integer): PurchaseBill {
   bill.remark = src.remark;
   bill.totalAmount = src.totalAmount;
   bill.save();
-  for (si in PurchaseBillItem.where(billId = id)) {
-    item := new PurchaseBillItem();
+  for (const si of PurchaseBillItem.where(billId = id)) {
+    const item = new PurchaseBillItem();
     item.billId = bill.id;
     item.goodsId = si.goodsId;
     item.goodsCode = si.goodsCode;
@@ -122,9 +122,9 @@ logic copyPurchaseBill(id: Integer): PurchaseBill {
 
 // 整单退货：复制为退货单
 @export
-logic returnPurchaseBill(id: Integer): PurchaseReturnBill {
-  src := PurchaseBill.get(id);
-  ret := new PurchaseReturnBill();
+function returnPurchaseBill(id: Integer): PurchaseReturnBill {
+  const src = PurchaseBill.get(id);
+  const ret = new PurchaseReturnBill();
   ret.billNo = 'RT-' + src.billNo;
   ret.status = DocStatus.DRAFT;
   ret.returnDate = src.billDate;
@@ -132,8 +132,8 @@ logic returnPurchaseBill(id: Integer): PurchaseReturnBill {
   ret.totalAmount = src.totalAmount;
   ret.remark = src.remark;
   ret.save();
-  for (si in PurchaseBillItem.where(billId = id)) {
-    item := new PurchaseReturnItem();
+  for (const si of PurchaseBillItem.where(billId = id)) {
+    const item = new PurchaseReturnItem();
     item.billId = ret.id;
     item.goodsId = si.goodsId;
     item.goodsCode = si.goodsCode;
@@ -147,7 +147,7 @@ logic returnPurchaseBill(id: Integer): PurchaseReturnBill {
 }
 
 @export
-logic searchPurchaseReturns(billNo: String): List<PurchaseReturnBill> {
+function searchPurchaseReturns(billNo: String): List<PurchaseReturnBill> {
   return PurchaseReturnBill.where(billNo like '%' + billNo + '%');
 }
 

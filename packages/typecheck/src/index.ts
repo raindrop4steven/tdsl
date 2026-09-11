@@ -11,6 +11,7 @@ import {
   type TypeRef,
   type ViewElementNode,
 } from '@tdsl/core';
+import { ffiByAlias, ffiMember, type FfiParamType, type LogicNode } from '@tdsl/core';
 
 export interface Diagnostic {
   path: string;
@@ -180,6 +181,11 @@ export function check(app: AppNode): CheckResult {
     forEachStatement(l.body, (st) => {
       checkEntityCalls(app, st, l, diagnostics, ownerPath);
     });
+  }
+
+  // 4.6. FFI 目录（dev/27）：receiver 类型已知的成员调用查目录；未知类型放行
+  for (const l of app.logics) {
+    checkFfi(app, l, diagnostics, ownerPath);
   }
 
   // 4.5. 外部服务：kind 合法；http 操作必须带 method + path；调用方校验在 checkEntityCalls 内
@@ -834,4 +840,143 @@ function checkChainMethod(
       severity: 'error',
     });
   }
+}
+// ---------- FFI 成员解析（dev/27）：receiver 类型已知的调用查目录；未知类型放行 ----------
+
+/** TypeRef → FFI 别名（成员类型集合内才有映射；枚举/实体/Map 等 → undefined） */
+function typeRefToFfiAlias(tr: TypeRef): FfiParamType | undefined {
+  if (tr.kind === 'primitive') return tr.builtin;
+  if (tr.kind === 'generic' && tr.name === 'List') return 'List';
+  return undefined;
+}
+
+function exprToFfiAlias(
+  app: AppNode,
+  e: Expr | undefined,
+  vars: Map<string, FfiParamType>,
+): FfiParamType | undefined {
+  if (!e) return undefined;
+  if (e.kind === 'Bool') return 'Boolean';
+  if (e.kind === 'Numeric') return Number.isInteger(e.value) ? ('Integer' as FfiParamType) : ('Decimal' as FfiParamType);
+  if (e.kind === 'String') return 'String';
+  if (e.kind === 'Null') return undefined;
+  if (e.kind === 'NewList') return 'List';
+  if (e.kind === 'New') return typeRefToFfiAlias(e.type);
+  if (e.kind === 'Call' && e.callee.kind === 'Member') {
+    // 链式：recv.trim().toUpperCase() —— recv 类型已知（含递归成员链）则结果类型可传播
+    const t = exprFfiAliasOfReceivers(app, e.callee.obj, vars);
+    if (t) {
+      const c = ffiByAlias(t);
+      const m = c ? ffiMember(c, e.callee.prop) : undefined;
+      if (m && m.ret !== 'Object') return m.ret;
+      return undefined;
+    }
+  }
+  return undefined;
+  return undefined;
+}
+
+/** 递归展开接收者链，返回可信别名（不追实体/未知段） */
+function exprFfiAliasOfReceivers(
+  app: AppNode,
+  recv: Expr,
+  vars: Map<string, FfiParamType>,
+): FfiParamType | undefined {
+  if (recv.kind === 'Ident') return vars.get(recv.name) ?? undefined;
+  return exprToFfiAlias(app, recv, vars);
+}
+
+function ffiCheckExpr(
+  app: AppNode,
+  e: Expr,
+  vars: Map<string, FfiParamType>,
+  owner: BaseNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  if (e.kind === 'Call' && e.callee.kind === 'Member') {
+    const recvObj = e.callee.obj;
+    // 接收者类型：变量表 / 目录别名（静态调用）/ 链上成员 ret
+    let alias: FfiParamType | undefined;
+    let isStatic = false;
+    if (recvObj.kind === 'Ident') {
+      const v = vars.get(recvObj.name);
+      if (v) {
+        alias = v;
+      } else if (ffiByAlias(recvObj.name)) {
+        alias = recvObj.name as FfiParamType;
+        isStatic = true;
+      }
+    } else {
+      const inferChain = exprToFfiAlias(app, recvObj, vars);
+      if (inferChain) alias = inferChain;
+    }
+    // 实体接收者/数据源限定名交给实体检查，避免重复报
+    if (alias) {
+      const isEntityRecv = recvObj.kind === 'Ident' && !!resolveEntity(app, recvObj.name);
+      if (!isEntityRecv) {
+        const cls = ffiByAlias(alias);
+        const prop = e.callee.prop;
+        const m = cls ? ffiMember(cls, prop) : undefined;
+        if (cls && !m) {
+          diagnostics.push({
+            path: ownerPath(owner),
+            message: `成员 ${cls.alias}.${prop} 不在 FFI 目录（可用成员：${cls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——若为 Java 库成员，请运行 dsl bundle-jar 并入后重试`,
+            severity: 'error',
+          });
+        } else if (m && isStatic && !m.static) {
+          diagnostics.push({
+            path: ownerPath(owner),
+            message: `${cls?.alias}.${prop} 是实例方法，静态调用非法`,
+            severity: 'error',
+          });
+        } else if (m && !isStatic && m.static) {
+          diagnostics.push({
+            path: ownerPath(owner),
+            message: `${cls?.alias}.${prop} 是静态方法，需 ${cls?.alias}.${prop}(…) 形式调用`,
+            severity: 'error',
+          });
+        }
+        // 双端目录里未标 js 的成员（backend-only）在前端生成的调用面交给 binding 层（本轮不展开——宽松）
+      }
+    }
+  } else if (e.kind === 'Member') {
+    // 递归 obj 链（如 a.b().c），保证深层调用也被看见
+    ffiCheckExpr(app, e.obj, vars, owner, diagnostics, ownerPath);
+  }
+  // 递归表达式子树
+  if (e.kind === 'Call') {
+    if (e.callee.kind === 'Member') ffiCheckExpr(app, e.callee.obj, vars, owner, diagnostics, ownerPath);
+    e.args.forEach((a) => ffiCheckExpr(app, a, vars, owner, diagnostics, ownerPath));
+  }
+}
+
+function checkFfi(
+  app: AppNode,
+  l: LogicNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  const vars = new Map<string, FfiParamType>();
+  // 参数类型入表
+  for (const p of l.params) {
+    const t = typeRefToFfiAlias(p.type);
+    if (t) vars.set(p.name, t);
+  }
+  forEachStatement(l.body, (st) => {
+    // VarDecl 声明进类型表（显式 type 或 init 推断）
+    if (st.kind === 'VarDecl') {
+      const t = st.type ? typeRefToFfiAlias(st.type) : exprToFfiAlias(app, st.init, vars);
+      if (t) vars.set(st.name, t);
+    }
+    // 收集表达式逐个校验
+    const exprs: Expr[] = [];
+    if (st.kind === 'VarDecl' && st.init) exprs.push(st.init);
+    if (st.kind === 'Assign') exprs.push(st.target, st.value);
+    if (st.kind === 'Return' && st.value) exprs.push(st.value);
+    if (st.kind === 'If') exprs.push(st.cond);
+    if (st.kind === 'ForEach') exprs.push(st.container);
+    if (st.kind === 'CallStmt') exprs.push(st.call);
+    for (const e of exprs) ffiCheckExpr(app, e, vars, l, diagnostics, ownerPath);
+  });
 }

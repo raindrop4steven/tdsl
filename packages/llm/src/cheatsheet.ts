@@ -20,14 +20,14 @@ page OrderList { <table dataSource={useQuery('listOrders')}> <column field="id" 
 //     tabs > pane(title) / checkbox / switch / radio(options="A,B") / avatar / badge(count) / card(title)——枚举列自动彩色标签、Boolean 字段自动开关
 //   新增/编辑类表单用 dialog 声明（不进路由），列表页用 openDialog('DialogName') 打开；三方组件用 component 注册名
 
-// ---- 逻辑（TS 风格 + 两处有意偏离，勿写成 TS！）----
+// ---- 逻辑（TS 词法：const/let、for-of、function；骨架声明用领域关键词）----
 @export
-logic createOrder(input: OrderInput): Order {
+function createOrder(input: OrderInput): Order {
   if (input.items.count === 0) { return null; }
-  order := new Order();          // 偏离①：:= 声明（没有 let/const/var！）
+  const order = new Order();
   order.total = 0;
-  order.save();                  // 实例方法 save()/delete()；写操作自动事务
-  for (it in input.items) {      // 偏离②：in 遍历元素（语义同 for-of，不是 TS for-in 键遍历）
+  order.save();                        // 实例方法 save()/delete()；写操作自动事务
+  for (const it of input.items) {
     it.save();
   }
   return order;
@@ -47,5 +47,6 @@ Integer Decimal String Boolean Date Time DateTime   // 内置（没有 number/st
 List<T> Map<T> Page<T>                              // 泛型；实体/结构/枚举短名；跨源同名用 dsName.Entity
 
 // ---- 禁止事项 ----
-// 无 let/const/var（用 :=）；无函数定义/箭头函数；无三元 ?:；无模板字符串；
-// 无 ==（用 ===）；无 Decimal(10,2) 以外的类型参数化；接口体不是 TS interface 语法`;
+// 变量声明用 const/let（类型可标：const n: Integer = 0）；遍历用 for-of（不是 for-in 键遍历）
+// 无三元 ?:；无模板字符串；无 ==（用 ===）；逻辑声明用 function（不用箭头函数）；
+// 无 Decimal(10,2) 以外的类型参数化；接口体仍是领域 DSL（method 'path' -> function），不是 TS 接口方法`;

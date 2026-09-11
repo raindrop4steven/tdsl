@@ -29,7 +29,7 @@
 
 ## 3. 当前状态快照（2026-09，Spec 驱动对拍交付后）
 
-- **208 单测全绿**：core 5 / parser 48 / typecheck 35 / codegen-java 34 / codegen-react 28 / llm 13 / playground 6 / cli 14 / server 22；九包 strict typecheck 通过。
+- **221 单测全绿（P11 双语法 + FFI 首轮后）**：core 5 / parser 48 / typecheck 35 / codegen-java 34 / codegen-react 28 / llm 13 / playground 6 / cli 14 / server 22；九包 strict typecheck 通过。
 - 演示入口：**`npm run server`（或根目录 start-server.sh，http://localhost:8787）**：浏览器提需求 → agent 写分片 → 编译自修 → 产物导出 zip → **run_app 起前后端（vite dev + mvn spring-boot:run + H2），用户反馈 → agent 读运行日志自修（M10 闭环）**；`npm run playground`（离线试验台）；端到端：`npm run slice`（单文件）+ `npm run slice:multi`（M7 对拍）；CLI：`npm run dsl -- check/build examples/todo-multi/tdsl`。
 - **主线方向已校准（2026-09）**：一句话生成无法测出 DSL 表达力，改走 **Spec 驱动（SDD）**：结构化 Spec → TDSL → check-spec 自动对照（`npm run check-spec -w jxc`）。进销存（examples/jxc）为首个完整测试样例，暴露 7 项表达力缺口待排期（枚举 label/表单联动/where+aggregate 最痛）。网页（M9/M10）定位为外壳，暂缓。
 - **下一步**（按当前优先级）：表达力缺口补齐（C1 where+aggregate 查询链 → G1 枚举 label → G2 表单联动）→ 评测基准 → M3/M5 视需求排期。
@@ -59,40 +59,6 @@
 | 19 | 2026-09 | genForm 自产 Button import 缺失 | form 自动提交按钮不在 antd import 收集范围 → ReferenceError 白屏；collectFormAntd 强制计入（覆盖 repeat 明细块自产按钮）；顺手用修好的生成器重刷了用户沙箱产物 | 1a5df38 | 199 全绿 |
 | 20 | 2026-09 | dialog 抽屉完整闭环实战 | 用户白屏三连修复：dialog import 相对路径（页面内 importer 应 ./X，原 ./pages/X 解析到 src/pages/pages/）→ Fragment 包裹兄弟 JSX → 沙箱孤儿 Java 主类（CLI 手动重刷不清旧产物致 mvn 双主类失败，generate_code 已根治，CLI 后续对齐）→ 后端 restart 后接口 200（H2 建表+数据在）| 84f5f3e 等 3 commits | 用户实测车辆租赁应用全链路跑通 |
 | 21 | 2026-09 | Spec 驱动编译器对拍（进销存） | 主线回归编译器：examples/jxc = 结构化 Spec（spec.yaml 六层，SDD 路线对标 CodeWave）+ check-spec 覆盖度对照器（五维 287 项，exit 1 可进 CI）+ 全套 TDSL（13 实体/5 枚举/32 logic/15 页面/32 按钮）双端 build；实测修复 6 个 codegen 缺陷（F2 List\<struct\> import/F3 Decimal 比较 compareTo/F4 Integer 累加器 long/F5 api.ts body 重复/F6 DatePicker 类型/F8 enums import 无条件发射——#14 起 slice:multi 实际是坏的）；记录 7 项表达力缺口（C1 where+aggregate、G1 枚举 label、G2 表单联动等）| （本次） | 208 全绿，spec 覆盖率 100% |
+| 22 | 2026-09 | P11 书写面 TS 词法化 | parser 双语法兼容（logic↔function、:=↔const(: T)、for-in↔for-of，AST 同构零改动）；jxc/todo/multi/llm 矩阵全量新语法；D4 口径修正 |
+| 23 | 2026-09 | FFI：Java 一等公民（dev/27） | core/stdlib 目录模型（每方法 java/js 模板选填=单端/双端；String/BigDecimal/LocalDate/LocalDateTime/List 四域）+ typecheck 4.6 道（成员解析可解则解、未知放行 + 静态/实例错配/目录外成员附 bundle-jar 补录口径）；jar dump 通用机制/react js 模板翻译/d.ts 投影/jxc 标准库重写为余项 | （本次） | 221 全绿 |
 
-## 4. 踩过的坑（后来者必读）
-
-| 坑 | 教训 |
-|----|------|
-| link 阶段错误带 `line 0/col 0`，回流 LLM 会显示"第 0 行" | 面向 LLM 的错误反馈必须人话化：line/col 无意义时换引导语（validateTdsl 已处理；`ParseErrorInfo.linkStage` 标记） |
-| `crypto.randomUUID()` 仅安全上下文可用 | localhost OK，**局域网 http IP（会议室投屏）会抛异常**；`core/id.ts` 已加 uuid v4 fallback——以后新增环境相关 API 要先想演示场景 |
-| 批量 sed 改文档会产生重复/错误引用（如"设计总览 与 设计总览"） | 批量改文档后必须 grep 残留 + 人工抽查 |
-| `@tdsl/llm` 示例矩阵第一版就有内容 bug（Order 漏 total 字段） | "可编译性单测"不只是防漂移，还能抓示例本身的内容错误 |
-| Monaco 主 chunk ~3.5MB，vite build 有警告 | 演示场景接受；未来要优化用 manualChunks 拆 monaco |
-| 设计文档会滞后于代码（dev/14 现状盘点写于 M1 前） | 任何"现状"结论以实测为准：`npm test` + 读源码 |
-| 字符串比较式判重（`existing !== path`）对"同名同段"恒失效（path 恒等）→ 重名 logic 一直漏报 | 判重逻辑不能依赖 path 差异做同名检测；新增概念时补"同段同名"单测 |
-| app 名直接拿去当 Java 包名，带连字符就生成非法代码（app 名参数化 M7 才暴露） | 环境相关/外部拼入标识符的值，入口处校验合法性并抛清晰错误，不静默变形 |
-| `type AppNode` 从 `@tdsl/parser` 导入但 parser 不导出该类型 → TS 静默当 any，直到隐式 any 报错才暴露 | 语义核类型一律从 `@tdsl/core` 导入；新增包入口时检查 re-export 面 |
-| TDSL enum 两侧 codegen 都不生成类型定义（TS 类型/import、Java enum 类），agent 一写枚举就大面积编译错 | 新增“可被实体/逻辑引用的声明”（entity/struct/enum）时，codegen 类型生成必须同步纳入；单测要用含枚举的样例 |
-| agent 页面把 `useQuery('x')` 同时绑在 button 和 table 上、detail 页用 `row.id` 而非 `$route.id` | codegen 语义修复走“宽松适配”而非报错：同逻辑去重/row 别名机制让 agent 写法可编译；宽松放行策略同样适用于 codegen 层 |
-| CLI generate 曾把 java/react 混写同一根目录，与输出声明（outDir/{java,react}）不一致 | 写盘路径必须与向用户/构建工具声明的结构一致；混写会让 mvn 与 vite 同时看到对方的文件 |
-| 机器 npmrc 指向陈旧内网镜像（react-router-dom 停在 5.x）→ 生成工程装不上依赖 | 生成工程内置 .npmrc 锁公网 registry；机器级 registry 问题先 `npm view pkg version --registry=xxx` 验证，别猜版本号 |
-| codegen 自产内容（自动提交按钮/repeat 操作列）不在 import 收集范围 → 白屏 | codegen 的'隐含产物'必须计入 import/类型收集器；根治方向：静态扫描产物 JSX 组件 ∈ import 集合 |
-| agent 忘写 interface 但 @export 齐全 → api.ts 缺函数白屏，typecheck 原先放行 | '宽松放行'只适用于语义不明的场景；语义明确的真缺陷（端点暴露/悬空引用）该拦就拦 |
-| 手动用 CLI 重刷沙箱产物不清旧文件 → 新旧 Java 主类并存 → mvn 'Unable to find a single main class' | CLI 与服务端 generate 应共享'生成前清空'语义；测试/演示数据别混在用户会话沙箱里 |
-| CLI generate/build 默认 outDir 是**当前目录**的 ./generated，不是 tdsl 源目录下 | 跑 CLI 必带 `-o examples/<x>/generated`；不带会把产物撒在仓库根 |
-| codegen 修复"枚举类不生成"时顺手把 import enums.* 改成无条件发射，但 enums 包目录只在有枚举时生成 → 无枚举 app 全灭 | **端到端（slice/slice:multi）是唯一能抓"修复引入新回归"的网**，改 codegen 后必须重跑双端真实 build，单测绿≠能编译 |
-| 弹窗双提交/行上多按钮/submit 无 id 运行时 500：typecheck 管"合法"、check-spec 管"覆盖"，没人管"语义意图正确"；codegen 缺参自动补字面量把语义错推迟到运行时 | spec 驱动对拍常态化（真实使用者即天然 fuzz）；治理三向：M3 binding 实参可达检查 + check-spec 反向告警（TDSL 多余实现）+ dialog 动作上下文语义（G5） |
-| 对照器/测试脚本与被测编译器同语言演进：绑定 target 链接后是 nodePath（app.logics.x），链接前是短名 | 跨包消费 AST 的脚本，凡匹配引用一律 targetIs 短名/nodePath 双形态兼容 |
-
-## 5. 文档地图（简化后的最终形态）
-
-```
-AGENTS.md            # 怎么干活（稳定）
-memory.md            # 本文件：干过什么（演进）
-docs/00_参考资料/     # NASL 调研（对标起点）
-docs/10_设计/设计总览.md   # 设计一份读完（D1-D7/架构/类型速览/里程碑地图）
-docs/70_教程/         # 学习路径（00-05 P0 入门；06 Tour = 最新全景 + 源码导读）
-docs/dev/11~20        # 切面研发文档（11=M3 未来设计；12-20=已落地里程碑）+ QA记录.xlsx
-docs/index.html       # 文档索引（每次新增/修改文档后同步更新）
-```

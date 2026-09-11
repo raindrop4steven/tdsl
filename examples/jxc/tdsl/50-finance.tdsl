@@ -2,13 +2,13 @@
 // 状态机（spec）：WAIT_CONFIRM → WAIT_INVOICE（确认）→ WAIT_PAY（开票）→ DONE（回款结清）
 
 @export
-logic searchPayables(billNo: String, status: PayStatus): List<Payable> {
+function searchPayables(billNo: String, status: PayStatus): List<Payable> {
   return Payable.where(billNo like '%' + billNo + '%', status = status);
 }
 
 @export
-logic confirmPayable(id: Integer): Boolean {
-  p := Payable.get(id);
+function confirmPayable(id: Integer): Boolean {
+  const p = Payable.get(id);
   if (p.status !== PayStatus.WAIT_CONFIRM) {
     return false;
   }
@@ -18,8 +18,8 @@ logic confirmPayable(id: Integer): Boolean {
 }
 
 @export
-logic invoicePayable(id: Integer, invoiceNo: String): Boolean {
-  p := Payable.get(id);
+function invoicePayable(id: Integer, invoiceNo: String): Boolean {
+  const p = Payable.get(id);
   p.invoiceNo = invoiceNo;
   p.status = PayStatus.WAIT_PAY;
   p.save();
@@ -27,8 +27,8 @@ logic invoicePayable(id: Integer, invoiceNo: String): Boolean {
 }
 
 @export
-logic payPayable(id: Integer, amount: Decimal): Boolean {
-  p := Payable.get(id);
+function payPayable(id: Integer, amount: Decimal): Boolean {
+  const p = Payable.get(id);
   p.paidAmount = p.paidAmount + amount;
   if (p.paidAmount >= p.amount) {
     p.status = PayStatus.DONE;
@@ -38,13 +38,13 @@ logic payPayable(id: Integer, amount: Decimal): Boolean {
 }
 
 @export
-logic searchReceivables(billNo: String, status: PayStatus): List<Receivable> {
+function searchReceivables(billNo: String, status: PayStatus): List<Receivable> {
   return Receivable.where(billNo like '%' + billNo + '%', status = status);
 }
 
 @export
-logic confirmReceivable(id: Integer): Boolean {
-  r := Receivable.get(id);
+function confirmReceivable(id: Integer): Boolean {
+  const r = Receivable.get(id);
   if (r.status !== PayStatus.WAIT_CONFIRM) {
     return false;
   }
@@ -54,8 +54,8 @@ logic confirmReceivable(id: Integer): Boolean {
 }
 
 @export
-logic invoiceReceivable(id: Integer, invoiceNo: String): Boolean {
-  r := Receivable.get(id);
+function invoiceReceivable(id: Integer, invoiceNo: String): Boolean {
+  const r = Receivable.get(id);
   r.invoiceNo = invoiceNo;
   r.status = PayStatus.WAIT_PAY;
   r.save();
@@ -63,8 +63,8 @@ logic invoiceReceivable(id: Integer, invoiceNo: String): Boolean {
 }
 
 @export
-logic payReceivable(id: Integer, amount: Decimal): Boolean {
-  r := Receivable.get(id);
+function payReceivable(id: Integer, amount: Decimal): Boolean {
+  const r = Receivable.get(id);
   r.paidAmount = r.paidAmount + amount;
   if (r.paidAmount >= r.amount) {
     r.status = PayStatus.DONE;

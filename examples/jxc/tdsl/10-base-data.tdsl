@@ -3,15 +3,15 @@
 // ---- 商品 ----
 
 @export
-logic searchGoods(code: String, name: String, category: GoodsCategory): List<Goods> {
+function searchGoods(code: String, name: String, category: GoodsCategory): List<Goods> {
   return Goods.where(code like '%' + code + '%', name like '%' + name + '%', category = category);
 }
 
 @export
-logic saveGoods(input: GoodsInput): Goods {
-  g := new Goods();
+function saveGoods(input: GoodsInput): Goods {
+  const g = new Goods();
   if (input.id !== null && input.id > 0) {
-    g := Goods.get(input.id);
+    const g = Goods.get(input.id);
   }
   g.code = input.code;
   g.name = input.name;
@@ -28,8 +28,8 @@ logic saveGoods(input: GoodsInput): Goods {
 }
 
 @export
-logic deleteGoods(id: Integer): Boolean {
-  g := Goods.get(id);
+function deleteGoods(id: Integer): Boolean {
+  const g = Goods.get(id);
   g.delete();
   return true;
 }
@@ -37,15 +37,15 @@ logic deleteGoods(id: Integer): Boolean {
 // ---- 供应商 ----
 
 @export
-logic searchSuppliers(name: String): List<Supplier> {
+function searchSuppliers(name: String): List<Supplier> {
   return Supplier.where(name like '%' + name + '%');
 }
 
 @export
-logic saveSupplier(input: SupplierInput): Supplier {
-  s := new Supplier();
+function saveSupplier(input: SupplierInput): Supplier {
+  const s = new Supplier();
   if (input.id !== null && input.id > 0) {
-    s := Supplier.get(input.id);
+    const s = Supplier.get(input.id);
   }
   s.name = input.name;
   s.shortName = input.shortName;
@@ -63,8 +63,8 @@ logic saveSupplier(input: SupplierInput): Supplier {
 }
 
 @export
-logic deleteSupplier(id: Integer): Boolean {
-  s := Supplier.get(id);
+function deleteSupplier(id: Integer): Boolean {
+  const s = Supplier.get(id);
   s.delete();
   return true;
 }
@@ -72,15 +72,15 @@ logic deleteSupplier(id: Integer): Boolean {
 // ---- 客户 ----
 
 @export
-logic searchCustomers(name: String): List<Customer> {
+function searchCustomers(name: String): List<Customer> {
   return Customer.where(name like '%' + name + '%');
 }
 
 @export
-logic saveCustomer(input: CustomerInput): Customer {
-  c := new Customer();
+function saveCustomer(input: CustomerInput): Customer {
+  const c = new Customer();
   if (input.id !== null && input.id > 0) {
-    c := Customer.get(input.id);
+    const c = Customer.get(input.id);
   }
   c.name = input.name;
   c.shortName = input.shortName;
@@ -98,8 +98,8 @@ logic saveCustomer(input: CustomerInput): Customer {
 }
 
 @export
-logic deleteCustomer(id: Integer): Boolean {
-  c := Customer.get(id);
+function deleteCustomer(id: Integer): Boolean {
+  const c = Customer.get(id);
   c.delete();
   return true;
 }

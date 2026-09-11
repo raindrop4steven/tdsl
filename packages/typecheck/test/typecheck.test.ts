@@ -622,3 +622,75 @@ describe('typecheck/M7 多文件工程', () => {
     expect(d?.file).toBe('<stdin>');
   });
 });
+
+describe('typecheck FFI 目录（dev/27 Java 一等公民）', () => {
+  it('链式 FFI 成员可解析：String 链 ret 传播、List.push（js 同构）不报错', () => {
+    const app = check(parse(`
+@datasource('defaultDS')
+@export
+function tag(code0: String): String {
+  const a = code0.trim();
+  const b = a.toUpperCase();
+  const r = new List<String>();
+  for (const i of r) {
+    r.contains(b);
+  }
+  return b;
+}
+`));
+    const errs = app.diagnostics.filter((d) => d.severity === 'error');
+    expect(errs).toEqual([]);
+  });
+
+  it('目录外成员报 error，并附补录口径提示（bundle-jar）', () => {
+    const app = check(parse(`
+@datasource('defaultDS')
+@export
+function f(s: String): String {
+  return s.frobnicate();
+}
+`));
+    const d = app.diagnostics.find((x) => x.message.includes('不在 FFI 目录'));
+    expect(d).toBeDefined();
+    expect(d!.message).toContain('bundle-jar');
+  });
+
+  it('静态/实例错配报错：实例调静态方法(error) / 静态调静态成员 ✓', () => {
+    const errApp = check(parse(`
+@datasource('defaultDS')
+@export
+function f(d: Date): Boolean {
+  d.now();
+  return true;
+}
+`));
+    const e = errApp.diagnostics.find((x) => x.message.includes('是静态方法'));
+    expect(e).toBeDefined();
+
+    const okApp = check(parse(`
+@datasource('defaultDS')
+@export
+function g(): String {
+  const y: Date = Date.now();
+  const s: String = y.getYear();
+  return 'ok';
+}
+`));
+    expect(okApp.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  });
+
+  it('未知 receiver 宽松放行（M3 之前不收紧）', () => {
+    const app = check(parse(`
+@datasource('defaultDS')
+entity Order { id: Integer @pk; remark: String; }
+@export
+function f(o: Order): Order {
+  const s = o.remark.trim();
+  o.save();
+  return o;
+}
+`));
+    const errs = app.diagnostics.filter((d) => d.severity === 'error');
+    expect(errs).toEqual([]);
+  });
+});

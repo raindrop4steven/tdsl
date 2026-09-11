@@ -73,9 +73,9 @@ describe('llm/prompt', () => {
     expect(picked).not.toContain('示例【CRUD 单表】');
   });
 
-  it('速查表标注两处偏离点与禁止事项（LLM 最易犯的 TS 习惯）', () => {
-    expect(SYNTAX_CHEATSHEET).toContain(':= 声明（没有 let/const/var');
-    expect(SYNTAX_CHEATSHEET).toContain('in 遍历元素');
+  it('速查表标注 TS 词法面规范与领域差异（LLM 最易犯的 TS 习惯）', () => {
+    expect(SYNTAX_CHEATSHEET).toContain('const/let');
+    expect(SYNTAX_CHEATSHEET).toContain('for-of');
     expect(SYNTAX_CHEATSHEET).toContain('没有 number/string/Date');
     expect(SYNTAX_CHEATSHEET).toContain('非赋值');
   });

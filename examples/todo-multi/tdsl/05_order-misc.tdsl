@@ -1,9 +1,9 @@
 // 辅助功能域：删除（级联删除明细）
 
 @export
-logic deleteOrder(id: Integer): Boolean {
-  order := Order.get(id);
-  for (it in OrderItem.where(orderId = id)) {
+function deleteOrder(id: Integer): Boolean {
+  const order = Order.get(id);
+  for (const it of OrderItem.where(orderId = id)) {
     it.delete();
   }
   order.delete();

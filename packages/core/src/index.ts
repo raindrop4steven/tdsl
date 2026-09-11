@@ -39,3 +39,5 @@ export type {
 export type { BuiltinType, TypeRef } from './typeref';
 export type { Expr, LiteralExpr } from './expr';
 export type { Statement } from './statement';
+export type { FfiClass, FfiMethod, FfiParamType } from './stdlib';
+export { FFI_CATALOG, ffiByAlias, ffiMember } from './stdlib';

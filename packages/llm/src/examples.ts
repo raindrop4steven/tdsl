@@ -3,7 +3,7 @@
  *
  * 设计约束（dev/19 §5.2）：
  * - 每个示例都是**可编译的 TDSL**（parse + typecheck 全绿），作为单测常驻锁定，防示例腐烂。
- * - 示例带行内注释标注"偏离点"（:= / for-in / 领域 DSL），LLM 对注释敏感。
+ * - 示例为 TS 词法面（function/const/for-of），骨架声明用领域关键词（entity/page/interface）。
  * - 完整领域样例优先于碎片片段（研究结论：LLM 从自洽样例归纳模式 >> 记忆离散规则）。
  */
 
@@ -39,13 +39,13 @@ struct TodoInput {
 }
 
 @export
-logic listTodos(): List<Todo> {
+function listTodos(): List<Todo> {
   return Todo.all;
 }
 
 @export
-logic createTodo(input: TodoInput): Todo {
-  todo := new Todo();                 // 偏离点：:= 声明（无 let/const）
+function createTodo(input: TodoInput): Todo {
+  const todo = new Todo();
   todo.title = input.title;
   todo.done = input.done;
   todo.save();                        // 实例方法：save() / delete()
@@ -53,16 +53,16 @@ logic createTodo(input: TodoInput): Todo {
 }
 
 @export
-logic updateDone(id: Integer, done: Boolean): Todo {
-  todo := Todo.get(id);               // 主键查
+function updateDone(id: Integer, done: Boolean): Todo {
+  const todo = Todo.get(id);               // 主键查
   todo.done = done;
   todo.save();
   return todo;
 }
 
 @export
-logic deleteTodo(id: Integer): Boolean {
-  todo := Todo.get(id);
+function deleteTodo(id: Integer): Boolean {
+  const todo = Todo.get(id);
   todo.delete();
   return true;
 }
@@ -132,16 +132,16 @@ struct OrderDetail {
 }
 
 @export
-logic createOrder(input: OrderInput): Order {
+function createOrder(input: OrderInput): Order {
   if (input.items.count === 0) {
     return null;
   }
-  order := new Order();
+  const order = new Order();
   order.customer = input.customer;
   order.total = 0;
   order.save();                       // 写操作 logic 自动 @Transactional
-  for (it in input.items) {           // 偏离点：in 遍历元素（语义同 for-of）
-    item := new OrderItem();
+  for (const it of input.items) {
+    const item = new OrderItem();
     item.orderId = order.id;
     item.product = it.product;
     item.price = it.price;
@@ -154,18 +154,18 @@ logic createOrder(input: OrderInput): Order {
 }
 
 @export
-logic getOrderDetail(id: Integer): OrderDetail {
-  order := Order.get(id);
-  detail := new OrderDetail();
+function getOrderDetail(id: Integer): OrderDetail {
+  const order = Order.get(id);
+  const detail = new OrderDetail();
   detail.order = order;
   detail.items = OrderItem.where(orderId = id);      // where 单条件（字段 = 值）
   return detail;
 }
 
 @export
-logic deleteOrder(id: Integer): Boolean {
-  order := Order.get(id);
-  for (it in OrderItem.where(orderId = id)) {
+function deleteOrder(id: Integer): Boolean {
+  const order = Order.get(id);
+  for (const it of OrderItem.where(orderId = id)) {
     it.delete();                      // 先删明细
   }
   order.delete();                     // 级联删除主表
@@ -180,7 +180,7 @@ interface OrderApi {
 }
 
 @export
-logic listOrders(): List<Order> {
+function listOrders(): List<Order> {
   return Order.all;
 }
 
@@ -231,39 +231,39 @@ entity Order {
 }
 
 @export
-logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+function searchOrders(customer: String, minTotal: Decimal): List<Order> {
   return Order.where(customer like '%' + customer + '%', total >= minTotal);
   //                            ↑ like 运算符（领域 DSL，非 TS）     ↑ 逗号 = AND
 }
 
 @export
-logic topOrders(): List<Order> {
+function topOrders(): List<Order> {
   return Order.where(total > 0).orderBy(total desc).limit(10);
   //                            ↑ 链式：orderBy 方向 asc|desc、limit 截条
 }
 
 @export
-logic pageOrders(n: Integer, size: Integer): Page<Order> {
+function pageOrders(n: Integer, size: Integer): Page<Order> {
   return Order.where(total > 0).orderBy(total desc).page(n, size);   // 返回 Page<Order>
 }
 
 @export
-logic orderStats(): Decimal {
+function orderStats(): Decimal {
   return Order.aggregate(sum(total));          // 聚合：sum/avg/max/min/count
 }
 
 @export
-logic sumByCustomer(): List<Map<Object>> {
+function sumByCustomer(): List<Map<Object>> {
   return Order.aggregate(sum(total)).groupBy(customer);   // 分组聚合 → List<Map<Object>>
 }
 
 @export
-logic statusCount(): List<Order> {
+function statusCount(): List<Order> {
   return Order.where(status in ['A', 'B']);    // in + 数组字面量
 }
 
 @export
-logic orQuery(): List<Order> {
+function orQuery(): List<Order> {
   return Order.where(total > 100 || status = 'C');   // 条件内 || 组合（注意：= 是"等于"，非赋值）
 }
 
@@ -294,7 +294,7 @@ entity Order {
 }
 
 @export
-logic listOrders(): List<Order> {
+function listOrders(): List<Order> {
   return Order.all;
 }
 
@@ -315,13 +315,13 @@ service ErpApi {
 }
 
 @export
-logic syncUser(id: Integer): User {
-  user := userService.getUser(id);    // 像调本地方法：接收者 = 服务短名的小驼峰
+function syncUser(id: Integer): User {
+  const user = userService.getUser(id);    // 像调本地方法：接收者 = 服务短名的小驼峰
   return user;
 }
 
 @export
-logic pullErpOrder(id: Integer): Order {
+function pullErpOrder(id: Integer): Order {
   return erpApi.getOrder(id);         // http 服务 → 生成 @FeignClient
 }
 
@@ -342,7 +342,7 @@ page Dashboard {
 }
 
 @export
-logic orderStats(): Decimal {
+function orderStats(): Decimal {
   return Order.aggregate(sum(total));
 }
 `,
@@ -371,10 +371,10 @@ struct Shipment {
 }
 
 @export
-logic mergeOrder(erpId: Integer, crmId: Integer): Shipment {
-  e := erp.Order.get(erpId);          // 静态方法同样支持限定名
-  c := crm.Order.get(crmId);
-  s := new Shipment();
+function mergeOrder(erpId: Integer, crmId: Integer): Shipment {
+  const e = erp.Order.get(erpId);          // 静态方法同样支持限定名
+  const c = crm.Order.get(crmId);
+  const s = new Shipment();
   s.erpOrder = e;
   s.crmOrder = c;
   return s;

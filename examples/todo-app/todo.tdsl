@@ -35,16 +35,16 @@ struct OrderDetail {
 }
 
 @export
-logic createOrder(input: OrderInput): Order {
+function createOrder(input: OrderInput): Order {
   if (input.items.count === 0) {
     return null;
   }
-  order := new Order();
+  const order = new Order();
   order.customer = input.customer;
   order.total = 0;
   order.save();
-  for (it in input.items) {
-    item := new OrderItem();
+  for (const it of input.items) {
+    const item = new OrderItem();
     item.orderId = order.id;
     item.product = it.product;
     item.price = it.price;
@@ -57,18 +57,18 @@ logic createOrder(input: OrderInput): Order {
 }
 
 @export
-logic getOrderDetail(id: Integer): OrderDetail {
-  order := Order.get(id);
-  detail := new OrderDetail();
+function getOrderDetail(id: Integer): OrderDetail {
+  const order = Order.get(id);
+  const detail = new OrderDetail();
   detail.order = order;
   detail.items = OrderItem.where(orderId = id);
   return detail;
 }
 
 @export
-logic deleteOrder(id: Integer): Boolean {
-  order := Order.get(id);
-  for (it in OrderItem.where(orderId = id)) {
+function deleteOrder(id: Integer): Boolean {
+  const order = Order.get(id);
+  for (const it of OrderItem.where(orderId = id)) {
     it.delete();
   }
   order.delete();
@@ -76,7 +76,7 @@ logic deleteOrder(id: Integer): Boolean {
 }
 
 @export
-logic listOrders(): List<Order> {
+function listOrders(): List<Order> {
   return Order.all;
 }
 
@@ -95,27 +95,27 @@ interface OrderApi {
 // ---- M2：查询语言（where 复合条件 / 排序 / 分页 / 聚合） ----
 
 @export
-logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+function searchOrders(customer: String, minTotal: Decimal): List<Order> {
   return Order.where(customer like '%' + customer + '%', total >= minTotal);
 }
 
 @export
-logic topOrders(): List<Order> {
+function topOrders(): List<Order> {
   return Order.where(total > 0).orderBy(total desc).limit(10);
 }
 
 @export
-logic pageOrders(n: Integer, size: Integer): Page<Order> {
+function pageOrders(n: Integer, size: Integer): Page<Order> {
   return Order.where(total > 0).orderBy(total desc).page(n, size);
 }
 
 @export
-logic orderStats(): Decimal {
+function orderStats(): Decimal {
   return Order.aggregate(sum(total));
 }
 
 @export
-logic sumByCustomer(): List<Map<Object>> {
+function sumByCustomer(): List<Map<Object>> {
   return Order.aggregate(sum(total)).groupBy(customer);
 }
 

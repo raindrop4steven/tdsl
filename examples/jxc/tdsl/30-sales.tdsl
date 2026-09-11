@@ -2,16 +2,16 @@
 // 与采购同构（客户方向）；销售单价取商品 salePrice
 
 @export
-logic searchSalesBills(billNo: String, status: DocStatus): List<SalesBill> {
+function searchSalesBills(billNo: String, status: DocStatus): List<SalesBill> {
   return SalesBill.where(billNo like '%' + billNo + '%', status = status);
 }
 
 @export
-logic saveSalesBill(input: SalesBillInput): SalesBill {
-  existing := input.id !== null && input.id > 0;
-  bill := new SalesBill();
+function saveSalesBill(input: SalesBillInput): SalesBill {
+  const existing = input.id !== null && input.id > 0;
+  const bill = new SalesBill();
   if (existing) {
-    bill := SalesBill.get(input.id);
+    const bill = SalesBill.get(input.id);
   }
   bill.billNo = input.billNo;
   bill.billDate = input.billDate;
@@ -26,13 +26,13 @@ logic saveSalesBill(input: SalesBillInput): SalesBill {
   bill.totalAmount = 0;
   bill.save();
   if (input.items.count > 0) {
-    for (ol in SalesBillItem.where(billId = bill.id)) {
+    for (const ol of SalesBillItem.where(billId = bill.id)) {
       ol.delete();
     }
     bill.totalAmount = 0;
-    for (it in input.items) {
-      g := Goods.get(it.goodsId);
-      item := new SalesBillItem();
+    for (const it of input.items) {
+      const g = Goods.get(it.goodsId);
+      const item = new SalesBillItem();
       item.billId = bill.id;
       item.goodsId = it.goodsId;
       item.goodsCode = g.code;
@@ -52,14 +52,14 @@ logic saveSalesBill(input: SalesBillInput): SalesBill {
 }
 
 @export
-logic submitSalesBill(id: Integer): Boolean {
-  bill := SalesBill.get(id);
+function submitSalesBill(id: Integer): Boolean {
+  const bill = SalesBill.get(id);
   if (bill.status !== DocStatus.DRAFT) {
     return false;
   }
   bill.status = DocStatus.SUBMITTED;
   bill.save();
-  rec := new Receivable();
+  const rec = new Receivable();
   rec.billNo = bill.billNo;
   rec.customerId = bill.customerId;
   rec.amount = bill.totalAmount;
@@ -71,12 +71,12 @@ logic submitSalesBill(id: Integer): Boolean {
 }
 
 @export
-logic deleteSalesBill(id: Integer): Boolean {
-  bill := SalesBill.get(id);
+function deleteSalesBill(id: Integer): Boolean {
+  const bill = SalesBill.get(id);
   if (bill.status !== DocStatus.DRAFT) {
     return false;
   }
-  for (it in SalesBillItem.where(billId = id)) {
+  for (const it of SalesBillItem.where(billId = id)) {
     it.delete();
   }
   bill.delete();
@@ -84,9 +84,9 @@ logic deleteSalesBill(id: Integer): Boolean {
 }
 
 @export
-logic copySalesBill(id: Integer): SalesBill {
-  src := SalesBill.get(id);
-  bill := new SalesBill();
+function copySalesBill(id: Integer): SalesBill {
+  const src = SalesBill.get(id);
+  const bill = new SalesBill();
   bill.billNo = 'COPY-' + src.billNo;
   bill.status = DocStatus.DRAFT;
   bill.billDate = src.billDate;
@@ -99,8 +99,8 @@ logic copySalesBill(id: Integer): SalesBill {
   bill.remark = src.remark;
   bill.totalAmount = src.totalAmount;
   bill.save();
-  for (si in SalesBillItem.where(billId = id)) {
-    item := new SalesBillItem();
+  for (const si of SalesBillItem.where(billId = id)) {
+    const item = new SalesBillItem();
     item.billId = bill.id;
     item.goodsId = si.goodsId;
     item.goodsCode = si.goodsCode;
@@ -118,9 +118,9 @@ logic copySalesBill(id: Integer): SalesBill {
 }
 
 @export
-logic returnSalesBill(id: Integer): SalesReturnBill {
-  src := SalesBill.get(id);
-  ret := new SalesReturnBill();
+function returnSalesBill(id: Integer): SalesReturnBill {
+  const src = SalesBill.get(id);
+  const ret = new SalesReturnBill();
   ret.billNo = 'RT-' + src.billNo;
   ret.status = DocStatus.DRAFT;
   ret.returnDate = src.billDate;
@@ -128,8 +128,8 @@ logic returnSalesBill(id: Integer): SalesReturnBill {
   ret.totalAmount = src.totalAmount;
   ret.remark = src.remark;
   ret.save();
-  for (si in SalesBillItem.where(billId = id)) {
-    item := new SalesReturnItem();
+  for (const si of SalesBillItem.where(billId = id)) {
+    const item = new SalesReturnItem();
     item.billId = ret.id;
     item.goodsId = si.goodsId;
     item.goodsCode = si.goodsCode;
@@ -143,7 +143,7 @@ logic returnSalesBill(id: Integer): SalesReturnBill {
 }
 
 @export
-logic searchSalesReturns(billNo: String): List<SalesReturnBill> {
+function searchSalesReturns(billNo: String): List<SalesReturnBill> {
   return SalesReturnBill.where(billNo like '%' + billNo + '%');
 }
 

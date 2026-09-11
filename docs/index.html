@@ -56,6 +56,7 @@
   <li><a href="dev/23_系统设计-M9-LLM接入-pi嵌入.md">dev/23 系统设计（M9 LLM 接入 · pi 嵌入）</a> <span class="badge done">已实现</span><br><span class="desc">在线 TDSL 工程 Agent：packages/server 嵌入 pi SDK（会话/压缩/工具循环免费），自写 TDSL 领域工具（compile_tdsl 裁判 + 多文件读写 + generate_code 落盘）；产物导出 zip、GLM/本地端点 env 注入、WS 流式</span></li>
   <li><a href="dev/24_系统设计-M10-运行回路.md">dev/24 系统设计（M10 运行回路）</a> <span class="badge done">已实现</span><br><span class="desc">前后端真正跑起来：runner 进程编排（mvn spring-boot:run + vite dev + /api 代理，H2 内存库零安装）+ run_app 编排工具 + 运行时错误自动回流（后端日志 grep + 前端 reporter）→ agent 改 DSL→编译→重启→日志确认的反馈闭环</span></li>
   <li><a href="dev/26_测试报告-Spec驱动编译器对拍-进销存.md">dev/26 测试报告（Spec 驱动编译器对拍 · 进销存）</a> <span class="badge done">已实现</span><br><span class="desc">Spec 驱动开发（SDD）实测：examples/jxc 结构化 Spec（六层：系统→模块→功能→页面→按钮→字段）+ check-spec 覆盖度对照器（287 检查项 100%）+ 全套 TDSL 双端 build；暴露并修复 6 个 codegen 缺陷、记录 7 项表达力缺口（枚举 label/表单联动/where+aggregate 等）</span></li>
+  <li><a href="dev/27_系统设计-FFI-Java一等公民.md">dev/27 系统设计（FFI · Java 一等公民）</a> <span class="badge done">进行中</span><br><span class="desc">JDK 即 TDSL 标准库：目录模型（每方法 java/js 模板选填=单端/双端）+ 四域首批（String/BigDecimal/List/LocalDate）+ typecheck 成员解析；jar dump 通用机制/域投影为余项（与 dev/25 书写面 TS 化共用 d.ts 目录世界观）</span></li>
   <li>QA记录.xlsx（各切面问题跟踪，Gate 记录）</li>
 </ul>
 

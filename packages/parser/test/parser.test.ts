@@ -780,3 +780,53 @@ page GoodsList { <text value="x" /> }
     expect(v.annotations?.find((a) => a.name === 'title')?.args?.['value']).toBe('商品列表');
   });
 });
+
+describe('parser/双语法（P11：TS 词法面兼容期）', () => {
+  it('function/const(: T)/for-of 与 logic/:=/for-in 解析为同构 AST', () => {
+    const legacy = parse(`
+@datasource('defaultDS')
+entity Order { id: Integer @pk; total: Decimal; }
+struct OrderInput { total: Decimal; }
+@export
+logic createOrder(input: OrderInput): Order {
+  order := new Order();
+  order.total = input.total;
+  for (it in input.items_list) {
+    order.total = order.total + 1;
+  }
+  order.save();
+  return order;
+}
+`);
+    const modern = parse(`
+@datasource('defaultDS')
+entity Order { id: Integer @pk; total: Decimal; }
+struct OrderInput { total: Decimal; }
+@export
+function createOrder(input: OrderInput): Order {
+  const order = new Order();
+  order.total = input.total;
+  for (const it of input.items_list) {
+    order.total = order.total + 1;
+  }
+  order.save();
+  const zero: Decimal = 0;
+  return zero;
+}
+`);
+    expect(modern.logics.length).toBe(1);
+    expect(modern.logics[0].body.map((s) => s.kind)).toEqual([
+      'VarDecl', 'Assign', 'ForEach', 'CallStmt', 'VarDecl', 'Return',
+    ]);
+    // typed const → VarDecl.type（TS 词法面的类型标注进 AST）
+    const decls = modern.logics[0].body.filter((s) => s.kind === 'VarDecl');
+    expect((decls[1] as { type?: unknown }).type).toBeDefined();
+    // legacy 与 modern 同构：顶层五段（VarDecl/Assign/ForEach/CallStmt/…）逐段对齐
+    expect(legacy.logics[0].body.slice(0, 4).map((s) => s.kind)).toEqual(
+      modern.logics[0].body.slice(0, 4).map((s) => s.kind),
+    );
+    const modernFor = modern.logics[0].body[2];
+    expect(modernFor.kind).toBe('ForEach');
+    expect((modernFor as { body: { kind: string }[] }).body.map((s) => s.kind)).toEqual(['Assign']);
+  });
+});
