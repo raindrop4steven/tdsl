@@ -300,6 +300,10 @@ function checkView(
     for (const b of el.bindings) {
       checkBinding(app, b, diagnostics, ownerPath, exposedLogics);
     }
+    // G2（dev/29）：form 表达式域语义（derive / carryBy / 校验属性）
+    if (el.type === 'form' || el.type === 'repeat') {
+      checkFormSemantics(app, el, diagnostics, ownerPath, exposedLogics);
+    }
     if (el.children.length > 0) checkView(app, el.children, diagnostics, ownerPath, exposedLogics);
   }
 }
@@ -979,4 +983,160 @@ function checkFfi(
     if (st.kind === 'CallStmt') exprs.push(st.call);
     for (const e of exprs) ffiCheckExpr(app, e, vars, l, diagnostics, ownerPath);
   });
+}
+
+// ---------- G2：form 表达式域（dev/29）----------
+
+const IO_BINDING_NAMES = new Set(['useMutation', 'useQuery', 'openDialog']);
+
+/** 递归取表达式叶子 Ident 名（用于上下文集合校验） */
+function exprIdents(e: Expr, out: Set<string>): void {
+  if (e.kind === 'Ident') {
+    out.add(e.name);
+    return;
+  }
+  if (e.kind === 'Member') {
+    exprIdents(e.obj, out);
+    return;
+  }
+  if (e.kind === 'Call') {
+    exprIdents(e.callee, out);
+    e.args.forEach((a) => exprIdents(a, out));
+    return;
+  }
+  if (e.kind === 'Binary') {
+    exprIdents(e.left, out);
+    exprIdents(e.right, out);
+    return;
+  }
+  if (e.kind === 'Group') {
+    exprIdents(e.expr, out);
+  }
+}
+
+/** derive/carryBy 语义均可见者：目录别名 / 已知目录类名（静态）/ 实体 / 上下文 */
+function knownFrontendIdent(app: AppNode, name: string): boolean {
+  if (ffiByAlias(name)) return true;
+  if (resolveEntity(app, name)) return true;
+  if (app.enums.some((en) => en.name === name)) return true;
+  return false;
+}
+
+function checkFormSemantics(
+  app: AppNode,
+  form: ViewElementNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+  exposedLogics: Set<string>,
+): void {
+  // 收集兄弟字段名（form 顶层字段 + repeat 字段名）
+  const siblings = new Set<string>();
+  const collect = (els: ViewElementNode[]): void => {
+    for (const el of els) {
+      const f = String(el.props['field'] ?? '');
+      if (f) siblings.add(f);
+      collect(el.children);
+    }
+  };
+  collect(form.children);
+  siblings.add('row');
+  siblings.add('initial');
+
+  const walk = (els: ViewElementNode[]): void => {
+    for (const el of els) {
+      if (el.type !== 'input') {
+        walk(el.children);
+        continue;
+      }
+      const field = String(el.props['field'] ?? '');
+      const derive = el.props['derive'];
+      const carryBy = el.props['carryBy'];
+
+      // ① derive：纯函数声明 —— IO 绑定禁令 + 叶子名必须 ∈ (兄弟字段 ∪ row/initial ∪ 目录/实体/枚举)
+      if (derive !== undefined) {
+        if (typeof derive !== 'object' || derive === null) {
+          diagnostics.push({
+            path: ownerPath(form),
+            message: `字段 ${field} 的 derive 必须是表达式（derive={quantity * price}）`,
+            severity: 'error',
+          });
+        } else {
+          const de = derive as Expr;
+          const dio = new Set<string>();
+          exprIdents(de, dio);
+          for (const id of dio) {
+            if (IO_BINDING_NAMES.has(id)) {
+              diagnostics.push({
+                path: ownerPath(form),
+                message: `字段 ${field} 的 derive 是纯函数表达式，不允许 IO 绑定（${id}）——需要后端数据请用 carryBy 或将计算放 logic`,
+                severity: 'error',
+              });
+            }
+          }
+          for (const id of dio) {
+            if (IO_BINDING_NAMES.has(id)) continue;
+            if (siblings.has(id)) continue;
+            if (knownFrontendIdent(app, id)) continue;
+            diagnostics.push({
+              path: ownerPath(form),
+              message: `字段 ${field} 的 derive 引用了未声明名 '${id}'（仅可用本表单字段 / row / initial / 目录类型）`,
+              severity: 'error',
+            });
+          }
+        }
+      }
+
+      // ② carryBy：必须是已暴露/存在的后端 logic，返回实体必须包含嵌套带出字段
+      if (carryBy !== undefined) {
+        const target = String(carryBy ?? '');
+        const logic = app.logics.find((x) => x.name === target);
+        if (!logic) {
+          diagnostics.push({
+            path: ownerPath(form),
+            message: `字段 ${field} 的 carryBy 指向不存在的 logic '${target}'`,
+            severity: 'error',
+          });
+        } else if (!exposedLogics.has(target)) {
+          diagnostics.push({
+            path: ownerPath(form),
+            message: `carryBy logic '${target}' 未被任何 interface 端点暴露`,
+            severity: 'error',
+          });
+        } else {
+          // 嵌套 children 字段必须出现在返回实体属性里（带出可达性）
+          const retT = logic.returns[0]?.type;
+          const retEnt = retT?.kind === 'reference'
+            ? app.datasources.flatMap((ds) => ds.entities).find((e) => e.name === `${retT.path}`.split('.').pop())
+            : undefined;
+          for (const child of el.children) {
+            if (child.type !== 'input') continue;
+            const cf = String(child.props['field'] ?? '');
+            if (!cf) continue;
+            if (retEnt && !retEnt.properties.some((p) => p.name === cf)) {
+              diagnostics.push({
+                path: ownerPath(form),
+                message: `carryBy '${target}' 返回实体无字段 '${cf}'（字段 ${field} 带出不可达）`,
+                severity: 'error',
+              });
+            }
+          }
+        }
+      }
+
+      // ③ 校验属性：取值类型宽松校验
+      for (const [attr, ty] of [['min', 'number'], ['max', 'number'], ['pattern', 'string']] as const) {
+        const v = el.props[attr];
+        if (v !== undefined && ((ty === 'number' && typeof v === 'number' && Number.isNaN(Number(v))) || (ty === 'string' && typeof v !== 'string'))) {
+          diagnostics.push({
+            path: ownerPath(form),
+            message: `字段 ${field} 的 ${attr} 取值类型应为 ${ty}`,
+            severity: 'error',
+          });
+        }
+      }
+
+      walk(el.children);
+    }
+  };
+  walk(form.children);
 }

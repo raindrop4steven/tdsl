@@ -521,3 +521,48 @@ page Summary { <table dataSource={useQuery('listG')}><column field="code" /></ta
     expect(app).toMatch(/defaultOpenKeys=\{\['基础数据', '库存查询'\]\}/);
   });
 });
+
+
+// ---------- G2 前端表达式域（dev/29） ----------
+
+describe('codegen-react G2', () => {
+  const SRC = parse(`
+@datasource('defaultDS')
+entity Goods { id: Integer @pk; goodsName: String; spec: String; }
+@export
+function getGoods2(id2: Integer): Goods { return Goods.get(id2); }
+@export
+function saveBill2(input: BillInput2): Boolean { return true; }
+struct BillInput2 { qty: Integer; price: Decimal; }
+entity Bill { id: Integer @pk; goodsId: Integer; qty: Integer; price: Decimal; amount: Decimal; }
+interface Api {
+  GET  '/api/goods2/{id2}' -> getGoods2
+  POST '/api/bills2'       -> saveBill2
+}
+page BillForm {
+  <form submit={useMutation('saveBill2')}>
+    <input field="goodsId" carryBy="getGoods2">
+      <input field="goodsName" />
+      <input field="spec" />
+    </input>
+    <input field="qty" required="true" min="1" max="9999" />
+    <input field="price" />
+    <input field="amount" label="金额" derive={qty * price} />
+  </form>
+}
+`);
+  it('derive 字段计算态 readOnly，依赖数字状态包装', () => {
+    const page = generateReact(SRC).find((f) => f.path === 'src/pages/BillForm.tsx')!.content;
+    expect(page).toContain('value={String((Number(qty) * Number(price)))}');
+  });
+  it('carryBy 拉档填回子字段', () => {
+    const page = generateReact(SRC).find((f) => f.path === 'src/pages/BillForm.tsx')!.content;
+    expect(page).toContain('await api.getGoods2(Number(v))');
+    expect(page).toContain("setGoodsName(String(r?.goodsName ?? '')");
+  });
+  it('min/max 提交拦截 + 必填红星', () => {
+    const page = generateReact(SRC).find((f) => f.path === 'src/pages/BillForm.tsx')!.content;
+    expect(page).toContain('Number(qty) < 1');
+    expect(page).toContain('不能小于');
+  });
+});

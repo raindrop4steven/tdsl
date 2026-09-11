@@ -694,3 +694,96 @@ function f(o: Order): Order {
     expect(errs).toEqual([]);
   });
 });
+
+describe('typecheck G2 表达式域（dev/29）', () => {
+  it('derive：纯函数 √ / IO 绑定 ✗ / 未声明叶子 ✗', () => {
+    const okApp = check(parse(`
+@datasource('defaultDS')
+@export
+function f(): Boolean { return true; }
+interface Api { GET '/api/f' -> f }
+page P {
+  <form submit={useMutation('f')}>
+    <input field="qty" />
+    <input field="price" />
+    <input field="amount" derive={qty * price} />
+    <input field="flag" derive={row.initialFlag} />
+  </form>
+}
+`));
+    expect(okApp.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+
+    const ioApp = check(parse(`
+@datasource('defaultDS')
+@export
+function saveX(): Boolean { return true; }
+interface Api { POST '/api/x' -> saveX }
+page P {
+  <form submit={useMutation('saveX')}>
+    <input field="qty" />
+    <input field="bad" derive={useMutation('saveX')} />
+  </form>
+}
+`));
+    expect(ioApp.diagnostics.some((d) => d.message.includes('derive 是纯函数表达式'))).toBe(true);
+
+    const unknownApp = check(parse(`
+@datasource('defaultDS')
+@export
+function saveX2(): Boolean { return true; }
+interface Api2 { POST '/api/x2' -> saveX2 }
+page P {
+  <form submit={useMutation('saveX2')}>
+    <input field="x1" derive={x1 * mysteryValue} />
+  </form>
+}
+`));
+    expect(unknownApp.diagnostics.some((d) => d.message.includes("derive 引用了未声明名 'mysteryValue'"))).toBe(true);
+  });
+
+  it('carryBy：logic 缺失 ✗ / 返回实体缺带出字段 ✗ / 正常 √', () => {
+    const base = `
+@datasource('defaultDS')
+entity Goods { id: Integer @pk; goodsName: String; spec: String; }
+@export
+function getGoods(id: Integer): Goods { return Goods.get(id); }
+interface Api { GET '/api/goods/{id}' -> getGoods }
+`;
+    const okApp = check(parse(base + `
+@export
+function save(input: Integer): Boolean { return true; }
+page P {
+  <form submit={useMutation('save')}>
+    <input field="goodsId" carryBy="getGoods">
+      <input field="goodsName" />
+    </input>
+  </form>
+}
+`));
+    expect(okApp.diagnostics.some((d) => d.message.includes("carryBy") && d.severity === 'error')).toBe(false);
+
+    const missApp = check(parse(base + `
+@export
+function save(): Boolean { return true; }
+page P {
+  <form submit={useMutation('save')}>
+    <input field="goodsId" carryBy="getNonExist" />
+  </form>
+}
+`));
+    expect(missApp.diagnostics.some((d) => d.message.includes('指向不存在的 logic'))).toBe(true);
+
+    const badFieldApp = check(parse(base + `
+@export
+function save(): Boolean { return true; }
+page P {
+  <form submit={useMutation('save')}>
+    <input field="goodsId" carryBy="getGoods">
+      <input field="nope" />
+    </input>
+  </form>
+}
+`));
+    expect(badFieldApp.diagnostics.some((d) => d.message.includes('带出不可达'))).toBe(true);
+  });
+});

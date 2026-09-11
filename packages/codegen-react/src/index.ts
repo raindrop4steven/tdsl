@@ -994,6 +994,55 @@ function exprToTs(e: Expr): string {
   }
 }
 
+/** derive 表达式 → JS（G2 dev/29）：字段状态数字化包装、成员/算术直转 */
+function exprToJs(app: AppNode, e: Expr, bodyStruct: StructureNode | undefined): string {
+  switch (e.kind) {
+    case 'Ident': {
+      const p = bodyStruct?.properties.find((pp) => pp.name === e.name);
+      const isNum = p?.type.kind === 'primitive' && p.type.builtin !== 'String';
+      // 未声明的上下文名（row/initial/类型名）原样透传
+      if (!p && !isNum) return e.name;
+      const isStr = p?.type.kind === 'primitive' && p.type.builtin === 'String';
+      return isNum ? `Number(${e.name})` : isStr ? e.name : e.name;
+    }
+    case 'Member': {
+      return `${exprToJs(app, e.obj, bodyStruct)}.${e.prop}`;
+    }
+    case 'Call':
+    case 'Binary': {
+      // 算术/比较/成员调用直接走 JS 词法（同构子集）；类型相容性在 typecheck 面
+      const walk = (x: Expr): string => {
+        switch (x.kind) {
+          case 'Binary':
+            return `(${exprToJs(app, x.left, bodyStruct)} ${x.operator === '===' ? '===' : x.operator} ${exprToJs(app, x.right, bodyStruct)})`;
+          case 'Call': {
+            const callee = x.callee.kind === 'Member'
+              ? `${exprToJs(app, x.callee.obj, bodyStruct)}.${x.callee.prop}`
+              : x.callee.kind === 'Ident'
+                ? x.callee.name
+                : '';
+            return `${callee}(${x.args.map((a) => exprToJs(app, a, bodyStruct)).join(', ')})`;
+          }
+          case 'Group':
+            return `(${exprToJs(app, x.expr, bodyStruct)})`;
+          default:
+            return exprToTs(x);
+        }
+      };
+      return walk(e);
+    }
+    case 'Numeric':
+      return String(e.value);
+    case 'String':
+      return `'${e.value}'`;
+    case 'Bool':
+      return e.value ? 'true' : 'false';
+    case 'Null':
+      return 'null';
+  }
+  return '';
+}
+
 function collectQueryBindings(v: ViewNode): BindingNode[] {
   const out: BindingNode[] = [];
   const visit = (els: ViewElementNode[]): void => {
@@ -1635,17 +1684,54 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
     })
     .filter((r) => r.f !== '');
   const reqPairs = reqFields.filter((r) => r.required).map((r) => `['${r.label}', ${r.f}]`).join(', ');
-  const reqCheck = reqPairs
-    ? `{ const reqPairs: Array<[string, string]> = [${reqPairs}]; const missReq = reqPairs.filter(([, v]) => !String(v ?? '').trim()); if (missReq.length > 0) { message.warning('必填项未填写：' + missReq.map(([l]) => l).join('、')); return; } }`
+  // G2（dev/29）：min/max/pattern 属性校验列入提交拦截
+  const attrChecks = inputs.flatMap((i) => {
+    const f = String(i.props.field ?? '');
+    const label = String(i.props.label ?? f);
+    const lines: string[] = [];
+    const min = i.props['min'];
+    const max = i.props['max'];
+    const pat = i.props['pattern'];
+    if (min !== undefined) lines.push(`if (${f} !== '' && Number(${f}) < ${String(min)}) { message.warning('${label} 不能小于 ${String(min)}'); return; }`);
+    if (max !== undefined) lines.push(`if (${f} !== '' && Number(${f}) > ${String(max)}) { message.warning('${label} 不能大于 ${String(max)}'); return; }`);
+    if (pat !== undefined) lines.push(`if (${f} !== '' && !new RegExp('${String(pat)}').test(String(${f}))) { message.warning('${label} 格式不正确'); return; }`);
+    return lines;
+  });
+  const attrBlock = attrChecks.length > 0 ? `{ ${attrChecks.join(' ')} }` : '';
+  const reqCheck = reqPairs || attrBlock
+    ? `{ ${reqPairs ? `const reqPairs: Array<[string, string]> = [${reqPairs}]; const missReq = reqPairs.filter(([, v]) => !String(v ?? '').trim()); if (missReq.length > 0) { message.warning('必填项未填写：' + missReq.map(([l]) => l).join('、')); return; }` : ''} ${attrBlock} }`
     : '';
   // 双列栅格排布（管理端表单观感）
+  const requiredAttrOf = (i: ViewElementNode): string => String(i.props['required'] ?? '');
+  const starFor = (i: ViewElementNode, f: string): string => {
+    const attr = requiredAttrOf(i);
+    if (attr === 'false') return '';
+    if (attr === 'true') return `<span style={{ color: '#ff4d4f' }}>*</span>`;
+    return RequiredStar(app, retEnt, f);
+  };
   const inputEls = inputs
     .map((i) => {
       const f = String(i.props.field ?? '');
-      return `      <Col span={12}><div style={{ marginBottom: 12 }}><label>${String(i.props.label ?? f)}${RequiredStar(app, retEnt, f)}: ${formInputJsx(app, bodyStruct, f)}</label></div></Col>`;
+      if (i.props['derive'] !== undefined) {
+        // G2：derive 计算态——渲染层由依赖字段直接计算（readOnly；依赖集=表达式字段状态）
+        const dExpr = exprToJs(app, i.props['derive'] as Expr, bodyStruct);
+        return `      <Col span={12}><div style={{ marginBottom: 12 }}><label>${String(i.props.label ?? f)}: <Input readOnly style={{ width: '100%' }} value={String(${dExpr})} /></label></div></Col>`;
+      }
+      let jsx = formInputJsx(app, bodyStruct, f);
+      const carry = String(i.props['carryBy'] ?? '');
+      if (carry) {
+        // G2：carryBy——载体输入变化 → 拉后端档案 → 填回它的 carry 子字段
+        const fills = (i.children.filter((c) => c.type === 'input'))
+          .map((c) => `            set${cap(String(c.props['field'] ?? ''))}(String(r?.${String(c.props['field'] ?? '')} ?? ''));`)
+          .join('\n');
+          jsx = jsx.replace(
+            `onChange={(e) => set${cap(f)}(e.target.value)}`,
+            `onChange={async (e) => { const v = e.target.value; set${cap(f)}(v); try { const r = await api.${carry}(Number(v)); ${fills} } catch { /* 拉档失败静默，保留手输 */ } }}`,
+          );
+      }
+      return `      <Col span={12}><div style={{ marginBottom: 12 }}><label>${String(i.props.label ?? f)}${starFor(i, f)}: ${jsx}</label></div></Col>`;
     })
     .join('\n');
-  // repeat 明细行
   const repeatEls = repeats
     .map((r) => {
       const field = String(r.props.field ?? 'items');
