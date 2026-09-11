@@ -61,4 +61,5 @@
 | 21 | 2026-09 | Spec 驱动编译器对拍（进销存） | 主线回归编译器：examples/jxc = 结构化 Spec（spec.yaml 六层，SDD 路线对标 CodeWave）+ check-spec 覆盖度对照器（五维 287 项，exit 1 可进 CI）+ 全套 TDSL（13 实体/5 枚举/32 logic/15 页面/32 按钮）双端 build；实测修复 6 个 codegen 缺陷（F2 List\<struct\> import/F3 Decimal 比较 compareTo/F4 Integer 累加器 long/F5 api.ts body 重复/F6 DatePicker 类型/F8 enums import 无条件发射——#14 起 slice:multi 实际是坏的）；记录 7 项表达力缺口（C1 where+aggregate、G1 枚举 label、G2 表单联动等）| （本次） | 208 全绿，spec 覆盖率 100% |
 | 22 | 2026-09 | P11 书写面 TS 词法化 | parser 双语法兼容（logic↔function、:=↔const(: T)、for-in↔for-of，AST 同构零改动）；jxc/todo/multi/llm 矩阵全量新语法；D4 口径修正 |
 | 23 | 2026-09 | FFI：Java 一等公民（dev/27） | core/stdlib 目录模型（每方法 java/js 模板选填=单端/双端；String/BigDecimal/LocalDate/LocalDateTime/List 四域）+ typecheck 4.6 道（成员解析可解则解、未知放行 + 静态/实例错配/目录外成员附 bundle-jar 补录口径）；jar dump 通用机制/react js 模板翻译/d.ts 投影/jxc 标准库重写为余项 | （本次） | 221 全绿 |
+| 24 | 2026-09 | G2-1 前端表达式域（dev/29） | typecheck 第 5 道（derive 纯函数声明/IO 禁令、carryBy 可达校验、min-max-pattern）+ codegen-react（derive 计算 readOnly、carryBy 拉档填回、属性拦截并入 reqCheck、页面级 required 覆盖）；dev/28 分层 roadmap（语言/代码生成/工具链/外壳） | 2cae02a | 226 全绿 |
 
