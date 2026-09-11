@@ -135,3 +135,73 @@ function writeAll(outDir: string, files: GeneratedFile[]): void {
     writeFileSync(p, f.content, 'utf8');
   }
 }
+
+// ---------- FF 是 I 通用并入（dev/27 C1）：jar → 目录 JSON（离线；java 工具链仅并入时需要） ----------
+
+export interface BundleResult {
+  code: number;
+  stdout: string;
+}
+
+/** 解析 javap 输出段（单类）→ 成员列表 */
+function parseJavapBody(text: string): Array<{ name: string; static: boolean; params: string[]; ret: string }> {
+  const members: Array<{ name: string; static: boolean; params: string[]; ret: string }> = [];
+  for (const line of text.split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('Compiled from') || t.startsWith('public class') || t.startsWith('public final class') || t.startsWith('public ' + 'abstract class') || t.startsWith('public interface') || t.startsWith('public enum') || t === '}') continue;
+    const m = /^.*?\s([\w$]+)\(((?:[^\(\)]|\(.*\))*)\)\s*;?$/.exec(t);
+    if (!m) continue;
+    const name = m[1];
+    if (name === '') continue;
+    const isStatic = /\bstatic\b/.test(t);
+    const argPart = m[2] ?? '';
+    const ret = /;\s*descriptor:/.test('') ? '' : t.slice(t.lastIndexOf(')') + 1)?.replace(/;$/, '');
+    const params = argPart === '' ? [] : argPart.split(',').map((p) => p.trim()).filter(Boolean);
+    members.push({ name, static: isStatic, params, ret: ret || 'void' });
+  }
+  return members;
+}
+
+/** jar → 目录 JSON：javap 逐类签名 → 不对称目录（backend-only 选写） */
+export function runBundleJar(jarPath: string, outPath: string, opts: { classes?: string[] } = {}): BundleResult {
+  let text = '';
+  try {
+    // 类清单：jar tf
+    const tf = execSync(`jar tf "${jarPath}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+    const all = tf
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s.endsWith('.class') && !s.includes('$') && s.includes('/'))
+      .map((s) => s.replace(/\.class$/, '').replaceAll('/', '.'))
+      .filter((s) => !s.endsWith('.package-info') && !s.endsWith('.module-info'));
+    const filter = opts.classes?.filter(Boolean) ?? [];
+    const classes = filter.length > 0
+      ? all.filter((c) => filter.some((want) => c.endsWith(want) || c === want))
+      : all;
+    if (classes.length === 0) {
+      return { code: 1, stdout: `jar 中无可编目类（或过滤条件未命中）: ${jarPath}` };
+    }
+    const chunks = classes.map((cls) => {
+      let jp = '';
+      try {
+        jp = execSync(`javap -s -p -classpath "${jarPath}" "${cls}"`, { encoding: 'utf8' });
+      } catch (e) {
+        return '';
+      }
+      const members = parseJavapBody(jp);
+      if (members.length === 0) return '';
+      return JSON.stringify({
+        class: cls,
+        alias: cls.split('.').pop() ?? cls,
+        frontend: false,
+        members,
+      }, null, 2);
+    }).filter((x) => x !== '');
+    const catalog = `[\n${chunks.map((c) => '  ' + c.replaceAll('\n', '\n  ')).join(',\n')}\n]\n`;
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, catalog, 'utf8');
+    return { code: 0, stdout: `✓ 并入 ${classes.length} 类 → ${outPath}（frontend:false；重编译前请合并到 typecheck ffiDirs）` };
+  } catch (e) {
+    return { code: 1, stdout: `bundle-jar 失败: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}（需要 JDK：jar/javap）` };
+  }
+}

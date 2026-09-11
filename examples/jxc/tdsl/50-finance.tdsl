@@ -3,7 +3,7 @@
 
 @export
 function searchPayables(billNo: String, status: PayStatus): List<Payable> {
-  return Payable.where(billNo like '%' + billNo + '%', status = status);
+  return Payable.where(billNo like '%' + billNo.trim() + '%', status = status);
 }
 
 @export
@@ -39,7 +39,7 @@ function payPayable(id: Integer, amount: Decimal): Boolean {
 
 @export
 function searchReceivables(billNo: String, status: PayStatus): List<Receivable> {
-  return Receivable.where(billNo like '%' + billNo + '%', status = status);
+  return Receivable.where(billNo like '%' + billNo.trim() + '%', status = status);
 }
 
 @export

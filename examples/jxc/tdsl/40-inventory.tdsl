@@ -4,7 +4,7 @@
 @export
 function inventorySummary(goodsCode: String): List<InventoryRow> {
   const rows = new List<InventoryRow>();
-  for (const g of Goods.where(code like '%' + goodsCode + '%')) {
+  for (const g of Goods.where(code like '%' + goodsCode.trim() + '%')) {
     const inQty = 0;
     for (const pi of PurchaseBillItem.where(goodsId = g.id)) {
       inQty = inQty + pi.qty;

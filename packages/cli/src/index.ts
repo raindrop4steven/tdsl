@@ -2,7 +2,7 @@
  * CLI 主入口（M8）：argv 分派 → lib 函数 → 打印 → 退出码。
  * 零新增依赖：argv 手写解析（4 命令、参数≤3 个）。
  */
-import { runBuild, runCheck, runGenerate, runParse, type CommandResult } from './commands';
+import { runBuild, runBundleJar, runCheck, runGenerate, runParse, type CommandResult } from './commands';
 import { CliError, resolveInput, sanitizeAppName } from './input';
 
 export const HELP = `dsl — TDSL 命令行工具
@@ -14,6 +14,7 @@ export const HELP = `dsl — TDSL 命令行工具
   check      parse + typecheck，打印诊断（有 error 退出码 1）
   generate   生成 Java/React 代码并写盘
   build      generate + mvn compile + vite build（双端真实构建）
+  bundle-jar <jar> -o <json>  将 Java jar 并入 FFI 目录（离线；javap 反射）
   help       命令帮助
 
 选项:
@@ -37,6 +38,12 @@ export function run(argv: string[]): CliResult {
     }
 
     const { json, out, targets, name } = parseFlags(cmd, rest);
+
+    // bundle-jar 特殊输入：target = jar 文件（不走 tdsl 输入解析）
+    if (cmd === 'bundle-jar') {
+      return runBundleJar(target, out);
+    }
+
     const input = resolveInput(target, name);
 
     switch (cmd) {

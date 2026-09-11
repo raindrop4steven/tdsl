@@ -3,7 +3,7 @@
 
 @export
 function searchPurchaseBills(billNo: String, status: DocStatus): List<PurchaseBill> {
-  return PurchaseBill.where(billNo like '%' + billNo + '%', status = status);
+  return PurchaseBill.where(billNo like '%' + billNo.trim() + '%', status = status);
 }
 
 // 暂存：新增（id=0）建 DRAFT 单；编辑（id>0）更新表头，明细非空才整体替换
@@ -148,7 +148,7 @@ function returnPurchaseBill(id: Integer): PurchaseReturnBill {
 
 @export
 function searchPurchaseReturns(billNo: String): List<PurchaseReturnBill> {
-  return PurchaseReturnBill.where(billNo like '%' + billNo + '%');
+  return PurchaseReturnBill.where(billNo like '%' + billNo.trim() + '%');
 }
 
 // @title('进货退货列表') 已生成

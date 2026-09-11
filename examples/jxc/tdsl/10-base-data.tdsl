@@ -4,7 +4,7 @@
 
 @export
 function searchGoods(code: String, name: String, category: GoodsCategory): List<Goods> {
-  return Goods.where(code like '%' + code + '%', name like '%' + name + '%', category = category);
+  return Goods.where(code like '%' + code.trim() + '%', name like '%' + name.trim() + '%', category = category);
 }
 
 @export
@@ -38,7 +38,7 @@ function deleteGoods(id: Integer): Boolean {
 
 @export
 function searchSuppliers(name: String): List<Supplier> {
-  return Supplier.where(name like '%' + name + '%');
+  return Supplier.where(name like '%' + name.trim() + '%');
 }
 
 @export
@@ -73,7 +73,7 @@ function deleteSupplier(id: Integer): Boolean {
 
 @export
 function searchCustomers(name: String): List<Customer> {
-  return Customer.where(name like '%' + name + '%');
+  return Customer.where(name like '%' + name.trim() + '%');
 }
 
 @export

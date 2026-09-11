@@ -3,7 +3,7 @@
 
 @export
 function searchSalesBills(billNo: String, status: DocStatus): List<SalesBill> {
-  return SalesBill.where(billNo like '%' + billNo + '%', status = status);
+  return SalesBill.where(billNo like '%' + billNo.trim() + '%', status = status);
 }
 
 @export
@@ -144,7 +144,7 @@ function returnSalesBill(id: Integer): SalesReturnBill {
 
 @export
 function searchSalesReturns(billNo: String): List<SalesReturnBill> {
-  return SalesReturnBill.where(billNo like '%' + billNo + '%');
+  return SalesReturnBill.where(billNo like '%' + billNo.trim() + '%');
 }
 
 // @title('销货退货列表') 已生成
