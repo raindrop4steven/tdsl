@@ -1,0 +1,97 @@
+@datasource('defaultDS')
+
+entity Goods {
+  id: Integer @pk;
+  goodsCode: String;
+  goodsName: String;
+  category: String;
+  spec: String;
+  unit: String;
+  safetyStock: Decimal;
+}
+
+entity StockRecord {
+  id: Integer @pk;
+  goodsId: Integer;
+  type: String;
+  qty: Decimal;
+}
+
+struct InventorySummaryRow {
+  goodsCode: String;
+  goodsName: String;
+  category: String;
+  spec: String;
+  unit: String;
+  safetyStock: Decimal;
+  inQty: Decimal;
+  inRetQty: Decimal;
+  outQty: Decimal;
+  outRetQty: Decimal;
+  stock: Decimal;
+}
+
+@export
+function inventorySummary(goodsCode: String): List<InventorySummaryRow> {
+  const goodsList = Goods.where(goodsCode.contains(goodsCode));
+  const rows: List<InventorySummaryRow> = [];
+  for (const g of goodsList) {
+    const recs = StockRecord.where(goodsId == g.id);
+    let inQty: Decimal = 0;
+    let inRetQty: Decimal = 0;
+    let outQty: Decimal = 0;
+    let outRetQty: Decimal = 0;
+    for (const r of recs) {
+      if (r.type == 'IN') {
+        inQty = inQty + r.qty;
+      }
+      if (r.type == 'IN_RETURN') {
+        inRetQty = inRetQty + r.qty;
+      }
+      if (r.type == 'OUT') {
+        outQty = outQty + r.qty;
+      }
+      if (r.type == 'OUT_RETURN') {
+        outRetQty = outRetQty + r.qty;
+      }
+    }
+    const row = new InventorySummaryRow();
+    row.goodsCode = g.goodsCode;
+    row.goodsName = g.goodsName;
+    row.category = g.category;
+    row.spec = g.spec;
+    row.unit = g.unit;
+    row.safetyStock = g.safetyStock;
+    row.inQty = inQty;
+    row.inRetQty = inRetQty;
+    row.outQty = outQty;
+    row.outRetQty = outRetQty;
+    row.stock = inQty - inRetQty - outQty + outRetQty;
+    rows.push(row);
+  }
+  return rows;
+}
+
+interface InventoryApi {
+  GET '/api/inventory/summary' -> inventorySummary
+}
+
+page InventorySummary {
+  <table dataSource={useQuery('inventorySummary')}>
+    <column field="goodsCode" />
+    <column field="goodsName" />
+    <column field="category" />
+    <column field="spec" />
+    <column field="unit" />
+    <column field="safetyStock" />
+    <column field="inQty" />
+    <column field="inRetQty" />
+    <column field="outQty" />
+    <column field="outRetQty" />
+    <column field="stock" />
+  </table>
+  <form>
+    <input field="goodsCode" />
+    <button text="查询" action={useQuery('inventorySummary')} />
+  </form>
+}

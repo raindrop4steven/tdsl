@@ -1,0 +1,79 @@
+[
+  {
+    "sampleId": "jxc-base",
+    "firstParsePass": false,
+    "firstCheckPass": false,
+    "repairRounds": 1,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 16221,
+    "error": null
+  },
+  {
+    "sampleId": "jxc-purchase",
+    "firstParsePass": false,
+    "firstCheckPass": false,
+    "repairRounds": 3,
+    "finalPass": false,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 26716,
+    "error": "expected ')' but got '=' (line 118, col 19)"
+  },
+  {
+    "sampleId": "jxc-sales",
+    "firstParsePass": false,
+    "firstCheckPass": false,
+    "repairRounds": 3,
+    "finalPass": false,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 24302,
+    "error": "expected ')' but got '=' (line 114, col 19)"
+  },
+  {
+    "sampleId": "jxc-inventory",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 1981,
+    "error": null
+  },
+  {
+    "sampleId": "jxc-finance",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 3821,
+    "error": null
+  },
+  {
+    "sampleId": "fastjson-demo",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 1718,
+    "error": null
+  },
+  {
+    "sampleId": "todo",
+    "firstParsePass": false,
+    "firstCheckPass": false,
+    "repairRounds": 3,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 7895,
+    "error": null
+  }
+]

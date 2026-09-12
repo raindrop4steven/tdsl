@@ -1,0 +1,8 @@
+com\evalapp\service\InventorySummaryService.class
+com\evalapp\controller\InventoryApiController.class
+com\evalapp\repository\GoodsRepository.class
+com\evalapp\EvalappApplication.class
+com\evalapp\entity\Goods.class
+com\evalapp\support\TdslError.class
+com\evalapp\HealthController.class
+com\evalapp\support\GlobalAdvice.class

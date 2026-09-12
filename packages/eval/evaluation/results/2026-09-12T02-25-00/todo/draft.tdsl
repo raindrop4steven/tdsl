@@ -1,0 +1,64 @@
+@datasource('defaultDS')
+
+entity Todo {
+  id: Integer @pk;
+  title: String;
+  done: Boolean;
+}
+
+struct TodoInput {
+  title: String;
+}
+
+@export
+function listTodos(): List<Todo> {
+  return Todo.all;
+}
+
+@export
+function createTodo(input: TodoInput): Todo {
+  const todo = new Todo();
+  todo.title = input.title;
+  todo.done = false;
+  todo.save();
+  return todo;
+}
+
+@export
+function toggleTodo(id: Integer): Todo {
+  const todo = Todo.get(id);
+  todo.done = !todo.done;
+  todo.save();
+  return todo;
+}
+
+@export
+function deleteTodo(id: Integer): Boolean {
+  const todo = Todo.get(id);
+  todo.delete();
+  return true;
+}
+
+interface TodoApi {
+  GET    '/api/todos'      -> listTodos
+  POST   '/api/todos'      -> createTodo
+  PUT    '/api/todos/{id}' -> toggleTodo
+  DELETE '/api/todos/{id}' -> deleteTodo
+}
+
+page TodoList {
+  <table dataSource={useQuery('listTodos')}>
+    <column field="title" />
+    <column field="done" />
+    <button text="翻转" action={useMutation('toggleTodo', row.id)} />
+    <button text="删除" action={useMutation('deleteTodo', row.id)} />
+  </table>
+  <button text="新增" action={navigate('TodoCreate')} />
+}
+
+page TodoCreate {
+  <form submit={useMutation('createTodo')}>
+    <input field="title" />
+    <button text="提交" />
+  </form>
+}

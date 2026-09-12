@@ -1,0 +1,13 @@
+[
+  {
+    "sampleId": "jxc-inventory",
+    "firstParsePass": true,
+    "firstCheckPass": false,
+    "repairRounds": 1,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 22583,
+    "error": "require is not defined"
+  }
+]

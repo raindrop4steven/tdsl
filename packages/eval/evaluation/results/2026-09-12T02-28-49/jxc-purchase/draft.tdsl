@@ -1,0 +1,238 @@
+@datasource('defaultDS')
+
+enum GoodsCategory { FOOD, DAILY, CLOTH, OTHER }
+enum Unit { PIECE, KILOGRAM, BOX, BOTTLE }
+enum SettleMode { CASH, ACCOUNT }
+enum DocStatus { DRAFT, SUBMITTED }
+
+entity PurchaseBill {
+  id: Integer @pk;
+  billNo: String;
+  status: DocStatus;
+  billDate: DateTime;
+  supplierId: Integer;
+  contractNo: String @nullable;
+  invoiceNo: String @nullable;
+  logisticsCompany: String @nullable;
+  logisticsNo: String @nullable;
+  totalAmount: Decimal @nullable;
+  settleMode: SettleMode;
+  remark: String @nullable;
+}
+
+entity PurchaseBillItem {
+  id: Integer @pk;
+  billId: Integer;
+  goodsId: Integer;
+  goodsCode: String @nullable;
+  goodsName: String @nullable;
+  category: GoodsCategory @nullable;
+  spec: String @nullable;
+  unit: Unit @nullable;
+  qty: Integer;
+  price: Decimal;
+  amount: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity PurchaseReturnBill {
+  id: Integer @pk;
+  billNo: String;
+  status: DocStatus;
+  returnDate: DateTime;
+  sourceBillNo: String;
+  totalAmount: Decimal @nullable;
+  remark: String @nullable;
+}
+
+struct PurchaseBillInput {
+  billNo: String;
+  billDate: DateTime;
+  supplierId: Integer;
+  contractNo: String;
+  invoiceNo: String;
+  logisticsCompany: String;
+  logisticsNo: String;
+  settleMode: SettleMode;
+  remark: String;
+  items: List<PurchaseBillItemInput>;
+}
+
+struct PurchaseBillItemInput {
+  goodsId: Integer;
+  qty: Integer;
+  price: Decimal;
+}
+
+@export
+function searchPurchaseBills(billNo: String, status: DocStatus): List<PurchaseBill> {
+  return PurchaseBill.where(billNo like '%' + billNo + '%', status = status).orderBy(id desc);
+}
+
+@export
+function savePurchaseBill(input: PurchaseBillInput): PurchaseBill {
+  const bill = new PurchaseBill();
+  bill.billNo = input.billNo;
+  bill.status = DocStatus.DRAFT;
+  bill.billDate = input.billDate;
+  bill.supplierId = input.supplierId;
+  bill.contractNo = input.contractNo;
+  bill.invoiceNo = input.invoiceNo;
+  bill.logisticsCompany = input.logisticsCompany;
+  bill.logisticsNo = input.logisticsNo;
+  bill.settleMode = input.settleMode;
+  bill.remark = input.remark;
+  bill.totalAmount = 0;
+  bill.save();
+  for (const it of input.items) {
+    const item = new PurchaseBillItem();
+    item.billId = bill.id;
+    item.goodsId = it.goodsId;
+    item.qty = it.qty;
+    item.price = it.price;
+    item.amount = it.price * it.qty;
+    item.save();
+    bill.totalAmount = bill.totalAmount + it.price * it.qty;
+  }
+  bill.save();
+  return bill;
+}
+
+@export
+function submitPurchaseBill(id: Integer): PurchaseBill {
+  const bill = PurchaseBill.get(id);
+  if (bill.status === DocStatus.SUBMITTED) {
+    throw '已提交单据不可重复提交';
+  }
+  bill.status = DocStatus.SUBMITTED;
+  bill.save();
+  return bill;
+}
+
+@export
+function deletePurchaseBill(id: Integer): Boolean {
+  const bill = PurchaseBill.get(id);
+  if (bill.status === DocStatus.SUBMITTED) {
+    throw '已提交单据不可删除';
+  }
+  for (const it of PurchaseBillItem.where(billId = id)) {
+    it.delete();
+  }
+  bill.delete();
+  return true;
+}
+
+@export
+function copyPurchaseBill(id: Integer): PurchaseBill {
+  const src = PurchaseBill.get(id);
+  const bill = new PurchaseBill();
+  bill.billNo = src.billNo + '-COPY';
+  bill.status = DocStatus.DRAFT;
+  bill.billDate = src.billDate;
+  bill.supplierId = src.supplierId;
+  bill.contractNo = src.contractNo;
+  bill.invoiceNo = src.invoiceNo;
+  bill.logisticsCompany = src.logisticsCompany;
+  bill.logisticsNo = src.logisticsNo;
+  bill.settleMode = src.settleMode;
+  bill.remark = src.remark;
+  bill.totalAmount = src.totalAmount;
+  bill.save();
+  for (const it of PurchaseBillItem.where(billId = id)) {
+    const item = new PurchaseBillItem();
+    item.billId = bill.id;
+    item.goodsId = it.goodsId;
+    item.goodsCode = it.goodsCode;
+    item.goodsName = it.goodsName;
+    item.category = it.category;
+    item.spec = it.spec;
+    item.unit = it.unit;
+    item.qty = it.qty;
+    item.price = it.price;
+    item.amount = it.amount;
+    item.remark = it.remark;
+    item.save();
+  }
+  return bill;
+}
+
+@export
+function returnPurchaseBill(id: Integer): PurchaseReturnBill {
+  const src = PurchaseBill.get(id);
+  const ret = new PurchaseReturnBill();
+  ret.billNo = 'TH-' + src.billNo;
+  ret.status = DocStatus.DRAFT;
+  ret.returnDate = src.billDate;
+  ret.sourceBillNo = src.billNo;
+  ret.totalAmount = src.totalAmount;
+  ret.save();
+  return ret;
+}
+
+@export
+function searchPurchaseReturns(billNo: String): List<PurchaseReturnBill> {
+  return PurchaseReturnBill.where(billNo like '%' + billNo + '%').orderBy(id desc);
+}
+
+interface PurchaseBillApi {
+  GET    '/api/purchase/bills'              -> searchPurchaseBills
+  POST   '/api/purchase/bills'              -> savePurchaseBill
+  POST   '/api/purchase/bills/{id}/submit'  -> submitPurchaseBill
+  POST   '/api/purchase/bills/{id}/copy'    -> copyPurchaseBill
+  POST   '/api/purchase/bills/{id}/return'  -> returnPurchaseBill
+  DELETE '/api/purchase/bills/{id}'         -> deletePurchaseBill
+}
+
+interface PurchaseReturnApi {
+  GET '/api/purchase/returns' -> searchPurchaseReturns
+}
+
+page PurchaseBillList {
+  <input field="billNo" />
+  <input field="status" />
+  <table dataSource={useQuery('searchPurchaseBills', billNo, status)}>
+    <column field="billNo" />
+    <column field="billDate" />
+    <column field="supplierId" />
+    <column field="status" />
+    <column field="totalAmount" />
+    <column field="settleMode" />
+    <button text="编辑" action={openDialog('PurchaseBillEdit', row.id)} />
+    <button text="删除" action={useMutation('deletePurchaseBill', row.id)} />
+    <button text="复制" action={useMutation('copyPurchaseBill', row.id)} />
+    <button text="整单退货" action={useMutation('returnPurchaseBill', row.id)} />
+  </table>
+  <button text="新增进货单" action={openDialog('PurchaseBillEdit')} />
+}
+
+dialog PurchaseBillEdit {
+  <form submit={useMutation('savePurchaseBill')}>
+    <input field="billNo" />
+    <input field="billDate" />
+    <input field="supplierId" />
+    <input field="contractNo" />
+    <input field="invoiceNo" />
+    <input field="logisticsCompany" />
+    <input field="logisticsNo" />
+    <input field="settleMode" />
+    <input field="remark" />
+    <repeat field="items">
+      <input field="goodsId" />
+      <input field="qty" />
+      <input field="price" />
+    </repeat>
+    <button text="暂存" />
+    <button text="提交" action={useMutation('submitPurchaseBill', id)} />
+  </form>
+}
+
+page PurchaseReturnList {
+  <input field="billNo" />
+  <table dataSource={useQuery('searchPurchaseReturns', billNo)}>
+    <column field="billNo" />
+    <column field="returnDate" />
+    <column field="sourceBillNo" />
+    <column field="totalAmount" />
+    <column field="status" />
+  </table>
+}

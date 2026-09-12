@@ -1,0 +1,24 @@
+[
+  {
+    "sampleId": "jxc-inventory",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 6854,
+    "error": "require is not defined"
+  },
+  {
+    "sampleId": "fastjson-demo",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 3658,
+    "error": "require is not defined"
+  }
+]

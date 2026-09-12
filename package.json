@@ -11,10 +11,11 @@
   "scripts": {
     "test": "npm run test --workspaces --if-present",
     "playground": "npm run dev -w @tdsl/playground",
-    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit && tsc -p packages/playground --noEmit && tsc -p packages/cli --noEmit && tsc -p packages/server --noEmit",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit && tsc -p packages/playground --noEmit && tsc -p packages/cli --noEmit && tsc -p packages/server --noEmit && tsc -p packages/eval --noEmit",
     "dsl": "node packages/cli/bin/dsl.mjs",
     "server": "npm run start -w @tdsl/server",
     "slice": "npm run slice -w todo-app",
-    "slice:multi": "npm run slice -w todo-multi"
+    "slice:multi": "npm run slice -w todo-multi",
+    "eval": "npm run eval -w @tdsl/eval"
   }
 }

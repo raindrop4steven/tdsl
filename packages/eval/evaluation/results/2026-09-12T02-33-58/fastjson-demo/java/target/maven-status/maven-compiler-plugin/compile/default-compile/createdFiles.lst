@@ -1,0 +1,7 @@
+com\evalapp\controller\FastjsonApiController.class
+com\evalapp\service\ToJsonService.class
+com\evalapp\EvalappApplication.class
+com\evalapp\support\TdslError.class
+com\evalapp\HealthController.class
+com\evalapp\service\HasKeyService.class
+com\evalapp\support\GlobalAdvice.class

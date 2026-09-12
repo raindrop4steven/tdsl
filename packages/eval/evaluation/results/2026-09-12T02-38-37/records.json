@@ -1,0 +1,24 @@
+[
+  {
+    "sampleId": "jxc-inventory",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "pass",
+    "buildReact": "pass",
+    "durationMs": 64614,
+    "error": null
+  },
+  {
+    "sampleId": "fastjson-demo",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "fail",
+    "buildReact": "skip",
+    "durationMs": 7303,
+    "error": null
+  }
+]

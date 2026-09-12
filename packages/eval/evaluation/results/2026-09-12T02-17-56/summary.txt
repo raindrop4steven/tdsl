@@ -1,0 +1,4 @@
+=== C4 基线 2026-09-12T02:22:01.897Z ===
+样例 7 | 首轮编译通过率 0% | 最终通过 0/7 | build 双通过 0/7
+修复轮次分布: 0轮=7 1轮=0 2轮=0 3轮=0
+明细: jxc-base✖(0) jxc-purchase✖(0) jxc-sales✖(0) jxc-inventory✖(0) jxc-finance✖(0) fastjson-demo✖(0) todo✖(0)

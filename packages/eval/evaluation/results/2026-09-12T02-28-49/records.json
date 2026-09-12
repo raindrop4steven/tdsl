@@ -1,0 +1,24 @@
+[
+  {
+    "sampleId": "jxc-purchase",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 22388,
+    "error": null
+  },
+  {
+    "sampleId": "jxc-sales",
+    "firstParsePass": false,
+    "firstCheckPass": false,
+    "repairRounds": 1,
+    "finalPass": true,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 26247,
+    "error": null
+  }
+]

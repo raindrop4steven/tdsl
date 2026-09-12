@@ -1,0 +1,15 @@
+@export
+function toJson(o: Object): String {
+  return JSON.toJSONString(o);
+}
+
+@export
+function hasKey(json: String, key: String): Boolean {
+  const obj = JSON.parseObject(json);
+  return obj.containsKey(key);
+}
+
+interface FastjsonApi {
+  POST '/api/to-json' -> toJson
+  POST '/api/has-key' -> hasKey
+}

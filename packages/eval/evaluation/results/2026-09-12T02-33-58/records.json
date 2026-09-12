@@ -1,0 +1,24 @@
+[
+  {
+    "sampleId": "jxc-inventory",
+    "firstParsePass": false,
+    "firstCheckPass": false,
+    "repairRounds": 3,
+    "finalPass": false,
+    "buildJava": "skip",
+    "buildReact": "skip",
+    "durationMs": 20655,
+    "error": "expected ')' but got '=' (line 45, col 18)"
+  },
+  {
+    "sampleId": "fastjson-demo",
+    "firstParsePass": true,
+    "firstCheckPass": true,
+    "repairRounds": 0,
+    "finalPass": true,
+    "buildJava": "pass",
+    "buildReact": "fail",
+    "durationMs": 25135,
+    "error": null
+  }
+]

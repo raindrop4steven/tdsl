@@ -97,7 +97,7 @@ function projectFiles(app: AppNode): GeneratedFile[] {
 import ReactDOM from 'react-dom';
 import 'antd/dist/reset.css';
 import { BrowserRouter } from 'react-router-dom';
-import App from './App';
+${app.views.length > 0 ? "import App from './App';" : ''}
 
 declare const __REPORT_URL__: string;
 // 运行时错误回流 agent（M10）：vite dev 注入上报地址；自动采集未捕获异常/拒绝与 HTTP ≥400
@@ -118,7 +118,7 @@ window.fetch = async (...args: Parameters<typeof fetch>): Promise<Response> => {
 ReactDOM.render(
   <React.StrictMode>
     <BrowserRouter>
-      <App />
+      ${app.views.length > 0 ? '<App />' : '<div>no pages</div>'}
     </BrowserRouter>
   </React.StrictMode>,
   document.getElementById('root'),

@@ -1,0 +1,21 @@
+@service(kind = 'bean', jar = 'com.alibaba.fastjson2:fastjson2:2.0.0')
+service Fastjson2Sdk {
+  toJSONString(o: Object): String;
+  parseObject(json: String): Object;
+}
+
+@export
+function toJson(o: Object): String {
+  return fastjson2Sdk.toJSONString(o);
+}
+
+@export
+function hasKey(json: String, key: String): Boolean {
+  const obj = fastjson2Sdk.parseObject(json);
+  return obj.containsKey(key);
+}
+
+interface FastjsonApi {
+  POST '/api/to-json' -> toJson
+  POST '/api/has-key' -> hasKey
+}
