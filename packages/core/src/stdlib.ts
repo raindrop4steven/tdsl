@@ -23,6 +23,8 @@ export interface FfiMethod {
 export interface FfiClass {
   /** 全限定名（codegen-java 用） */
   class: string;
+  /** Maven 坐标 groupId:artifactId:version —— 目录驱动的 pom 依赖注入 */
+  maven?: string;
   /** TDSL 语义核别名（原始类型名或 List） */
   alias: string;
   /** 该类是否默认前端可用（个别成员日后可覆盖） */
@@ -84,7 +86,20 @@ const LIST_MEMBERS: FfiMethod[] = [
   { name: 'get', params: ['Integer'], ret: 'Object', java: '{recv}.get({0})', js: '{recv}[{0}]' },
 ];
 
+/** fastjson2（真实 jar 打样：D:/fastjson2-2.0.58.jar 经 bundle-jar 反射 + 人工收窄） */
+const FASTJSON_MEMBERS: FfiMethod[] = [
+  { name: 'parseObject', static: true, params: ['String'], ret: 'Object', java: 'com.alibaba.fastjson2.JSON.parseObject({0})' },
+  { name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' },
+];
+const JSONOBJECT_MEMBERS: FfiMethod[] = [
+  { name: 'getString', params: ['String'], ret: 'String' },
+  { name: 'getInteger', params: ['String'], ret: 'Integer' },
+  { name: 'containsKey', params: ['String'], ret: 'Boolean' },
+];
+
 export const FFI_CATALOG: FfiClass[] = [
+  { class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', maven: 'com.alibaba:fastjson2:2.0.58', members: FASTJSON_MEMBERS },
+  { class: 'com.alibaba.fastjson2.JSONObject', alias: 'JSONObject', maven: 'com.alibaba:fastjson2:2.0.58', members: JSONOBJECT_MEMBERS },
   { class: 'java.lang.String', alias: 'String', frontend: true, members: STRING_MEMBERS },
   { class: 'java.math.BigDecimal', alias: 'Decimal', members: DECIMAL_MEMBERS },
   { class: 'java.time.LocalDate', alias: 'Date', members: DATE_MEMBERS },

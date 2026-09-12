@@ -14,6 +14,7 @@ import {
   type StructureNode,
   type VarScope,
 } from '@tdsl/core';
+import { ffiByAlias } from '@tdsl/core';
 import { cap, javaType, typeNameFromPath } from './type-map';
 
 /** app 名转包名：com.<name>；必须为合法 Java 标识符（M7 app 名参数化后防御） */
@@ -449,6 +450,38 @@ function scaffoldFiles(app: AppNode): GeneratedFile[] {
     .filter(Boolean)
     .join('\n');
 
+  // FFI 目录驱动依赖注入（dev/27）：只取带 maven 坐标的（import 归 serviceFile 阶段处理）
+  const usedFfi = new Set<string>();
+  for (const l of app.logics) {
+    for (const st of l.body) {
+      const exprs: Expr[] = [];
+      if (st.kind === 'VarDecl' && st.init) exprs.push(st.init);
+      if (st.kind === 'Assign') { exprs.push(st.target, st.value); }
+      if (st.kind === 'Return' && st.value) exprs.push(st.value);
+      if (st.kind === 'If') { exprs.push(st.cond); }
+      if (st.kind === 'ForEach') { exprs.push(st.container); }
+      if (st.kind === 'CallStmt') { exprs.push(st.call); }
+      exprs.forEach((e) => {
+        const c2 = new Set<string>();
+        collectFfiClassesInExpr(e, c2);
+        for (const fqn of c2) {
+          const cls = ffiByAlias(fqn.split('.').pop() ?? fqn);
+          if (cls?.maven) usedFfi.add(cls.maven);
+        }
+      });
+    }
+  }
+  const mavenDeps = [...usedFfi]
+    .map((coord) => {
+      const [g, a, v] = coord.split(':');
+      return `    <dependency>
+      <groupId>${g}</groupId>
+      <artifactId>${a}</artifactId>
+      <version>${v}</version>
+    </dependency>`;
+    })
+    .join('\n');
+
   return [
     {
       path: 'pom.xml',
@@ -483,6 +516,7 @@ function scaffoldFiles(app: AppNode): GeneratedFile[] {
       <scope>runtime</scope>
     </dependency>
 ${serviceDeps}
+${mavenDeps}
   </dependencies>
   <build>
     <plugins>
@@ -1034,6 +1068,8 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
     ...(transactionalImport ? [transactionalImport.trim()] : []),
     ...(usedEntities.size > 0 ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
     ...(app.enums.length > 0 ? [`import ${pkg}.enums.*;`] : []),
+    // FFI 目录类 import（logic 体使用的目录类全限定——fastjson2 类须显式 import）
+    ...(importsForFfiCollect(collectFfiExprsOfLogic(logic))),
     // logic 间调用注入（@Autowired 字段）
     ...(collectUsedLogics(app, logic).length > 0 ? ['import org.springframework.beans.factory.annotation.Autowired;'] : []),
     // 外部服务注入注解 import
@@ -1204,8 +1240,8 @@ function controllerFile(app: AppNode, itf: InterfaceNode): GeneratedFile {
 
 import org.springframework.web.bind.annotation.*;
 import ${pkg}.service.*;
-${structureImport}import ${pkg}.entity.*;
-${enumsImport(pkg, app.enums.length > 0)}@RestController
+${structureImport}${app.datasources.some((ds) => ds.entities.length > 0) ? `import ${pkg}.entity.*;
+` : ''}${enumsImport(pkg, app.enums.length > 0)}@RestController
 @CrossOrigin(origins = "*")
 public class ${cap(itf.name)}Controller {
 ${fields.length > 0 ? fields.join('\n') + '\n' : ''}
@@ -1831,4 +1867,43 @@ public class GlobalAdvice {
 }
 `,
   };
+}
+
+/** logic 表达式树内的 FFI 类全限定名收集（含 maven 坐标目录类）——scaffold 依赖注入 + service import 共用 */
+function collectFfiClassesInExpr(e: Expr, out: Set<string>): void {
+  if (e.kind === 'Call' && e.callee.kind === 'Member') {
+    if (e.callee.obj.kind === 'Ident') {
+      const cls = ffiByAlias(e.callee.obj.name);
+      if (cls) out.add(cls.class);
+    }
+    collectFfiClassesInExpr(e.callee, out);
+    e.args.forEach((a) => collectFfiClassesInExpr(a, out));
+    return;
+  }
+  if (e.kind === 'Member') { collectFfiClassesInExpr(e.obj, out); return; }
+  if (e.kind === 'Binary') { collectFfiClassesInExpr(e.left, out); collectFfiClassesInExpr(e.right, out); return; }
+  if (e.kind === 'Group') { collectFfiClassesInExpr(e.expr, out); return; }
+}
+
+
+
+/** logic 体所有表达式（语句级展开，供 FFI import 收集） */
+function collectFfiExprsOfLogic(l: LogicNode): Expr[] {
+  const exprs: Expr[] = [];
+  for (const st of l.body) {
+    if (st.kind === 'VarDecl') { if (st.init) exprs.push(st.init); }
+    if (st.kind === 'Assign') { exprs.push(st.target, st.value); }
+    if (st.kind === 'Return' && st.value) exprs.push(st.value);
+    if (st.kind === 'If') { exprs.push(st.cond); }
+    if (st.kind === 'ForEach') { exprs.push(st.container); }
+    if (st.kind === 'CallStmt') { exprs.push(st.call); }
+  }
+  return exprs;
+}
+
+/** logic 上使用的 FFI 类 import 行 */
+function importsForFfiCollect(exprs: Expr[]): string[] {
+  const cls = new Set<string>();
+  for (const e of exprs) collectFfiClassesInExpr(e, cls);
+  return [...cls].map((c) => `import ${c};`);
 }

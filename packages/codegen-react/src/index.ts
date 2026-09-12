@@ -64,7 +64,8 @@ function tsType(tr: TypeRef): string {
 /** 生成完整 Vite + React 工程文件列表 */
 export function generateReact(app: AppNode): GeneratedFile[] {
   const files = [...projectFiles(app)];
-  if (app.datasources.some((ds) => ds.entities.length > 0)) {
+  // 条件：有实体（rows/types）或有页面（views）——纯 FFI API 应用也要能建 react 工程
+  if (app.datasources.some((ds) => ds.entities.length > 0) || app.views.length > 0) {
     files.push(typesFile(app));
     if (app.views.length > 0) {
       // M4：page 声明式生成（多页面 + 路由 + 数据绑定）

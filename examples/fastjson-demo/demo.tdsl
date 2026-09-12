@@ -1,0 +1,23 @@
+// fastjson2 FFI 打样：目录精选（core/stdlib）+ Maven 坐标自动注入
+@datasource('defaultDS')
+
+@export
+function toJson(o: Object): String {
+  return JSON.toJSONString(o);
+}
+
+@export
+function hasKey(json: String, key: String): Boolean {
+  obj2 := JSON.parseObject(json);
+  return obj2.containsKey(key);
+}
+
+interface FastjsonApi {
+  POST '/api/to-json' -> toJson
+  POST '/api/has-key' -> hasKey
+}
+
+@export
+function listDemo(): List<Object> { return new List<Object>(); }
+interface DemoApi2 { GET '/api/demo' -> listDemo }
+page DemoHome { <table dataSource={useQuery('listDemo')}><column field="goodsName" title="示例" /></table> }

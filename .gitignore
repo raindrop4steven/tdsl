@@ -11,3 +11,4 @@ packages/server/.sessions/
 packages/*/dist/
 start-server.sh
 start-server.cmd
+examples/fastjson-demo/generated/
