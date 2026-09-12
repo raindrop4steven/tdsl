@@ -63,6 +63,7 @@
 | 23 | 2026-09 | FFI：Java 一等公民（dev/27） | core/stdlib 目录模型（每方法 java/js 模板选填=单端/双端；String/BigDecimal/LocalDate/LocalDateTime/List 四域）+ typecheck 4.6 道（成员解析可解则解、未知放行 + 静态/实例错配/目录外成员附 bundle-jar 补录口径）；jar dump 通用机制/react js 模板翻译/d.ts 投影/jxc 标准库重写为余项 | （本次） | 221 全绿 |
 | 24 | 2026-09 | G2-1 前端表达式域（dev/29） | typecheck 第 5 道（derive 纯函数声明/IO 禁令、carryBy 可达校验、min-max-pattern）+ codegen-react（derive 计算 readOnly、carryBy 拉档填回、属性拦截并入 reqCheck、页面级 required 覆盖）；dev/28 分层 roadmap（语言/代码生成/工具链/外壳） | 2cae02a | 226 全绿 |
 | 25 | 2026-09 | FFI 收口打样（dev/27 B2/C1/C3） | cli 新增 bundle-jar（jar→类清单→javap 反射→目录 JSON，frontend:false 不对称）；jxc 全库挂标准库 trim() ×11（语义保留）；javap descriptor 解析质量为余项 | 97b99ed | 226 全绿，双端 build+spec 100% |
+| 26 | 2026-09 | C4 评测基线采集器（dev/28 C4） | packages/eval 十号包：样卷 7 份（jxc×5 紧凑切+demo+todo）+ provider（TDSL_LLM_* env 复用；OpenCode Go 会话头重现踩坑）+ harness（修复闭环每轮落盘 + 双端 build 抽验）+ 跑批汇总落盘；首轮真实 GLM 基线：首轮 parse 通过率 3/7、最终通过 5/7、build 抽验 2 样例双通过 1/2（main.tsx 条件化后） | c9bc7d6+da1852a | 226 全绿 |
 
 
 ## 2026-09-12 追加（A1 异常表达 / FFI 打样）
