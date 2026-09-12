@@ -1,9 +1,0 @@
-server:
-  port: ${TDSL_BACKEND_PORT:8080}
-spring:
-  datasource:
-    url: jdbc:h2:mem:evalapp
-    driver-class-name: org.h2.Driver
-  jpa:
-    hibernate:
-      ddl-auto: update
