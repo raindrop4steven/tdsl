@@ -69,3 +69,10 @@
 - A1 完成：前端表达式域定稿 = 纯函数（无变量/无语句/无 IO）；typecheck 兜底 throw 消息空间（标量面）。
 - dev/27 FFI 首轮：core/stdlib 目录模型（String/BigDecimal/LocalDate/LocalDateTime/List 四域）+ typecheck 4.6 道（成员解析可解则解、未知放行）；jxc 打样（供应商带出/明细金额派生）。
 - 余项：round-trip 演练（bundle-jar 命令/d.ts 投影）为后续切面；程序员可点可验（真机冒烟）。
+
+## 2026-09-13 会话追加（fastjson2 真实 jar 打样 + roadmap 精算）
+- **FFI 真机打样完成**：`D:/fastjson2-2.0.58.jar` → `bundle-jar` 反射 527 类 → 人工精选 3 类（JSON/JSONObject + maven 坐标）进 core 目录 → TDSL 直调 `JSON.toJSONString/parseObject` → **codegen pom 自动注入 fastjson2 依赖坐标** → 双端 build ✓。这是 FFI 的完整故事线第一次真实跑通。
+- 顺手修：无实体 app 的 Controller 空包 import（F8 同款边界）、纯 FFI API app（有 views 无 entities）的 react 骨架缺失、目录扫描把 FQN 混进依赖坐标的 bug。
+- 存量余项：javap descriptor 精析（当前手收窄）、npm/d.ts 前端口径、重载去重。
+- 下一环推荐序：**C4 评测基线（jxc 样卷已齐 → 第一份 LLM 生成质量数据）→ C1 小补丁 → A3 selection → B3 SDK .d.ts（收官键）**。
+- 用户意图校准：语言完备度的验收姿势变了——**从"我们手写全覆盖"转向"LLM 生成 + 编译器裁判 + spec 对拍"的自动化验证链**；评测跑完后，剩余任务的推进方式都按"go 循环"走（LLM 干活、人 Gate）。剩余主线人力估 1~2 天。
