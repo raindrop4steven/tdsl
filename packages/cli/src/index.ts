@@ -14,7 +14,7 @@ export const HELP = `dsl — TDSL 命令行工具
   check      parse + typecheck，打印诊断（有 error 退出码 1）
   generate   生成 Java/React 代码并写盘
   build      generate + mvn compile + vite build（双端真实构建）
-  bundle-jar <jar> -o <json>  将 Java jar 并入 FFI 目录（离线；javap 反射）
+  bundle-jar <jar> -o <json>  将 Java jar 扫描为依赖产物 JSON（离线；javap 反射；坐标自动取 pom.properties，--coord 可覆盖）
   help       命令帮助
 
 选项:
@@ -22,6 +22,8 @@ export const HELP = `dsl — TDSL 命令行工具
   --java        generate 仅生成 Java
   --react       generate 仅生成 React
   --name <x>    app 名（默认取目录名，清洗为合法 Java 标识符）
+  --coord <g:a:v>  bundle-jar 指定产物坐标（缺省自动读 jar 内 pom.properties）
+  --classes <列表>  bundle-jar 类过滤（逗号分隔简名/后缀，缺省全量）
   --json        parse 输出完整 AST JSON`;
 
 export interface CliResult extends CommandResult {}
@@ -37,11 +39,11 @@ export function run(argv: string[]): CliResult {
       throw new CliError(`缺少输入参数: dsl ${cmd} <dir|file>\n${HELP}`);
     }
 
-    const { json, out, targets, name } = parseFlags(cmd, rest);
+    const { json, out, targets, name, coord, classes } = parseFlags(cmd, rest);
 
     // bundle-jar 特殊输入：target = jar 文件（不走 tdsl 输入解析）
     if (cmd === 'bundle-jar') {
-      return runBundleJar(target, out);
+      return runBundleJar(target, out, { coord, classes: classes?.split(',') });
     }
 
     const input = resolveInput(target, name);
@@ -71,6 +73,8 @@ interface Flags {
   out: string;
   targets: { java: boolean; react: boolean };
   name?: string;
+  coord?: string;
+  classes?: string;
 }
 
 function parseFlags(cmd: string, rest: string[]): Flags {
@@ -79,12 +83,19 @@ function parseFlags(cmd: string, rest: string[]): Flags {
     out: 'generated',
     targets: { java: true, react: true },
     name: undefined,
+    coord: undefined,
   };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === '--json') flags.json = true;
     else if (a === '-o') flags.out = requireValue(rest, ++i, a);
-    else if (a === '--java') {
+    else if (a === '--coord') {
+      if (cmd !== 'bundle-jar') throw new CliError('--coord 仅 bundle-jar 命令支持');
+      flags.coord = requireValue(rest, ++i, a);
+    } else if (a === '--classes') {
+      if (cmd !== 'bundle-jar') throw new CliError('--classes 仅 bundle-jar 命令支持');
+      flags.classes = requireValue(rest, ++i, a);
+    } else if (a === '--java') {
       if (cmd !== 'generate') throw new CliError('--java 仅 generate 命令支持');
       flags.targets = { java: true, react: false };
     } else if (a === '--react') {

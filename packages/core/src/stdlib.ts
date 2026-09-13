@@ -1,6 +1,7 @@
 /**
- * Java FFI 目录（dev/27）：Java 一等公民的内核数据。
- * 机制：目录 = dump 工具（javap/反射）产物人工收窄后的精选集（版本化资产，非全量）。
+ * Java FFI 内核目录（dev/27/32）：语言自有域的成员表（语义核类型定义的一部分）。
+ * 边界（dev/32）：本文件只收语言自有五域（String/Decimal/Date/DateTime/List）；
+ * 一切带 Maven/npm 坐标的第三方类一律外置到工程 libs/ 产物，经 createCatalog 合并装载。
  * 规则：成员模板"有 java 才能后端调、有 js 才能前端调"；双模板成员两端各译。
  * 目录缺失时的诊断必须附带补录口径（dsl bundle-jar）。
  * 消费者：typecheck 成员存在性解析（M3 resolver v1——能解则解、不解放行）。
@@ -86,20 +87,7 @@ const LIST_MEMBERS: FfiMethod[] = [
   { name: 'get', params: ['Integer'], ret: 'Object', java: '{recv}.get({0})', js: '{recv}[{0}]' },
 ];
 
-/** fastjson2（真实 jar 打样：D:/fastjson2-2.0.58.jar 经 bundle-jar 反射 + 人工收窄） */
-const FASTJSON_MEMBERS: FfiMethod[] = [
-  { name: 'parseObject', static: true, params: ['String'], ret: 'Object', java: 'com.alibaba.fastjson2.JSON.parseObject({0})' },
-  { name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' },
-];
-const JSONOBJECT_MEMBERS: FfiMethod[] = [
-  { name: 'getString', params: ['String'], ret: 'String' },
-  { name: 'getInteger', params: ['String'], ret: 'Integer' },
-  { name: 'containsKey', params: ['String'], ret: 'Boolean' },
-];
-
-export const FFI_CATALOG: FfiClass[] = [
-  { class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', maven: 'com.alibaba:fastjson2:2.0.58', members: FASTJSON_MEMBERS },
-  { class: 'com.alibaba.fastjson2.JSONObject', alias: 'JSONObject', maven: 'com.alibaba:fastjson2:2.0.58', members: JSONOBJECT_MEMBERS },
+export const FFI_CORE: FfiClass[] = [
   { class: 'java.lang.String', alias: 'String', frontend: true, members: STRING_MEMBERS },
   { class: 'java.math.BigDecimal', alias: 'Decimal', members: DECIMAL_MEMBERS },
   { class: 'java.time.LocalDate', alias: 'Date', members: DATE_MEMBERS },
@@ -107,9 +95,107 @@ export const FFI_CATALOG: FfiClass[] = [
   { class: 'java.util.List', alias: 'List', frontend: true, members: LIST_MEMBERS },
 ];
 
-/** TDSL 语义核别名 → FFI 类 */
+/** 依赖声明坐标（java: g:a:v；npm: name@range 的规整形式） */
+export function depCoordinate(d: { name: string; version?: string }): string {
+  return d.version ? `${d.name}:${d.version}` : `${d.name}:*`;
+}
+
+/** 依赖声明是否命中某产物坐标（按 name 段匹配、版本通配——版本比对归 D-dep-3 诊断） */
+export function depMatches(d: { eco: string; name: string; version?: string }, coordinate: string): boolean {
+  const sep = d.eco === 'npm' ? '@' : ':';
+  return coordinate === d.name || coordinate.startsWith(`${d.name}${sep}`);
+}
+
+/** 工程侧扫描产物（bundle-jar / 未来 npm d.ts 投影）：自带坐标头 */
+export interface LoadedCatalog {
+  /** 来源文件（诊断定位用） */
+  file?: string;
+  eco: 'java' | 'npm';
+  /** Maven 坐标 g:a:v 或 npm 包名@版本 */
+  coordinate: string;
+  classes: FfiClass[];
+}
+
+/** alias 撞车记录（D-dep-4 诊断素材） */
+export interface CatalogCollision {
+  alias: string;
+  coordinates: string[];
+}
+
+/** 有效目录：内核五域 ∪ 声明依赖的产物类（alias 全局唯一不变式，见 dev/32 §2.7） */
+export interface EffectiveCatalog {
+  /** 裸 alias 唯一命中；零命中或多命中返回 undefined（多命中走 hitsOf + collisions 报错） */
+  byAlias(alias: string): FfiClass | undefined;
+  /** ns.Alias 限定命中（dependency ... as <ns>） */
+  byQualified(ns: string, alias: string): FfiClass | undefined;
+  /** 某裸 alias 的全部命中（歧义诊断用） */
+  hitsOf(alias: string): FfiClass[];
+  member(c: FfiClass, name: string): FfiMethod | undefined;
+  collisions: CatalogCollision[];
+}
+
+/**
+ * 合并内核目录与工程产物为有效目录（纯函数）。
+ * - 产物类补 maven 坐标（java eco；来自产物头 coordinate）
+ * - as <ns> 的依赖：其产物类进 ns 限定索引，不占裸 alias
+ * - alias 冲突只记录不丢弃（诊断权在 typecheck）
+ */
+export function createCatalog(loaded: LoadedCatalog[], deps: { eco: string; name: string; version?: string; ns?: string }[]): EffectiveCatalog {
+  const nsOf = new Map<string, string>();
+  for (const d of deps) {
+    if (!d.ns) continue;
+    for (const lc of loaded) {
+      if (lc.eco === d.eco && depMatches(d, lc.coordinate)) nsOf.set(lc.coordinate, d.ns);
+    }
+  }
+  const all: FfiClass[] = FFI_CORE.map((c) => ({ ...c }));
+  const hits = new Map<string, FfiClass[]>();
+  const nsIndex = new Map<string, Map<string, FfiClass>>();
+  const push = (c: FfiClass, coordinate: string | undefined, ns: string | undefined): void => {
+    const entry = coordinate ? { ...c, maven: c.maven ?? coordinate } : c;
+    if (ns) {
+      let m = nsIndex.get(ns);
+      if (!m) { m = new Map(); nsIndex.set(ns, m); }
+      if (!m.has(c.alias)) m.set(c.alias, entry);
+      return;
+    }
+    const list = hits.get(c.alias) ?? [];
+    list.push(entry);
+    hits.set(c.alias, list);
+  };
+  for (const core of all) push(core, undefined, undefined);
+  for (const lc of loaded) {
+    const ns = nsOf.get(lc.coordinate);
+    for (const c of lc.classes) push(c, lc.eco === 'java' ? lc.coordinate : undefined, ns);
+  }
+  const collisions: CatalogCollision[] = [];
+  for (const [alias, list] of hits) {
+    if (list.length > 1) {
+      collisions.push({
+        alias,
+        coordinates: [...new Set(list.map((c) => c.maven).filter((m): m is string => !!m))],
+      });
+    }
+  }
+  return {
+    byAlias(alias) {
+      const list = hits.get(alias);
+      return list && list.length === 1 ? list[0] : undefined;
+    },
+    byQualified(ns, alias) {
+      return nsIndex.get(ns)?.get(alias);
+    },
+    hitsOf(alias) {
+      return hits.get(alias) ?? [];
+    },
+    member: ffiMember,
+    collisions,
+  };
+}
+
+/** TDSL 语义核别名 → FFI 类（内核五域；工程第三方走 createCatalog） */
 export function ffiByAlias(alias: string): FfiClass | undefined {
-  return FFI_CATALOG.find((c) => c.alias === alias);
+  return FFI_CORE.find((c) => c.alias === alias);
 }
 
 export function ffiMember(c: FfiClass, name: string): FfiMethod | undefined {

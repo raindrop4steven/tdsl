@@ -30,6 +30,7 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 | M7 多文件工程（`parseProject` 分片合并、跨文件全局命名空间引用、诊断带 file、按功能纵向切示例 todo-multi 对拍） | ✅ |
 | M8 CLI（`dsl parse/check/generate/build`，多文件目录入口、app 名清洗、诊断人话化；`packages/cli`，14 单测） | ✅ |
 | M9 在线 TDSL Agent（`npm run server` 嵌入 pi SDK：聊天页+WS 流式、compile_tdsl 裁判、沙箱分片读写、产物落盘+导出 zip；`packages/server`，14 单测；设计见 dev/23） | ✅ |
+| 依赖声明与目录外置（`dependency java/npm` 声明进 AST + bundle-jar 产物外置工程 libs/ + alias 唯一不变式/D-dep 诊断；设计见 dev/32） | ✅ |
 | M3 逻辑补全+typecheck 加深 / M5 数据完整性 / 评测基准 | ⬜ 未开始 |
 
 设计文档：`docs/dev/12~22`（各里程碑）；总路线：`docs/dev/14`；项目级设计：`docs/10_设计/设计总览.md`。
@@ -48,9 +49,9 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 ## 4. 常用命令
 
 ```bash
-npm test              # 八包 vitest（169 个用例）
-npm run typecheck     # 八包 tsc --noEmit
-npm run dsl           # CLI：npm run dsl -- check examples/todo-multi/tdsl（parse/check/generate/build）
+npm test              # 九包 vitest（261 个用例）
+npm run typecheck     # 九包 tsc --noEmit
+npm run dsl           # CLI：npm run dsl -- check examples/todo-multi/tdsl（parse/check/generate/build/bundle-jar）
 npm run slice         # 端到端：todo.tdsl → parse → typecheck → 双端 codegen → mvn compile + vite build
 npm run slice:multi   # M7 多文件端到端：todo-multi 5 个功能域分片 → parseProject → 对拍单文件 → 双端 build
 npm run playground    # 浏览器试验台：http://localhost:5173（左编辑 TDSL，右看诊断/AST/双端代码）
@@ -60,11 +61,11 @@ npm run playground    # 浏览器试验台：http://localhost:5173（左编辑 T
 
 ```
 packages/
-  core/            # 语义核：types.ts(全部节点)/expr/statement/typeref/symbols.ts(M1 分层符号表)/path.ts(nodePath)/id.ts
+  core/            # 语义核：types.ts(全部节点)/expr/statement/typeref/symbols.ts(M1 分层符号表)/path.ts(nodePath)/id.ts/stdlib.ts(FFI 内核五域+createCatalog 目录合并)
   parser/          # lexer.ts + parser.ts（递归下降 + linkApp 短名→nodePath 绑定）
-  typecheck/       # check(app)：悬空引用/ForEach 容器/实体方法与查询链/View binding/外部能力 五类诊断
-  codegen-java/    # generateJava：脚手架/Entity/Repository(QuerySpec 机制)/Structure/Service(@Transactional)/Controller/Feign
-  codegen-react/   # generateReact：脚手架 + M4 真生成(api/hooks/pages/router，antd 组件映射)
+  typecheck/       # check(app,{libs})：悬空引用/ForEach 容器/实体方法与查询链/View binding/外部能力/依赖声明 六类诊断
+  codegen-java/    # generateJava(app,{libs})：脚手架/Entity/Repository(QuerySpec 机制)/Structure/Service(@Transactional)/Controller/Feign；pom 依赖由 dependency 声明驱动
+  codegen-react/   # generateReact：脚手架 + M4 真生成(api/hooks/pages/router，antd 组件映射)；package.json 并入 dependency npm 声明
   llm/             # Prompt Pack：examples.ts(示例矩阵，单测锁定可编译性)/prompt.ts(五层组装)/repair.ts(诊断回流修复)
   playground/      # 浏览器试验台：pipeline.ts(compile 纯函数管线) + Monaco 编辑器 + 四面板（诊断/AST/Java/React）
 examples/todo-app/
@@ -96,6 +97,7 @@ docs/
 | 新增节点类型 | 改 `core/types.ts` 判别联合后，**TS 编译会强制**你补齐所有 `never` 收窄点——顺着报错改完即闭环 |
 | 新增查询形态 | parser `parseCallArgs` 分派 → typecheck `checkChainMethod` 白名单 → codegen-java `QuerySpec`/`derivedMethodName` |
 | 新增页面组件 | parser `parseViewElement` 已通用；typecheck `KNOWN_VIEW_TYPES` + codegen-react `genElement`/`ANTD_OF` |
+| 接入第三方 jar | `dsl bundle-jar <jar> -o <工程>/libs/x.json [--classes 简名]`（坐标自动取 pom.properties）→ 产物人工收窄 → TDSL 写 `dependency java "g:a:v";` → check/generate 自动匹配装载（dev/32） |
 | 排查 typecheck 误报 | 当前策略是"宽松放行"（无法静态推导不报错）；确认是缺陷再收紧，避免破坏 demo |
 
 ## 8. 本机工具链

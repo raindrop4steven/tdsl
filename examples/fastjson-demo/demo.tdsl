@@ -1,4 +1,6 @@
-// fastjson2 FFI 打样：目录精选（core/stdlib）+ Maven 坐标自动注入
+// fastjson2 FFI 打样（dev/32）：dependency 声明 + libs/ 扫描产物 + Maven 坐标声明注入
+dependency java "com.alibaba:fastjson2:2.0.58";
+
 @datasource('defaultDS')
 
 @export

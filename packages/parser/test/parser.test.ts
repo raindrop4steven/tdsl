@@ -848,3 +848,48 @@ function f(x: Integer): Boolean {
     expect((t as { kind: string; message: unknown }).kind).toBe('Throw');
   });
 });
+
+describe('parser/dev32 dependency 声明', () => {
+  it('解析 java 坐标（g:a:v 拆段）', () => {
+    const app = parse(`dependency java "com.alibaba:fastjson2:2.0.58";`);
+    expect(app.dependencies).toHaveLength(1);
+    const d = app.dependencies[0];
+    expect(d.eco).toBe('java');
+    expect(d.name).toBe('com.alibaba:fastjson2');
+    expect(d.version).toBe('2.0.58');
+    expect(d.ns).toBeUndefined();
+  });
+
+  it('解析 java 坐标缺版本 + as 命名空间', () => {
+    const app = parse(`dependency java "com.fasterxml.jackson.core:jackson-databind" as jackson;`);
+    const d = app.dependencies[0];
+    expect(d.version).toBeUndefined();
+    expect(d.ns).toBe('jackson');
+  });
+
+  it('解析 npm 包（@ 切版本，scoped 包名不受影响）', () => {
+    const app = parse(`
+dependency npm "antd@^5.21.0";
+dependency npm "@scope/ui";
+`);
+    expect(app.dependencies).toHaveLength(2);
+    expect(app.dependencies[0]).toMatchObject({ eco: 'npm', name: 'antd', version: '^5.21.0' });
+    expect(app.dependencies[1]).toMatchObject({ eco: 'npm', name: '@scope/ui', version: undefined });
+  });
+
+  it('java 坐标段数非法报语法错误', () => {
+    expect(() => parse(`dependency java "a:b:c:d";`)).toThrow(TdslSyntaxError);
+  });
+
+  it('未知 eco 报语法错误', () => {
+    expect(() => parse(`dependency rust "serde";`)).toThrow(TdslSyntaxError);
+  });
+
+  it('parseProject 合并去重依赖（M7 分片各声明同坐标只留一份）', () => {
+    const app = parseProject([
+      { path: 'a.tdsl', content: `dependency java "g:a:1";` },
+      { path: 'b.tdsl', content: `dependency java "g:a:1";` },
+    ]);
+    expect(app.dependencies).toHaveLength(1);
+  });
+});

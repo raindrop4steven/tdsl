@@ -4,14 +4,15 @@
  * 写盘边界：只有 generate/build 落盘；parse/check 永不写盘。
  */
 import { execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import type { AppNode, GeneratedFile } from '@tdsl/core';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import type { AppNode, GeneratedFile, LoadedCatalog } from '@tdsl/core';
 import { generateJava } from '@tdsl/codegen-java';
 import { generateReact } from '@tdsl/codegen-react';
 import { parseProject, TdslSyntaxError } from '@tdsl/parser';
 import { check, type Diagnostic } from '@tdsl/typecheck';
-import type { TdslInput } from './input';
+import { loadLibs, type TdslInput } from './input';
 
 export interface CommandResult {
   code: number;
@@ -43,12 +44,12 @@ export function runParse(input: TdslInput, json: boolean): CommandResult {
   return { code: 0, stdout, app };
 }
 
-/** check：parse + typecheck，诊断人话化输出 */
+/** check：parse + typecheck（含 libs 产物装载），诊断人话化输出 */
 export function runCheck(input: TdslInput): CommandResult {
   const { app, code, message } = compile(input);
   if (!app) return { code, stdout: message! };
 
-  const result = check(app);
+  const result = check(app, { libs: loadLibs(input.baseDir) });
   if (result.ok) {
     return { code: 0, stdout: `✓ ${input.appName}: 0 问题`, app };
   }
@@ -60,7 +61,8 @@ export function runGenerate(input: TdslInput, outDir: string, targets: { java: b
   const { app, code, message } = compile(input);
   if (!app) return { code, stdout: message!, wrote: [] };
 
-  const java = targets.java ? generateJava(app) : [];
+  const libs = loadLibs(input.baseDir);
+  const java = targets.java ? generateJava(app, { libs }) : [];
   const react = targets.react ? generateReact(app) : [];
   // 双端各写各的子目录（与 runBuild 的 outDir/{java,react} 声明一致；合写根目录会混树）
   if (targets.java) writeAll(join(outDir, 'java'), java);
@@ -162,8 +164,8 @@ function parseJavapBody(text: string): Array<{ name: string; static: boolean; pa
   return members;
 }
 
-/** jar → 目录 JSON：javap 逐类签名 → 不对称目录（backend-only 选写） */
-export function runBundleJar(jarPath: string, outPath: string, opts: { classes?: string[] } = {}): BundleResult {
+/** jar → 目录 JSON（dev/32 头对象形态）：javap 逐类签名 → 不对称目录（backend-only 选写） */
+export function runBundleJar(jarPath: string, outPath: string, opts: { classes?: string[]; coord?: string } = {}): BundleResult {
   let text = '';
   try {
     // 类清单：jar tf
@@ -181,6 +183,7 @@ export function runBundleJar(jarPath: string, outPath: string, opts: { classes?:
     if (classes.length === 0) {
       return { code: 1, stdout: `jar 中无可编目类（或过滤条件未命中）: ${jarPath}` };
     }
+    const coordinate = deriveCoordinate(jarPath, opts.coord);
     const chunks = classes.map((cls) => {
       let jp = '';
       try {
@@ -197,11 +200,49 @@ export function runBundleJar(jarPath: string, outPath: string, opts: { classes?:
         members,
       }, null, 2);
     }).filter((x) => x !== '');
-    const catalog = `[\n${chunks.map((c) => '  ' + c.replaceAll('\n', '\n  ')).join(',\n')}\n]\n`;
+    const catalog = `{
+  "eco": "java",
+  "coordinate": ${JSON.stringify(coordinate)},
+  "classes": [
+${chunks.map((c) => '    ' + c.replaceAll('\n', '\n    ')).join(',\n')}
+  ]
+}
+`;
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, catalog, 'utf8');
-    return { code: 0, stdout: `✓ 并入 ${classes.length} 类 → ${outPath}（frontend:false；重编译前请合并到 typecheck ffiDirs）` };
+    return { code: 0, stdout: `✓ 并入 ${classes.length} 类 → ${outPath}（coordinate=${coordinate}；放到工程 libs/ 目录后由 dependency 声明匹配生效）` };
   } catch (e) {
     return { code: 1, stdout: `bundle-jar 失败: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}（需要 JDK：jar/javap）` };
   }
+}
+
+/** 产物坐标：--coord 覆盖 → jar 内 META-INF/maven 下 pom.properties → 文件名 stem 猜测（?:artifact:version，须人工 --coord 修正） */
+function deriveCoordinate(jarPath: string, coordFlag?: string): string {
+  if (coordFlag) return coordFlag;
+  try {
+    const tf = execSync(`jar tf "${jarPath}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+    const entry = tf
+      .split('\n')
+      .map((s) => s.trim())
+      .find((s) => s.startsWith('META-INF/maven/') && s.endsWith('/pom.properties'));
+    if (entry) {
+      const tmp = mkdtempSync(join(tmpdir(), 'tdsl-bundle-'));
+      try {
+        execSync(`jar xf "${resolve(jarPath)}" "${entry}"`, { cwd: tmp, stdio: 'ignore' });
+        const props = readFileSync(join(tmp, entry), 'utf8');
+        const get = (k: string): string | undefined => new RegExp(`^${k}=(.*)$`, 'm').exec(props)?.[1]?.trim();
+        const g = get('groupId');
+        const a = get('artifactId');
+        const v = get('version');
+        if (g && a && v) return `${g}:${a}:${v}`;
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
+    }
+  } catch {
+    // fallthrough to filename guess
+  }
+  const stem = basename(jarPath).replace(/\.jar$/i, '');
+  const m = /^(.*)-([0-9][^-]*)$/.exec(stem);
+  return m ? `?:${m[1]}:${m[2]}` : `?:${stem}`;
 }

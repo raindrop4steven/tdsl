@@ -64,6 +64,7 @@ function sampleApp(): AppNode {
     views: [],
     services: [],
     components: [],
+    dependencies: [],
   };
 }
 

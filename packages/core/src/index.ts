@@ -17,6 +17,7 @@ export type {
   BaseNode,
   BindingNode,
   DataSourceNode,
+  DependencyNode,
   EndpointNode,
   EntityNode,
   EntityPropertyNode,
@@ -39,5 +40,5 @@ export type {
 export type { BuiltinType, TypeRef } from './typeref';
 export type { Expr, LiteralExpr } from './expr';
 export type { Statement } from './statement';
-export type { FfiClass, FfiMethod, FfiParamType } from './stdlib';
-export { FFI_CATALOG, ffiByAlias, ffiMember } from './stdlib';
+export type { CatalogCollision, EffectiveCatalog, FfiClass, FfiMethod, FfiParamType, LoadedCatalog } from './stdlib';
+export { FFI_CORE, createCatalog, depCoordinate, depMatches, ffiByAlias, ffiMember } from './stdlib';

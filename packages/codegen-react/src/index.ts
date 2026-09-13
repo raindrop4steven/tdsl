@@ -85,13 +85,21 @@ export function generateReact(app: AppNode): GeneratedFile[] {
 function projectFiles(app: AppNode): GeneratedFile[] {
   const name = `${app.name}-react`;
   const hasViews = app.views.length > 0;
-  const routerDep = hasViews ? `,\n    "react-router-dom": "^6.30.0"` : '';
-  // antd：页面声明（M4）默认 UI 组件库，提供样式；dayjs：DatePicker 值转换（antd 生态标准）
-  const antdDep = hasViews ? `,\n    "antd": "^5.0.0",\n    "dayjs": "^1.11.0"` : '';
-  // 第三方组件依赖（component 注册的 pkg）
-  const compDeps = app.components
-    .map((c) => `,\n    "${c.pkg}": "*"`)
-    .join('');
+  // npm 依赖集合（dev/32）：页面骨架默认项 → component 注册 → dependency npm 声明（声明版本优先覆盖）
+  const depEntries = new Map<string, string>();
+  if (hasViews) {
+    // antd：页面声明（M4）默认 UI 组件库，提供样式；dayjs：DatePicker 值转换（antd 生态标准）
+    depEntries.set('react-router-dom', '^6.30.0');
+    depEntries.set('antd', '^5.0.0');
+    depEntries.set('dayjs', '^1.11.0');
+  }
+  for (const c of app.components) {
+    if (!depEntries.has(c.pkg)) depEntries.set(c.pkg, '*');
+  }
+  for (const d of app.dependencies) {
+    if (d.eco === 'npm') depEntries.set(d.name, d.version ?? '*');
+  }
+  const npmDeps = [...depEntries].map(([n, v]) => `,\n    "${n}": "${v}"`).join('');
   const mainContent = hasViews
     ? `import React from 'react';
 import ReactDOM from 'react-dom';
@@ -155,7 +163,7 @@ registry=https://registry.npmjs.org/`,
   },
   "dependencies": {
     "react": "17.0.2",
-    "react-dom": "17.0.2"${antdDep}${routerDep}${compDeps}
+    "react-dom": "17.0.2"${npmDeps}
   },
   "devDependencies": {
     "@types/react": "^17.0.10",

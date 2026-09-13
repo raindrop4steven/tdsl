@@ -586,3 +586,47 @@ interface Api {
     expect(files.find((f) => f.path.endsWith('TdslError.java'))).toBeDefined();
     expect(files.find((f) => f.path.endsWith('GlobalAdvice.java'))!.content).toContain('@RestControllerAdvice');
   });
+
+describe('codegen-java dev/32 依赖声明驱动 pom', () => {
+  it('dependency java 声明 → pom <dependencies>（版本缺省取产物坐标）', () => {
+    const files = generateJava(parse(`
+dependency java "com.alibaba:fastjson2";
+dependency java "com.other:lib:1.2.3";
+@export
+logic f(): Boolean { return true; }
+`), { libs: [{ eco: 'java', coordinate: 'com.alibaba:fastjson2:2.0.58', classes: [] }] });
+    const pom = files.find((f) => f.path === 'pom.xml')!.content;
+    expect(pom).toContain('<groupId>com.alibaba</groupId>');
+    expect(pom).toContain('<artifactId>fastjson2</artifactId>');
+    expect(pom).toContain('<version>2.0.58</version>');
+    expect(pom).toContain('<artifactId>lib</artifactId>');
+    expect(pom).toContain('<version>1.2.3</version>');
+  });
+
+  it('无依赖声明 → pom 无第三方依赖（不再从目录反推）', () => {
+    const files = generateJava(parse(`
+@export
+logic f(o: Object): String { return JSON.toJSONString(o); }
+`), { libs: [{
+      eco: 'java',
+      coordinate: 'com.alibaba:fastjson2:2.0.58',
+      classes: [{ class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', members: [{ name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' }] }],
+    }] });
+    const pom = files.find((f) => f.path === 'pom.xml')!.content;
+    expect(pom).not.toContain('fastjson2');
+  });
+
+  it('依赖产物类 import 走 FQN（service 文件）', () => {
+    const files = generateJava(parse(`
+dependency java "com.alibaba:fastjson2:2.0.58";
+@export
+logic f(o: Object): String { return JSON.toJSONString(o); }
+`), { libs: [{
+      eco: 'java',
+      coordinate: 'com.alibaba:fastjson2:2.0.58',
+      classes: [{ class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', members: [{ name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' }] }],
+    }] });
+    const svc = files.find((f) => f.path.includes('service') && f.content.includes('toJSONString'))!;
+    expect(svc.content).toContain('import com.alibaba.fastjson2.JSON;');
+  });
+});

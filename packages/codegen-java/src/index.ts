@@ -1,20 +1,23 @@
 import {
+  createCatalog,
   createVarScope,
+  depMatches,
   lookupVar,
   type AppNode,
+  type EffectiveCatalog,
   type EndpointNode,
   type EntityNode,
   type EnumNode,
   type Expr,
   type GeneratedFile,
   type InterfaceNode,
+  type LoadedCatalog,
   type LogicNode,
   type ServiceNode,
   type Statement,
   type StructureNode,
   type VarScope,
 } from '@tdsl/core';
-import { ffiByAlias } from '@tdsl/core';
 import { cap, javaType, typeNameFromPath } from './type-map';
 
 /** app 名转包名：com.<name>；必须为合法 Java 标识符（M7 app 名参数化后防御） */
@@ -269,13 +272,19 @@ function collectUsedServices(app: AppNode, logic: LogicNode): ServiceNode[] {
 }
 
 /** 生成完整 Spring Boot 工程文件列表 */
-export function generateJava(app: AppNode): GeneratedFile[] {
+export interface GenerateJavaOptions {
+  /** 工程侧 FFI 扫描产物（libs/*.json，dev/32）：第三方类 import FQN 解析用 */
+  libs?: LoadedCatalog[];
+}
+
+export function generateJava(app: AppNode, opts: GenerateJavaOptions = {}): GeneratedFile[] {
   const files: GeneratedFile[] = [];
   const pkg = pkgOf(app);
+  const cat = createCatalog(opts.libs ?? [], app.dependencies);
   const entities = app.datasources.flatMap((ds) => ds.entities);
   const querySpecs = collectQuerySpecs(app);
 
-  files.push(...scaffoldFiles(app));
+  files.push(...scaffoldFiles(app, opts.libs ?? []));
   // 枚举类（实体/结构体/Controller 可能引用，先于实体生成）
   for (const en of app.enums) {
     files.push(enumFile(pkg, en));
@@ -291,7 +300,7 @@ export function generateJava(app: AppNode): GeneratedFile[] {
     files.push(serviceApiFile(pkg, svc));
   }
   for (const logic of app.logics) {
-    files.push(serviceFile(app, logic));
+    files.push(serviceFile(app, logic, cat));
   }
   for (const itf of app.interfaces) {
     files.push(controllerFile(app, itf));
@@ -417,7 +426,7 @@ ${gettersSetters}
 
 // ---------- 工程脚手架 ----------
 
-function scaffoldFiles(app: AppNode): GeneratedFile[] {
+function scaffoldFiles(app: AppNode, libs: LoadedCatalog[]): GeneratedFile[] {
   const pkg = pkgOf(app);
 
   // 外部服务依赖：dubbo → dubbo starter；bean(jar) → jar 坐标；http → openfeign
@@ -450,36 +459,23 @@ function scaffoldFiles(app: AppNode): GeneratedFile[] {
     .filter(Boolean)
     .join('\n');
 
-  // FFI 目录驱动依赖注入（dev/27）：只取带 maven 坐标的（import 归 serviceFile 阶段处理）
-  const usedFfi = new Set<string>();
-  for (const l of app.logics) {
-    for (const st of l.body) {
-      const exprs: Expr[] = [];
-      if (st.kind === 'VarDecl' && st.init) exprs.push(st.init);
-      if (st.kind === 'Assign') { exprs.push(st.target, st.value); }
-      if (st.kind === 'Return' && st.value) exprs.push(st.value);
-      if (st.kind === 'If') { exprs.push(st.cond); }
-      if (st.kind === 'ForEach') { exprs.push(st.container); }
-      if (st.kind === 'CallStmt') { exprs.push(st.call); }
-      exprs.forEach((e) => {
-        const c2 = new Set<string>();
-        collectFfiClassesInExpr(e, c2);
-        for (const fqn of c2) {
-          const cls = ffiByAlias(fqn.split('.').pop() ?? fqn);
-          if (cls?.maven) usedFfi.add(cls.maven);
-        }
-      });
-    }
-  }
-  const mavenDeps = [...usedFfi]
-    .map((coord) => {
-      const [g, a, v] = coord.split(':');
+  // 依赖声明驱动（dev/32）：dependency java 声明 → pom <dependencies>；版本缺省取扫描产物坐标
+  const declaredDeps = app.dependencies
+    .filter((d) => d.eco === 'java')
+    .map((d) => {
+      const version =
+        d.version ??
+        libs.find((lc) => lc.eco === 'java' && depMatches(d, lc.coordinate))?.coordinate.split(':')[2];
+      if (!version) return '';
+      const [g, a] = d.name.split(':');
+      if (!g || !a) return '';
       return `    <dependency>
       <groupId>${g}</groupId>
       <artifactId>${a}</artifactId>
-      <version>${v}</version>
+      <version>${version}</version>
     </dependency>`;
     })
+    .filter(Boolean)
     .join('\n');
 
   return [
@@ -516,7 +512,7 @@ function scaffoldFiles(app: AppNode): GeneratedFile[] {
       <scope>runtime</scope>
     </dependency>
 ${serviceDeps}
-${mavenDeps}
+${declaredDeps}
   </dependencies>
   <build>
     <plugins>
@@ -1006,7 +1002,7 @@ ${methodBlock}}
 
 // ---------- Logic → Service ----------
 
-function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
+function serviceFile(app: AppNode, logic: LogicNode, cat: EffectiveCatalog): GeneratedFile {
   const pkg = pkgOf(app);
   const className = `${cap(logic.name)}Service`;
   const usedEntities = collectUsedEntities(app, logic);
@@ -1068,8 +1064,8 @@ function serviceFile(app: AppNode, logic: LogicNode): GeneratedFile {
     ...(transactionalImport ? [transactionalImport.trim()] : []),
     ...(usedEntities.size > 0 ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
     ...(app.enums.length > 0 ? [`import ${pkg}.enums.*;`] : []),
-    // FFI 目录类 import（logic 体使用的目录类全限定——fastjson2 类须显式 import）
-    ...(importsForFfiCollect(collectFfiExprsOfLogic(logic))),
+    // FFI 目录类 import（logic 体使用的目录类全限定——第三方依赖产物类须显式 import）
+    ...(importsForFfiCollect(collectFfiExprsOfLogic(logic), cat)),
     // logic 间调用注入（@Autowired 字段）
     ...(collectUsedLogics(app, logic).length > 0 ? ['import org.springframework.beans.factory.annotation.Autowired;'] : []),
     // 外部服务注入注解 import
@@ -1869,20 +1865,24 @@ public class GlobalAdvice {
   };
 }
 
-/** logic 表达式树内的 FFI 类全限定名收集（含 maven 坐标目录类）——scaffold 依赖注入 + service import 共用 */
-function collectFfiClassesInExpr(e: Expr, out: Set<string>): void {
+/** logic 表达式树内的 FFI 类全限定名收集（内核五域 + 依赖产物类）——service import 共用 */
+function collectFfiClassesInExpr(e: Expr, out: Set<string>, cat: EffectiveCatalog): void {
   if (e.kind === 'Call' && e.callee.kind === 'Member') {
     if (e.callee.obj.kind === 'Ident') {
-      const cls = ffiByAlias(e.callee.obj.name);
+      const cls = cat.byAlias(e.callee.obj.name);
+      if (cls) out.add(cls.class);
+    } else if (e.callee.obj.kind === 'Member' && e.callee.obj.obj.kind === 'Ident') {
+      // ns.Alias.method(...) —— dependency ... as ns 限定引用
+      const cls = cat.byQualified(e.callee.obj.obj.name, e.callee.obj.prop);
       if (cls) out.add(cls.class);
     }
-    collectFfiClassesInExpr(e.callee, out);
-    e.args.forEach((a) => collectFfiClassesInExpr(a, out));
+    collectFfiClassesInExpr(e.callee, out, cat);
+    e.args.forEach((a) => collectFfiClassesInExpr(a, out, cat));
     return;
   }
-  if (e.kind === 'Member') { collectFfiClassesInExpr(e.obj, out); return; }
-  if (e.kind === 'Binary') { collectFfiClassesInExpr(e.left, out); collectFfiClassesInExpr(e.right, out); return; }
-  if (e.kind === 'Group') { collectFfiClassesInExpr(e.expr, out); return; }
+  if (e.kind === 'Member') { collectFfiClassesInExpr(e.obj, out, cat); return; }
+  if (e.kind === 'Binary') { collectFfiClassesInExpr(e.left, out, cat); collectFfiClassesInExpr(e.right, out, cat); return; }
+  if (e.kind === 'Group') { collectFfiClassesInExpr(e.expr, out, cat); return; }
 }
 
 
@@ -1902,8 +1902,8 @@ function collectFfiExprsOfLogic(l: LogicNode): Expr[] {
 }
 
 /** logic 上使用的 FFI 类 import 行 */
-function importsForFfiCollect(exprs: Expr[]): string[] {
+function importsForFfiCollect(exprs: Expr[], cat: EffectiveCatalog): string[] {
   const cls = new Set<string>();
-  for (const e of exprs) collectFfiClassesInExpr(e, cls);
+  for (const e of exprs) collectFfiClassesInExpr(e, cls, cat);
   return [...cls].map((c) => `import ${c};`);
 }

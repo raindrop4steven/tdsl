@@ -5,6 +5,7 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import type { LoadedCatalog } from '@tdsl/core';
 import type { TdslSourceFile } from '@tdsl/parser';
 
 export interface TdslInput {
@@ -66,4 +67,37 @@ export function sanitizeAppName(raw: string): string {
   if (name === '') return 'app';
   if (!/^[A-Za-z]/.test(name)) name = 'app' + name;
   return name;
+}
+
+/**
+ * 装载工程侧 FFI 扫描产物（dev/32）：约定 <tdsl 所在目录>/libs/*.json。
+ * 目录不存在或无产物 → 空数组（不报错——纯内核 app 无需 libs）。
+ */
+export function loadLibs(baseDir: string): LoadedCatalog[] {
+  const libsDir = join(baseDir, 'libs');
+  let names: string[];
+  try {
+    names = readdirSync(libsDir).filter((f) => f.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const libs: LoadedCatalog[] = [];
+  for (const f of names) {
+    const p = join(libsDir, f);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(p, 'utf8'));
+    } catch {
+      throw new CliError(`libs 产物 JSON 解析失败: ${p}`);
+    }
+    const o = parsed as Partial<LoadedCatalog>;
+    if (
+      !o || typeof o !== 'object' || typeof o.coordinate !== 'string' ||
+      (o.eco !== 'java' && o.eco !== 'npm') || !Array.isArray(o.classes)
+    ) {
+      throw new CliError(`libs 产物格式非法（须为 { eco, coordinate, classes } 头对象）: ${p}`);
+    }
+    libs.push({ file: p, eco: o.eco, coordinate: o.coordinate, classes: o.classes });
+  }
+  return libs;
 }

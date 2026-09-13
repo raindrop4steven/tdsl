@@ -77,3 +77,11 @@
 - 存量余项：javap descriptor 精析（当前手收窄）、npm/d.ts 前端口径、重载去重。
 - 下一环推荐序：**C4 评测基线（jxc 样卷已齐 → 第一份 LLM 生成质量数据）→ C1 小补丁 → A3 selection → B3 SDK .d.ts（收官键）**。
 - 用户意图校准：语言完备度的验收姿势变了——**从"我们手写全覆盖"转向"LLM 生成 + 编译器裁判 + spec 对拍"的自动化验证链**；评测跑完后，剩余任务的推进方式都按"go 循环"走（LLM 干活、人 Gate）。剩余主线人力估 1~2 天。
+
+## 2026-09-13 会话追加（dev/32 依赖声明与目录外置）
+- **架构纠偏（用户提出）**：第三方 jar 扫描清单硬编码在 core/stdlib.ts 是入侵语言核心——fastjson2 两条从 FFI_CATALOG 移出，core 只留语言自有五域（String/Decimal/Date/DateTime/List，属语义核类型定义）。
+- **两件套落地**：①`dependency java "g:a:v" [as ns]` / `dependency npm "pkg@range"` 顶层声明进 AST（AppNode.dependencies）；②bundle-jar 产物升级带头对象 `{eco, coordinate, classes}`（坐标自动取 jar 内 pom.properties，--coord 可覆盖），落工程 libs/，check/generate 经 opts.libs 装载、createCatalog 坐标匹配合并。
+- **同名类消解（用户补位设计）**：fastjson/fastjson2/jackson 都有 JSON → alias 全局唯一不变式 + D-dep-4 撞车诊断；消解二选一：产物改 alias（首选）或 `dependency ... as ns` 限定引用（对标 M1 ds.Entity）。
+- pom 依赖注入从"目录 maven 字段反推"改为声明驱动；react package.json 并入 dependency npm 声明（声明版本覆盖 component 默认 `*`）。
+- 交付：261 单测全绿（+28）、fastjson-demo 迁移真机双端 build ✓、jxc spec 100% 不回归。
+- 余项：ffiCheckExpr 不递归 Binary（存量宽松）→ 包在比较里的第三方调用不触发 D-dep-1；ns 限定未声明依赖宽松放行（避免 ds.Entity/enum 误报）；npm d.ts 投影仅留字段位（B3）。

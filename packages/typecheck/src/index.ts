@@ -1,17 +1,21 @@
 import {
+  depCoordinate,
+  depMatches,
   nodePathOf,
   resolve,
   type AppNode,
   type BaseNode,
   type BindingNode,
+  type EffectiveCatalog,
   type EntityNode,
   type Expr,
+  type LoadedCatalog,
   type ServiceNode,
   type Statement,
   type TypeRef,
   type ViewElementNode,
 } from '@tdsl/core';
-import { ffiByAlias, ffiMember, type FfiParamType, type LogicNode } from '@tdsl/core';
+import { createCatalog, ffiByAlias, type FfiParamType, type LogicNode } from '@tdsl/core';
 
 export interface Diagnostic {
   path: string;
@@ -26,6 +30,11 @@ export interface Diagnostic {
 export interface CheckResult {
   ok: boolean;
   diagnostics: Diagnostic[];
+}
+
+export interface CheckOptions {
+  /** 工程侧 FFI 扫描产物（libs/*.json，dev/32）：与 dependency 声明坐标匹配合并进有效目录 */
+  libs?: LoadedCatalog[];
 }
 
 /** 遍历 app 内所有 TypeRef（含泛型参数），owner 为持有该类型的节点 */
@@ -119,9 +128,11 @@ function forEachStatement(stmts: Statement[], fn: (st: Statement) => void): void
 }
 
 /** 最小类型检查：引用绑定（悬空引用诊断）+ ForEach 容器必须为 X.all（X 为实体） */
-export function check(app: AppNode): CheckResult {
+export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
   const diagnostics: Diagnostic[] = [];
   const ownerPath = (owner: BaseNode): string => nodePathOf(app, owner) ?? 'app';
+  const cat = createCatalog(opts.libs ?? [], app.dependencies);
+  const usedCoords = new Set<string>();
 
   // 1. 悬空引用：所有 reference 必须能 resolve（Object 内建兜底放行）
   forEachTypeRef(app, (tr, owner) => {
@@ -185,8 +196,11 @@ export function check(app: AppNode): CheckResult {
 
   // 4.6. FFI 目录（dev/27）：receiver 类型已知的成员调用查目录；未知类型放行
   for (const l of app.logics) {
-    checkFfi(app, l, diagnostics, ownerPath);
+    checkFfi(cat, app, l, diagnostics, ownerPath, usedCoords);
   }
+
+  // 4.7 依赖声明与目录一致性（dev/32）：D-dep-1/2/3/4
+  checkDependencies(app, cat, opts.libs ?? [], usedCoords, diagnostics, ownerPath);
 
   // 4.5. 外部服务：kind 合法；http 操作必须带 method + path；调用方校验在 checkEntityCalls 内
   for (const s of app.services) {
@@ -855,6 +869,7 @@ function typeRefToFfiAlias(tr: TypeRef): FfiParamType | undefined {
 }
 
 function exprToFfiAlias(
+  cat: EffectiveCatalog,
   app: AppNode,
   e: Expr | undefined,
   vars: Map<string, FfiParamType>,
@@ -868,60 +883,85 @@ function exprToFfiAlias(
   if (e.kind === 'New') return typeRefToFfiAlias(e.type);
   if (e.kind === 'Call' && e.callee.kind === 'Member') {
     // 链式：recv.trim().toUpperCase() —— recv 类型已知（含递归成员链）则结果类型可传播
-    const t = exprFfiAliasOfReceivers(app, e.callee.obj, vars);
+    const t = exprFfiAliasOfReceivers(cat, app, e.callee.obj, vars);
     if (t) {
-      const c = ffiByAlias(t);
-      const m = c ? ffiMember(c, e.callee.prop) : undefined;
+      const c = cat.byAlias(t);
+      const m = c ? cat.member(c, e.callee.prop) : undefined;
       if (m && m.ret !== 'Object') return m.ret;
       return undefined;
     }
   }
   return undefined;
-  return undefined;
 }
 
 /** 递归展开接收者链，返回可信别名（不追实体/未知段） */
 function exprFfiAliasOfReceivers(
+  cat: EffectiveCatalog,
   app: AppNode,
   recv: Expr,
   vars: Map<string, FfiParamType>,
 ): FfiParamType | undefined {
   if (recv.kind === 'Ident') return vars.get(recv.name) ?? undefined;
-  return exprToFfiAlias(app, recv, vars);
+  return exprToFfiAlias(cat, app, recv, vars);
 }
 
 function ffiCheckExpr(
+  cat: EffectiveCatalog,
   app: AppNode,
   e: Expr,
   vars: Map<string, FfiParamType>,
   owner: BaseNode,
   diagnostics: Diagnostic[],
   ownerPath: (n: BaseNode) => string,
+  usedCoords: Set<string>,
 ): void {
   if (e.kind === 'Call' && e.callee.kind === 'Member') {
     const recvObj = e.callee.obj;
-    // 接收者类型：变量表 / 目录别名（静态调用）/ 链上成员 ret
+    // 接收者类型：变量表 / 目录别名（静态调用）/ ns 限定（dependency as ns）/ 链上成员 ret
     let alias: FfiParamType | undefined;
     let isStatic = false;
+    let nsCls: ReturnType<EffectiveCatalog['byQualified']> | undefined;
     if (recvObj.kind === 'Ident') {
       const v = vars.get(recvObj.name);
       if (v) {
         alias = v;
-      } else if (ffiByAlias(recvObj.name)) {
+      } else if (cat.byAlias(recvObj.name)) {
         alias = recvObj.name as FfiParamType;
         isStatic = true;
       }
+    } else if (recvObj.kind === 'Member' && recvObj.obj.kind === 'Ident') {
+      // ns.Alias.method(...) —— dependency ... as ns 的限定引用
+      const c = cat.byQualified(recvObj.obj.name, recvObj.prop);
+      if (c) nsCls = c;
     } else {
-      const inferChain = exprToFfiAlias(app, recvObj, vars);
+      const inferChain = exprToFfiAlias(cat, app, recvObj, vars);
       if (inferChain) alias = inferChain;
     }
     // 实体接收者/数据源限定名交给实体检查，避免重复报
-    if (alias) {
+    if (nsCls) {
+      const prop = e.callee.prop;
+      const m = cat.member(nsCls, prop);
+      if (nsCls.maven) usedCoords.add(nsCls.maven);
+      if (!m) {
+        diagnostics.push({
+          path: ownerPath(owner),
+          message: `成员 ${nsCls.alias}.${prop} 不在依赖 ${nsCls.maven ?? ''} 的扫描产物（可用成员：${nsCls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——请重跑 dsl bundle-jar 更新产物`,
+          severity: 'error',
+        });
+      } else if (m && !m.static) {
+        diagnostics.push({
+          path: ownerPath(owner),
+          message: `${nsCls.alias}.${prop} 是实例方法，须先实例化再调用`,
+          severity: 'error',
+        });
+      }
+    } else if (alias) {
       const isEntityRecv = recvObj.kind === 'Ident' && !!resolveEntity(app, recvObj.name);
       if (!isEntityRecv) {
-        const cls = ffiByAlias(alias);
+        const cls = cat.byAlias(alias);
         const prop = e.callee.prop;
-        const m = cls ? ffiMember(cls, prop) : undefined;
+        const m = cls ? cat.member(cls, prop) : undefined;
+        if (cls?.maven) usedCoords.add(cls.maven);
         if (cls && !m) {
           diagnostics.push({
             path: ownerPath(owner),
@@ -946,20 +986,22 @@ function ffiCheckExpr(
     }
   } else if (e.kind === 'Member') {
     // 递归 obj 链（如 a.b().c），保证深层调用也被看见
-    ffiCheckExpr(app, e.obj, vars, owner, diagnostics, ownerPath);
+    ffiCheckExpr(cat, app, e.obj, vars, owner, diagnostics, ownerPath, usedCoords);
   }
   // 递归表达式子树
   if (e.kind === 'Call') {
-    if (e.callee.kind === 'Member') ffiCheckExpr(app, e.callee.obj, vars, owner, diagnostics, ownerPath);
-    e.args.forEach((a) => ffiCheckExpr(app, a, vars, owner, diagnostics, ownerPath));
+    if (e.callee.kind === 'Member') ffiCheckExpr(cat, app, e.callee.obj, vars, owner, diagnostics, ownerPath, usedCoords);
+    e.args.forEach((a) => ffiCheckExpr(cat, app, a, vars, owner, diagnostics, ownerPath, usedCoords));
   }
 }
 
 function checkFfi(
+  cat: EffectiveCatalog,
   app: AppNode,
   l: LogicNode,
   diagnostics: Diagnostic[],
   ownerPath: (n: BaseNode) => string,
+  usedCoords: Set<string>,
 ): void {
   const vars = new Map<string, FfiParamType>();
   // 参数类型入表
@@ -970,7 +1012,7 @@ function checkFfi(
   forEachStatement(l.body, (st) => {
     // VarDecl 声明进类型表（显式 type 或 init 推断）
     if (st.kind === 'VarDecl') {
-      const t = st.type ? typeRefToFfiAlias(st.type) : exprToFfiAlias(app, st.init, vars);
+      const t = st.type ? typeRefToFfiAlias(st.type) : exprToFfiAlias(cat, app, st.init, vars);
       if (t) vars.set(st.name, t);
     }
     // 收集表达式逐个校验
@@ -981,8 +1023,63 @@ function checkFfi(
     if (st.kind === 'If') exprs.push(st.cond);
     if (st.kind === 'ForEach') exprs.push(st.container);
     if (st.kind === 'CallStmt') exprs.push(st.call);
-    for (const e of exprs) ffiCheckExpr(app, e, vars, l, diagnostics, ownerPath);
+    for (const e of exprs) ffiCheckExpr(cat, app, e, vars, l, diagnostics, ownerPath, usedCoords);
   });
+}
+
+// ---------- 4.7 依赖声明与目录一致性（dev/32）----------
+
+function checkDependencies(
+  app: AppNode,
+  cat: EffectiveCatalog,
+  libs: LoadedCatalog[],
+  usedCoords: Set<string>,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  // D-dep-4：alias 撞车（同名类跨 jar / 与内核五域冲突）
+  for (const c of cat.collisions) {
+    diagnostics.push({
+      path: 'app',
+      message: `类别名 ${c.alias} 在多个来源重名（${c.coordinates.join(' , ')}）——请在产物 JSON 中修改 alias，或用 dependency ... as <ns> 限定引用`,
+      severity: 'error',
+    });
+  }
+  for (const d of app.dependencies) {
+    if (d.eco !== 'java') continue; // npm 声明只进 package.json，无产物要求
+    const matched = libs.filter((lc) => lc.eco === 'java' && depMatches(d, lc.coordinate));
+    if (matched.length === 0) {
+      // D-dep-2：声明无产物
+      diagnostics.push({
+        path: ownerPath(d),
+        message: `依赖 ${depCoordinate(d)} 已声明但 libs/ 无匹配扫描产物——运行 dsl bundle-jar <jar> -o libs/<名>.json 并入`,
+        severity: 'warning',
+      });
+      continue;
+    }
+    // D-dep-3：版本漂移（按 g:a 匹配后比对版本段）
+    if (d.version) {
+      for (const lc of matched) {
+        if (lc.coordinate !== depCoordinate(d)) {
+          diagnostics.push({
+            path: ownerPath(d),
+            message: `依赖版本漂移：声明 ${depCoordinate(d)}，扫描产物为 ${lc.coordinate}`,
+            severity: 'warning',
+          });
+        }
+      }
+    }
+  }
+  // D-dep-1：用了未声明（裸 alias 命中带坐标的产物类）
+  for (const coord of usedCoords) {
+    if (!app.dependencies.some((d) => d.eco === 'java' && depMatches(d, coord))) {
+      diagnostics.push({
+        path: 'app',
+        message: `使用了第三方库 ${coord} 但未声明依赖——请补 dependency java "${coord}"`,
+        severity: 'error',
+      });
+    }
+  }
 }
 
 // ---------- G2：form 表达式域（dev/29）----------
@@ -1014,7 +1111,7 @@ function exprIdents(e: Expr, out: Set<string>): void {
   }
 }
 
-/** derive/carryBy 语义均可见者：目录别名 / 已知目录类名（静态）/ 实体 / 上下文 */
+/** derive/carryBy 语义均可见者：目录别名 / 已知目录类名（静态）/ 实体 / 上下文（前端面只看内核五域，第三方默认 backend-only） */
 function knownFrontendIdent(app: AppNode, name: string): boolean {
   if (ffiByAlias(name)) return true;
   if (resolveEntity(app, name)) return true;

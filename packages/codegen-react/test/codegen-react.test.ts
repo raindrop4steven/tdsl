@@ -566,3 +566,32 @@ page BillForm {
     expect(page).toContain('不能小于');
   });
 });
+
+describe('codegen-react dev/32 dependency npm 声明进 package.json', () => {
+  it('dependency npm 声明注入依赖，声明版本覆盖默认项', () => {
+    const files = generateReact(parse(`
+dependency npm "antd@^5.21.0";
+dependency npm "lodash-es@^4.17.21";
+@export
+logic f(): Boolean { return true; }
+`));
+    const pkg = files.find((f) => f.path === 'package.json')!.content;
+    expect(pkg).toContain('"antd": "^5.21.0"');
+    expect(pkg).toContain('"lodash-es": "^4.17.21"');
+    expect(pkg.match(/"antd"/g)).toHaveLength(1);
+  });
+
+  it('component 注册的 pkg 已被 dependency 声明时不重复注入', () => {
+    const files = generateReact(parse(`
+dependency npm "echarts-for-react@^3.0.2";
+component ECharts {
+  pkg: 'echarts-for-react';
+  defaultProps: { option: Json };
+  events: ['onClick'];
+}
+`));
+    const pkg = files.find((f) => f.path === 'package.json')!.content;
+    expect(pkg).toContain('"echarts-for-react": "^3.0.2"');
+    expect(pkg.match(/echarts-for-react/g)).toHaveLength(1);
+  });
+});

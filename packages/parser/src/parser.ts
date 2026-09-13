@@ -8,6 +8,7 @@ import {
   type BindingNode,
   type BaseNode,
   type DataSourceNode,
+  type DependencyNode,
   type EntityNode,
   type EntityPropertyNode,
   type EnumItemNode,
@@ -88,7 +89,9 @@ function mergeApp(name: string, fragments: AppNode[]): AppNode {
     views: [],
     services: [],
     components: [],
+    dependencies: [],
   };
+  const seenDeps = new Set<string>();
   for (const frag of fragments) {
     for (const ds of frag.datasources) {
       const existing = app.datasources.find((d) => d.name === ds.name);
@@ -102,6 +105,12 @@ function mergeApp(name: string, fragments: AppNode[]): AppNode {
     app.views.push(...frag.views);
     app.services.push(...frag.services);
     app.components.push(...frag.components);
+    for (const d of frag.dependencies) {
+      const key = `${d.eco}|${d.name}|${d.version ?? ''}|${d.ns ?? ''}`;
+      if (seenDeps.has(key)) continue;
+      seenDeps.add(key);
+      app.dependencies.push(d);
+    }
   }
   return app;
 }
@@ -162,6 +171,7 @@ class Parser {
       views: [],
       services: [],
       components: [],
+      dependencies: [],
     };
     let currentDs: DataSourceNode | null = null;
     // @title('中文') / @menu('模块') → 紧随其后的 page/dialog 显示名与菜单分组（中文化 + 折叠菜单）
@@ -227,6 +237,8 @@ class Parser {
         app.services.push(this.parseService(cfg));
       } else if (kw === 'component') {
         app.components.push(this.parseComponent());
+      } else if (kw === 'dependency') {
+        app.dependencies.push(this.parseDependency());
       } else {
         this.fail(`unexpected '${kw}' at top level`);
       }
@@ -299,6 +311,44 @@ class Parser {
     const returns: ReturnNode[] = [{ ...createNode('Return'), type: retType }];
     this.expect(';');
     return { ...createNode('ServiceOperation'), name, params, returns, method, path };
+  }
+
+  /** dependency java "g:a:v" / dependency npm "pkg@range"（可 as <ns> 限定引用） */
+  private parseDependency(): DependencyNode {
+    this.expect('dependency');
+    const ecoTok = this.expectIdent();
+    if (ecoTok !== 'java' && ecoTok !== 'npm') {
+      this.fail(`dependency eco must be 'java' or 'npm', got '${ecoTok}'`);
+    }
+    const coord = this.expectString();
+    let ns: string | undefined;
+    if (this.peek().value === 'as') {
+      this.next();
+      ns = this.expectIdent();
+    }
+    this.expect(';');
+    let name: string;
+    let version: string | undefined;
+    if (ecoTok === 'java') {
+      const parts = coord.split(':');
+      if (parts.length === 3) {
+        name = `${parts[0]}:${parts[1]}`;
+        version = parts[2];
+      } else if (parts.length === 2) {
+        name = coord;
+      } else {
+        this.fail(`dependency java 坐标须为 'groupId:artifactId[:version]'，got '${coord}'`);
+      }
+    } else {
+      const at = coord.lastIndexOf('@');
+      if (at > 0) {
+        name = coord.slice(0, at);
+        version = coord.slice(at + 1);
+      } else {
+        name = coord;
+      }
+    }
+    return { ...createNode('Dependency'), eco: ecoTok as 'java' | 'npm', name, version, ns };
   }
 
   /** component Name { pkg: 'x'; defaultProps: {...}; events: [...] } */

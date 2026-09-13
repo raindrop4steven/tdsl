@@ -30,6 +30,19 @@ export interface AppNode extends BaseNode {
   views: ViewNode[];
   services: ServiceNode[];
   components: ComponentNode[];
+  dependencies: DependencyNode[];
+}
+
+/** 依赖声明（dev/32）：dependency java "g:a:v" / dependency npm "pkg@range"（可 as <ns> 限定引用） */
+export interface DependencyNode extends BaseNode {
+  kind: 'Dependency';
+  eco: 'java' | 'npm';
+  /** java: groupId:artifactId；npm: 包名（支持 @scope/name） */
+  name: string;
+  /** java: 版本段；npm: range（可缺省，缺省 = 匹配产物坐标任意版本） */
+  version?: string;
+  /** `as <ns>`：该依赖产物类的限定引用前缀（同名类消解） */
+  ns?: string;
 }
 
 /** 数据源：聚合实体 */
@@ -177,6 +190,7 @@ export interface ComponentNode extends BaseNode {
 
 export type AnyNode =
   | AppNode
+  | DependencyNode
   | DataSourceNode
   | EntityNode
   | EntityPropertyNode

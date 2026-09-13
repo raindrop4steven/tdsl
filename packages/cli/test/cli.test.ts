@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -146,5 +146,62 @@ describe('cli/bin 交互', () => {
     expect(run(['check']).code).toBe(1);
     const dir = makeDir({ 'a.tdsl': MODEL });
     expect(run(['parse', dir, '--name']).code).toBe(1);
+  });
+});
+
+describe('cli dev/32 libs 装载与 bundle-jar 产物头', () => {
+  it('check 装载 libs/ 产物：dependency 声明 + 产物类调用通过', () => {
+    const lib = JSON.stringify({
+      eco: 'java',
+      coordinate: 'com.alibaba:fastjson2:2.0.58',
+      classes: [{ class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', members: [{ name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' }] }],
+    });
+    const dir = makeDir({
+      'a.tdsl': `dependency java "com.alibaba:fastjson2:2.0.58";\n@export\nlogic f(o: Object): String { return JSON.toJSONString(o); }\n`,
+      'libs/fastjson2.json': lib,
+    });
+    const r = run(['check', dir]);
+    expect(r.code).toBe(0);
+  });
+
+  it('D-dep-1 人话化：用了未声明依赖 → check 退出码 1', () => {
+    const lib = JSON.stringify({
+      eco: 'java',
+      coordinate: 'com.alibaba:fastjson2:2.0.58',
+      classes: [{ class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', members: [{ name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' }] }],
+    });
+    const dir = makeDir({
+      'a.tdsl': `@export\nlogic f(o: Object): String { return JSON.toJSONString(o); }\n`,
+      'libs/fastjson2.json': lib,
+    });
+    const r = run(['check', dir]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain('未声明依赖');
+  });
+
+  it('libs 产物格式非法 → CliError 人话提示', () => {
+    const dir = makeDir({
+      'a.tdsl': MODEL,
+      'libs/bad.json': '[]',
+    });
+    const r = run(['check', dir]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain('libs 产物格式非法');
+  });
+
+  it('bundle-jar 产物带头对象（eco/coordinate/classes）；--coord 覆盖', () => {
+    // 用本仓一个已知类编译产物 jar 不可行——退而求其次：验证 deriveCoordinate 兜底与输出格式
+    // 真实 jar 路径存在时才跑（CI/他机无 D:/fastjson2 时跳过）
+    const jar = 'D:/fastjson2-2.0.58.jar';
+    if (!existsSync(jar)) return;
+    const dir = makeDir({ 'x.txt': '' });
+    const out = join(dir, 'out.json');
+    const r = run(['bundle-jar', jar, '-o', out, '--classes', 'com.alibaba.fastjson2.JSON', '--coord', 'com.alibaba:fastjson2:2.0.58']);
+    expect(r.code).toBe(0);
+    const parsed = JSON.parse(readFileSync(out, 'utf8'));
+    expect(parsed.eco).toBe('java');
+    expect(parsed.coordinate).toBe('com.alibaba:fastjson2:2.0.58');
+    expect(Array.isArray(parsed.classes)).toBe(true);
+    expect(parsed.classes[0].class).toBe('com.alibaba.fastjson2.JSON');
   });
 });

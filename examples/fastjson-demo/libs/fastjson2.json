@@ -1,0 +1,25 @@
+{
+  "eco": "java",
+  "coordinate": "com.alibaba:fastjson2:2.0.58",
+  "classes": [
+    {
+      "class": "com.alibaba.fastjson2.JSON",
+      "alias": "JSON",
+      "frontend": false,
+      "members": [
+        { "name": "parseObject", "static": true, "params": ["String"], "ret": "Object", "java": "com.alibaba.fastjson2.JSON.parseObject({0})" },
+        { "name": "toJSONString", "static": true, "params": ["Object"], "ret": "String", "java": "com.alibaba.fastjson2.JSON.toJSONString({0})" }
+      ]
+    },
+    {
+      "class": "com.alibaba.fastjson2.JSONObject",
+      "alias": "JSONObject",
+      "frontend": false,
+      "members": [
+        { "name": "getString", "params": ["String"], "ret": "String" },
+        { "name": "getInteger", "params": ["String"], "ret": "Integer" },
+        { "name": "containsKey", "params": ["String"], "ret": "Boolean" }
+      ]
+    }
+  ]
+}

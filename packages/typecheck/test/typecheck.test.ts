@@ -55,6 +55,7 @@ describe('typecheck', () => {
       views: [],
       services: [],
       components: [],
+      dependencies: [],
     };
     const r = check(app);
     expect(r.ok).toBe(false);
@@ -799,5 +800,103 @@ function f(x: Integer): Boolean {
 }
 `));
     expect(r.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  });
+});
+
+describe('typecheck dev/32 依赖声明与目录一致性', () => {
+  const LIB: Parameters<typeof check>[1] extends never ? never : import('@tdsl/core').LoadedCatalog = {
+    eco: 'java',
+    coordinate: 'com.alibaba:fastjson2:2.0.58',
+    classes: [
+      {
+        class: 'com.alibaba.fastjson2.JSON',
+        alias: 'JSON',
+        members: [{ name: 'toJSONString', static: true, params: ['Object'], ret: 'String' }],
+      },
+    ],
+  };
+
+  it('D-dep-1：用了产物类但未声明依赖 → error 提示补声明', () => {
+    const r = check(parse(`
+dependency java "other.lib:1.0";
+@export
+function f(o: Object): String { return JSON.toJSONString(o); }
+`), { libs: [LIB] });
+    expect(r.diagnostics.some((d) => d.severity === 'error' && d.message.includes('未声明依赖') && d.message.includes('fastjson2'))).toBe(true);
+  });
+
+  it('声明 + libs 匹配 → 调用通过且无依赖诊断', () => {
+    const r = check(parse(`
+dependency java "com.alibaba:fastjson2:2.0.58";
+@export
+function f(o: Object): String { return JSON.toJSONString(o); }
+`), { libs: [LIB] });
+    expect(r.diagnostics).toEqual([]);
+  });
+
+  it('D-dep-2：声明无产物 → warning 带 bundle-jar 口径', () => {
+    const r = check(parse(`
+dependency java "g.missing:1.0";
+@export
+function f(): Boolean { return true; }
+`), { libs: [] });
+    const d = r.diagnostics.find((x) => x.message.includes('无匹配扫描产物'));
+    expect(d?.severity).toBe('warning');
+    expect(d?.message).toContain('bundle-jar');
+  });
+
+  it('D-dep-3：声明版本与产物版本漂移 → warning', () => {
+    const r = check(parse(`
+dependency java "com.alibaba:fastjson2:2.0.57";
+@export
+function f(): Boolean { return true; }
+`), { libs: [LIB] });
+    const d = r.diagnostics.find((x) => x.message.includes('版本漂移'));
+    expect(d?.severity).toBe('warning');
+    expect(d?.message).toContain('2.0.57');
+  });
+
+  it('D-dep-4：同名类撞 alias → error 列双方坐标并给消解口径', () => {
+    const other: import('@tdsl/core').LoadedCatalog = {
+      eco: 'java',
+      coordinate: 'g.other:1.0',
+      classes: [{ class: 'g.other.JSON', alias: 'JSON', members: [] }],
+    };
+    const r = check(parse(`
+dependency java "com.alibaba:fastjson2:2.0.58";
+dependency java "g.other:1.0";
+@export
+function f(): Boolean { return true; }
+`), { libs: [LIB, other] });
+    const d = r.diagnostics.find((x) => x.message.includes('类别名 JSON'));
+    expect(d?.severity).toBe('error');
+    expect(d?.message).toContain('as <ns>');
+  });
+
+  it('as ns 限定调用：成员校验 + 静态/实例错配报错', () => {
+    const good = check(parse(`
+dependency java "com.alibaba:fastjson2:2.0.58" as fj;
+@export
+function f(o: Object): String { return fj.JSON.toJSONString(o); }
+`), { libs: [LIB] });
+    expect(good.diagnostics).toEqual([]);
+
+    const bad = check(parse(`
+dependency java "com.alibaba:fastjson2:2.0.58" as fj;
+@export
+function f(o: Object): Boolean { fj.JSON.toJSONString(o); return true; }
+`), { libs: [{ ...LIB, classes: [{ ...LIB.classes[0]!, members: [{ name: 'toJSONString', params: ['Object'], ret: 'String' }] }] }] });
+    expect(bad.diagnostics.some((d) => d.message.includes('实例方法'))).toBe(true);
+  });
+
+  it('目录外成员报 error 并附 bundle-jar 补录口径（产物形态）', () => {
+    const r = check(parse(`
+dependency java "com.alibaba:fastjson2:2.0.58";
+@export
+function f(o: Object): Object { return JSON.nope(o); }
+`), { libs: [LIB] });
+    const d = r.diagnostics.find((x) => x.message.includes('不在 FFI 目录'));
+    expect(d?.severity).toBe('error');
+    expect(d?.message).toContain('bundle-jar');
   });
 });
