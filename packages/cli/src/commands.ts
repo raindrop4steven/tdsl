@@ -39,7 +39,7 @@ export function runParse(input: TdslInput, json: boolean): CommandResult {
     `✓ 编译通过: ${input.appName}`,
     `  datasources ${n(app.datasources)}（entities ${nEntities}）`,
     `  structures ${n(app.structures)} / enums ${n(app.enums)} / logics ${n(app.logics)}`,
-    `  interfaces ${n(app.interfaces)} / views ${n(app.views)} / services ${n(app.services)} / components ${n(app.components)}`,
+    `  interfaces ${n(app.interfaces)} / views ${n(app.views)} / services ${n(app.services)}`,
   ].join('\n');
   return { code: 0, stdout, app };
 }

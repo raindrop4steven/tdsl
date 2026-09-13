@@ -279,9 +279,10 @@ interface OrderQueryApi {
   {
     id: 'external-service',
     domain: '外部服务/三方组件',
-    description: 'service（dubbo/bean/http 三种）声明与调用、component（npm 组件）注册与页面引用',
-    keywords: ['外部', '服务', 'dubbo', 'http', 'feign', '组件', 'echarts', 'component', '集成'],
-    tdsl: `// 外部能力接入：service + component
+    description: 'service（dubbo/http）声明与调用、dependency npm 一等公民（页面直用三方组件）',
+    keywords: ['外部', '服务', 'dubbo', 'http', 'feign', '组件', 'echarts', '依赖', '集成'],
+    tdsl: `// 外部能力接入：service（dubbo/http）+ dependency 一等公民
+// 本地 jar 类不走 service——dependency java 声明 + libs 产物后 function 直调（dev/33）
 entity User {
   id: Integer @pk;
   name: String;
@@ -302,11 +303,6 @@ function listOrders(): List<Order> {
 service UserService {
   getUser(id: Integer): User;
   listUsers(): List<User>;
-}
-
-@service(kind = 'bean', jar = 'com.example:order-sdk:1.0')
-service OrderSdk {
-  createOrder(input: Order): Order;
 }
 
 @service(kind = 'http', baseUrl = 'http://erp-center')
@@ -330,15 +326,11 @@ interface OrderApi {
   GET '/api/orders/stats' -> orderStats
 }
 
-component ECharts {
-  pkg: 'echarts-for-react';           // npm 包名
-  defaultProps: { option: Json; style: Json };
-  events: ['onClick'];
-}
+dependency npm "echarts-for-react" import ECharts;   // npm 一等公民：默认导出组件，页面直接 <ECharts />
 
 page Dashboard {
   <table dataSource={useQuery('listOrders')}> </table>
-  <ECharts dataSource={useQuery('orderStats')} />   // 三方组件参与数据绑定
+  <ECharts dataSource={useQuery('orderStats')} />   // 三方组件直接用，import 由声明解析
 }
 
 @export

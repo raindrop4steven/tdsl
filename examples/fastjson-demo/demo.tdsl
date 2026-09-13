@@ -10,7 +10,7 @@ function toJson(o: Object): String {
 
 @export
 function hasKey(json: String, key: String): Boolean {
-  obj2 := JSON.parseObject(json);
+  const obj2 = JSON.parseObject(json);
   return obj2.containsKey(key);
 }
 

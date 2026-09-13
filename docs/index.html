@@ -36,6 +36,7 @@
 <h2>教程（docs/70_教程/，学习路径）</h2>
 <ul>
   <li><a href="70_教程/README.md">70 教程（当前版 · 2026-09）</a> <span class="badge done">完成</span><br><span class="desc">基于当前代码实测（261 单测/十包）：00 总览（流水线与核心哲学）/ 01 core（语义核+FFI 目录）/ 02 parser（双语法+绑定）/ 03 typecheck（六类诊断）/ 04-05 双端 codegen / 06 工具链总索引 → 07 cli / 08 llm / 09 server / 10 eval 逐包独立成篇——每篇含源码导读与动手练习</span></li>
+  <li><a href="70_教程/20_语法手册.md">20 语法手册（面向书写者的语言参考）</a> <span class="badge done">完成</span><br><span class="desc">完整语法+语义+可编译片段：顶层声明（dependency/entity/service）/ 逻辑与查询语言 / 接口 / 页面与绑定 / G2 表达式域 / 第三方库接入全流程——片段过编译验证；LLM 速查表（cheatsheet）的语义权威来源</span></li>
   <li><a href="70_教程/v1/README.md">70 教程 v1（P0 历史版归档）</a> <span class="badge done">归档</span><br><span class="desc">P0 五包时代的逐包入门讲解（00-05）+ 当时的全景 Tour（06，120 单测时代）：教学脚手架式讲法仍可参考，数据与能力盘点已过时</span></li>
 </ul>
 
@@ -47,7 +48,7 @@
   <li><a href="dev/14_路线规划-NASL对标与前后端能力.md">dev/14 路线规划（NASL 对标）</a> <span class="badge todo">规划中</span><br><span class="desc">NASL 差距矩阵、命名空间/作用域决策、前后端演进路线、外部能力接入主航道、分阶段路线图、能力边界评估</span></li>
   <li><a href="dev/15_系统设计-M1-命名空间.md">dev/15 系统设计（M1 命名空间/作用域）</a> <span class="badge done">已实现</span><br><span class="desc">实体→数据源作用域、跨源同名共存、限定名 ds.Entity、logic 变量块作用域</span></li>
   <li><a href="dev/16_系统设计-M4-View声明层.md">dev/16 系统设计（M4 View 声明层）</a> <span class="badge done">已实现</span><br><span class="desc">page+JSX子集 → ViewNode IR、组件映射、useQuery/useMutation/navigate 绑定、多页面路由、前端真生成</span></li>
-  <li><a href="dev/17_系统设计-M6-外部能力接入.md">dev/17 系统设计（M6 外部能力接入）</a> <span class="badge done">已实现</span><br><span class="desc">service（dubbo/bean/http 三种注入）+ component（npm 三方组件注册）、Feign 接口生成</span></li>
+  <li><a href="dev/17_系统设计-M6-外部能力接入.md">dev/17 系统设计（M6 外部能力接入）</a> <span class="badge done">已实现</span><br><span class="desc">service（dubbo/http 注入，dev/33 删 bean）+ npm 一等公民（原 component 注册层已删，dependency npm 声明直用组件）、Feign 接口生成</span></li>
   <li><a href="dev/18_系统设计-M2-查询语言.md">dev/18 系统设计（M2 查询语言）</a> <span class="badge done">已实现</span><br><span class="desc">where 复合条件、orderBy/page/limit、sum/avg/max/min/count 聚合 + groupBy、Page&lt;T&gt; 全链路</span></li>
   <li><a href="dev/19_系统设计-P2-LLM书写面与PromptPack.md">dev/19 系统设计（P2 LLM 书写面与 Prompt Pack）</a> <span class="badge done">已实现</span><br><span class="desc">示例主导三原则、五层 prompt 组装、示例矩阵（单测锁定可编译性）、诊断回流修复闭环；packages/llm 已落地</span></li>
   <li><a href="dev/20_系统设计-P2-Playground.md">dev/20 系统设计（P2 Playground 浏览器试验台）</a> <span class="badge done">已实现</span><br><span class="desc">Monaco 本地打包（离线安全）+ TDSL 专用高亮 + 实时诊断/AST/双端代码四面板；packages/playground 已落地，npm run playground 启动</span></li>

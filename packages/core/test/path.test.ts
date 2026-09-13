@@ -63,7 +63,6 @@ function sampleApp(): AppNode {
     interfaces: [],
     views: [],
     services: [],
-    components: [],
     dependencies: [],
   };
 }

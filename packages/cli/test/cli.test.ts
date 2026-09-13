@@ -8,11 +8,11 @@ import { sanitizeAppName } from '../src/input';
 const MODEL = `@datasource('defaultDS')
 entity Order { id: Integer @pk; total: Decimal; }
 `;
-const QUERY = `logic listOrders(): List<Order> {
+const QUERY = `function listOrders(): List<Order> {
   return Order.all;
 }
 `;
-const BAD = `logic bad(): List<Order> {
+const BAD = `function bad(): List<Order> {
   return Order.where(nofield > 0);
 }
 `;
@@ -157,7 +157,7 @@ describe('cli dev/32 libs 装载与 bundle-jar 产物头', () => {
       classes: [{ class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', members: [{ name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' }] }],
     });
     const dir = makeDir({
-      'a.tdsl': `dependency java "com.alibaba:fastjson2:2.0.58";\n@export\nlogic f(o: Object): String { return JSON.toJSONString(o); }\n`,
+      'a.tdsl': `dependency java "com.alibaba:fastjson2:2.0.58";\n@export\nfunction f(o: Object): String { return JSON.toJSONString(o); }\n`,
       'libs/fastjson2.json': lib,
     });
     const r = run(['check', dir]);
@@ -171,7 +171,7 @@ describe('cli dev/32 libs 装载与 bundle-jar 产物头', () => {
       classes: [{ class: 'com.alibaba.fastjson2.JSON', alias: 'JSON', members: [{ name: 'toJSONString', static: true, params: ['Object'], ret: 'String', java: 'com.alibaba.fastjson2.JSON.toJSONString({0})' }] }],
     });
     const dir = makeDir({
-      'a.tdsl': `@export\nlogic f(o: Object): String { return JSON.toJSONString(o); }\n`,
+      'a.tdsl': `@export\nfunction f(o: Object): String { return JSON.toJSONString(o); }\n`,
       'libs/fastjson2.json': lib,
     });
     const r = run(['check', dir]);

@@ -38,12 +38,12 @@ mutation 后自动 refetch 关联 query（按钮提交后表格刷新）。
 ## 4. G2 前端表达式域（dev/29）
 
 - `derive={qty * price}`：纯函数表达式 → 计算 `readOnly` 属性（typecheck 保证无 IO）
-- `carryBy="getGoods"`：拉档填回——选中主键字段后调用 logic 把档案字段填回表单
+- `carryBy="getGoods"`：拉档填回——选中主键字段后调用函数把档案字段填回表单
 - 两者共用"表达式域可见者"约束：兄弟字段 / row / initial / 内核五域别名 / 实体 / 枚举
 
 ## 5. 依赖与工程配置（dev/32）
 
-`package.json` 的 dependencies 合并三路：页面骨架默认项（antd/dayjs/react-router-dom）→ component 注册的 pkg → **`dependency npm` 声明**（声明版本优先覆盖，同包去重）。
+`package.json` 的 dependencies 两路合并：页面骨架默认项（antd/dayjs/react-router-dom）→ **`dependency npm` 声明**（唯一包名来源，dev/33 删 component 注册层；三方组件 import 由声明解析）
 `vite.config.ts` 注入 `/api` 代理与错误回流上报地址（M10 运行回路配套）。
 
 ## 6. 路由与 `$route`

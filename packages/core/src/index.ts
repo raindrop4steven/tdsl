@@ -31,7 +31,6 @@ export type {
   ReturnNode,
   ServiceNode,
   ServiceOperationNode,
-  ComponentNode,
   StructureNode,
   StructurePropertyNode,
   ViewElementNode,

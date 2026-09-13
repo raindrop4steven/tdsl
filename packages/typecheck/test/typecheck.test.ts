@@ -12,9 +12,9 @@ entity Todo {
 }
 
 @export
-logic findTodos(): List<Todo> {
-  result := new List<Todo>();
-  for (todo in Todo.all) {
+function findTodos(): List<Todo> {
+  const result = new List<Todo>();
+  for (const todo of Todo.all) {
     if (todo.done === false) {
       result.add(todo);
     }
@@ -54,7 +54,6 @@ describe('typecheck', () => {
       interfaces: [],
       views: [],
       services: [],
-      components: [],
       dependencies: [],
     };
     const r = check(app);
@@ -67,9 +66,9 @@ describe('typecheck', () => {
     const app = parse(`
 entity Todo { id: Integer @pk; }
 @export
-logic bad(): List<Todo> {
-  result := new List<Todo>();
-  for (todo in something.else) { result.add(todo); }
+function bad(): List<Todo> {
+  const result = new List<Todo>();
+  for (const todo of something.else) { result.add(todo); }
   return result;
 }
 `);
@@ -83,7 +82,7 @@ logic bad(): List<Todo> {
     const app = parse(`
 entity Todo { id: Integer @pk; }
 @export
-logic findTodos(): List<Todo> { return Todo.all; }
+function findTodos(): List<Todo> { return Todo.all; }
 interface Api { GET '/api/todos' -> findTodos }
 `);
     // 程序化改坏 logicRef，测 typecheck 兜底（parser 层已强校验合法路径）
@@ -93,15 +92,15 @@ interface Api { GET '/api/todos' -> findTodos }
     expect(r.diagnostics.some((d) => d.message.includes('接口端点悬空引用 logic'))).toBe(true);
   });
 
-  it('passes valid CRUD logic with entity methods', () => {
+  it('passes valid CRUD function with entity methods', () => {
     const app = parse(`
 entity Todo { id: Integer @pk; title: String; done: Boolean; }
 struct TodoInput { title: String; done: Boolean; }
 @export
-logic findTodos(): List<Todo> { return Todo.all; }
+function findTodos(): List<Todo> { return Todo.all; }
 @export
-logic createTodo(input: TodoInput): Todo {
-  todo := new Todo();
+function createTodo(input: TodoInput): Todo {
+  const todo = new Todo();
   todo.title = input.title;
   todo.done = input.done;
   todo.save();
@@ -116,7 +115,7 @@ logic createTodo(input: TodoInput): Todo {
     const app = parse(`
 entity Todo { id: Integer @pk; }
 @export
-logic bad(): List<Todo> { Todo.nope(); return Todo.all; }
+function bad(): List<Todo> { Todo.nope(); return Todo.all; }
 `);
     const r = check(app);
     expect(r.ok).toBe(false);
@@ -127,7 +126,7 @@ logic bad(): List<Todo> { Todo.nope(); return Todo.all; }
     const app = parse(`
 entity Todo { id: Integer @pk; }
 @export
-logic bad(): Todo { return Todo.get(); }
+function bad(): Todo { return Todo.get(); }
 `);
     const r = check(app);
     expect(r.ok).toBe(false);
@@ -141,10 +140,10 @@ entity Order { id: Integer @pk; customer: String; total: Decimal; }
 struct OrderInput { customer: String; items: List<OrderInputItem>; }
 struct OrderInputItem { product: String; price: Decimal; qty: Integer; }
 @export
-logic create(input: OrderInput): Order {
-  order := new Order();
+function create(input: OrderInput): Order {
+  const order = new Order();
   order.save();
-  for (it in input.items) { order.total = order.total + it.price * it.qty; }
+  for (const it of input.items) { order.total = order.total + it.price * it.qty; }
   order.save();
   return order;
 }
@@ -158,8 +157,8 @@ logic create(input: OrderInput): Order {
 entity Order { id: Integer @pk; }
 entity OrderItem { id: Integer @pk; orderId: Integer; }
 @export
-logic del(id: Integer): Boolean {
-  for (it in OrderItem.where(orderId = id)) { it.delete(); }
+function del(id: Integer): Boolean {
+  for (const it of OrderItem.where(orderId = id)) { it.delete(); }
   return true;
 }
 `);
@@ -171,7 +170,7 @@ logic del(id: Integer): Boolean {
     const app = parse(`
 entity Order { id: Integer @pk; }
 @export
-logic find(id: Integer): List<Order> {
+function find(id: Integer): List<Order> {
   return Order.where(unknown = id);
 }
 `);
@@ -184,9 +183,9 @@ logic find(id: Integer): List<Order> {
     const app = parse(`
 entity Todo { id: Integer @pk; }
 @export
-logic bad(): List<Todo> {
-  result := new List<Todo>();
-  for (todo in something.else) { result.add(todo); }
+function bad(): List<Todo> {
+  const result = new List<Todo>();
+  for (const todo of something.else) { result.add(todo); }
   return result;
 }
 `);
@@ -204,7 +203,7 @@ entity Order { id: Integer @pk; }
 @datasource('crm')
 entity Order { id: Integer @pk; }
 @export
-logic listErp(): List<erp.Order> {
+function listErp(): List<erp.Order> {
   return erp.Order.all;
 }
 `);
@@ -217,7 +216,7 @@ logic listErp(): List<erp.Order> {
 @datasource('erp')
 entity Order { id: Integer @pk; }
 @export
-logic bad(): List<erp.Order> {
+function bad(): List<erp.Order> {
   return erp.Order.nope();
 }
 `);
@@ -233,8 +232,8 @@ entity Order { id: Integer @pk; }
 @datasource('erp')
 entity OrderItem { id: Integer @pk; orderId: Integer; }
 @export
-logic del(id: Integer): Boolean {
-  for (it in erp.OrderItem.where(orderId = id)) { it.delete(); }
+function del(id: Integer): Boolean {
+  for (const it of erp.OrderItem.where(orderId = id)) { it.delete(); }
   return true;
 }
 `);
@@ -248,9 +247,9 @@ describe('typecheck/M4 view', () => {
     const app = parse(`
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 @export
-logic deleteOrder(id: Integer): Boolean { return true; }
+function deleteOrder(id: Integer): Boolean { return true; }
 interface OrderApi {
   GET    '/api/orders'      -> listOrders
   DELETE '/api/orders/{id}' -> deleteOrder
@@ -268,23 +267,23 @@ page OrderCreate { }
     expect(r.ok).toBe(true);
   });
 
-  it('rejects unknown view element type', () => {
+  it('rejects unknown view element type（三方组件未匹配 dependency npm）', () => {
     const app = parse(`
 entity Order { id: Integer @pk; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 page X { <fancy dataSource={useQuery('listOrders')} /> }
 `);
     const r = check(app);
     expect(r.ok).toBe(false);
-    expect(r.diagnostics.some((d) => d.message.includes('未知页面组件类型'))).toBe(true);
+    expect(r.diagnostics.some((d) => d.message.includes('未匹配到 dependency npm'))).toBe(true);
   });
 
   it('rejects dangling binding logic', () => {
     const app = parse(`
 entity Order { id: Integer @pk; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 page X { <table dataSource={useQuery('listOrders')}><column field="id" /></table> }
 `);
     // 程序化改坏 binding target 测 typecheck 兜底
@@ -294,11 +293,11 @@ page X { <table dataSource={useQuery('listOrders')}><column field="id" /></table
     expect(r.diagnostics.some((d) => d.message.includes('悬空逻辑引用'))).toBe(true);
   });
 
-  it('rejects logic without interface endpoint（agent 忘写 interface → api.ts 缺函数 → 前端白屏，编译期拦截）', () => {
+  it('rejects function without interface endpoint（agent 忘写 interface → api.ts 缺函数 → 前端白屏，编译期拦截）', () => {
     const app = parse(`
 entity Car { id: Integer @pk; plate: String; }
 @export
-logic listCars(): List<Car> { return Car.all; }
+function listCars(): List<Car> { return Car.all; }
 page CarList {
   <table dataSource={useQuery('listCars')}><column field="plate" /></table>
 }
@@ -308,11 +307,11 @@ page CarList {
     expect(r.diagnostics.some((d) => d.message.includes('没有 interface 端点暴露该逻辑'))).toBe(true);
   });
 
-  it('passes logic exposed via interface endpoint', () => {
+  it('passes function exposed via interface endpoint', () => {
     const app = parse(`
 entity Car { id: Integer @pk; plate: String; }
 @export
-logic listCars(): List<Car> { return Car.all; }
+function listCars(): List<Car> { return Car.all; }
 interface CarApi { GET '/api/cars' -> listCars }
 page CarList {
   <table dataSource={useQuery('listCars')}><column field="plate" /></table>
@@ -325,9 +324,9 @@ page CarList {
     const app = parse(`
 entity Car { id: Integer @pk; plate: String; }
 @export
-logic stats(): Decimal { return Car.aggregate(count(id)); }
+function stats(): Decimal { return Car.aggregate(count(id)); }
 @export
-logic listCars(): List<Car> { return Car.all; }
+function listCars(): List<Car> { return Car.all; }
 interface CarApi { GET '/api/cars' -> listCars GET '/api/cars/stats' -> stats }
 page Dashboard {
   <statistic title="总数" value={qStats.data} />
@@ -354,7 +353,7 @@ it('rejects dangling navigate page', () => {
     const app = parse(`
 entity Order { id: Integer @pk; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 page X { <button text="a" action={navigate('Y')} /> }
 page Y { }
 `);
@@ -367,11 +366,11 @@ page Y { }
 });
 
 describe('typecheck/M6 service + component', () => {
-  it('passes valid service plus logic calls', () => {
+  it('passes valid service plus function calls', () => {
     const app = parse(`
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic createOrder(input: Order): Order {
+function createOrder(input: Order): Order {
   return userService.createOrder(input);
 }
 @service(kind = 'dubbo', group = 'order-center')
@@ -387,7 +386,7 @@ service UserService {
     const app = parse(`
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic createOrder(input: Order): Order {
+function createOrder(input: Order): Order {
   return userService.nope(input);
 }
 @service(kind = 'dubbo')
@@ -404,7 +403,7 @@ service UserService {
     const app = parse(`
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic createOrder(input: Order): Order {
+function createOrder(input: Order): Order {
   return userService.createOrder();
 }
 @service(kind = 'dubbo')
@@ -430,16 +429,13 @@ entity Order { id: Integer @pk; }
     expect(r.diagnostics.some((d) => d.message.includes("必须声明 METHOD 'path'"))).toBe(true);
   });
 
-  it('passes component-referenced view element', () => {
+  it('三方组件由 dependency npm 匹配（dev/33 一等公民）', () => {
     const app = parse(`
+dependency npm "echarts-for-react" import ECharts;
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 interface OrderApi { GET '/api/orders' -> listOrders }
-component ECharts {
-  pkg: 'echarts-for-react';
-  defaultProps: { option: Json; style: Json };
-}
 page P {
   <ECharts option={null} dataSource={useQuery('listOrders')} />
 }
@@ -448,18 +444,18 @@ page P {
     expect(r.ok).toBe(true);
   });
 
-  it('rejects unregistered view element type', () => {
+  it('rejects unregistered view element type（无 dependency 命中）', () => {
     const app = parse(`
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 page P {
   <Nope dataSource={useQuery('listOrders')} />
 }
 `);
     const r = check(app);
     expect(r.ok).toBe(false);
-    expect(r.diagnostics.some((d) => d.message.includes('未知页面组件类型'))).toBe(true);
+    expect(r.diagnostics.some((d) => d.message.includes('未匹配到 dependency npm'))).toBe(true);
   });
 });
 
@@ -474,19 +470,19 @@ entity Order {
   status: String;
 }
 @export
-logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+function searchOrders(customer: String, minTotal: Decimal): List<Order> {
   return Order.where(customer like '%' + customer + '%', total >= minTotal);
 }
-logic topOrders(): List<Order> {
+function topOrders(): List<Order> {
   return Order.where(total > 0).orderBy(total desc).limit(10);
 }
-logic pageOrders(n: Integer, size: Integer): Page<Order> {
+function pageOrders(n: Integer, size: Integer): Page<Order> {
   return Order.where(total > 0).orderBy(total desc).page(n, size);
 }
-logic orderStats(): Decimal {
+function orderStats(): Decimal {
   return Order.aggregate(sum(total));
 }
-logic sumByCustomer(): List<Map<Object>> {
+function sumByCustomer(): List<Map<Object>> {
   return Order.aggregate(sum(total)).groupBy(customer);
 }
 `);
@@ -499,7 +495,7 @@ logic sumByCustomer(): List<Map<Object>> {
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic bad(): List<Order> {
+function bad(): List<Order> {
   return Order.where(totalX > 0);
 }
 `);
@@ -514,7 +510,7 @@ logic bad(): List<Order> {
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic bad(): List<Order> {
+function bad(): List<Order> {
   return Order.where(total === 0);
 }
 `),
@@ -526,7 +522,7 @@ logic bad(): List<Order> {
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic bad(): List<Order> {
+function bad(): List<Order> {
   return Order.where(total > 0).orderBy(customerX asc);
 }
 `);
@@ -540,7 +536,7 @@ logic bad(): List<Order> {
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic bad(): Page<Order> {
+function bad(): Page<Order> {
   return Order.where(total > 0).page(1);
 }
 `);
@@ -554,7 +550,7 @@ logic bad(): Page<Order> {
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic bad(): Decimal {
+function bad(): Decimal {
   return Order.aggregate(mean(total));
 }
 `);
@@ -568,7 +564,7 @@ logic bad(): Decimal {
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; customer: String; }
 @export
-logic bad(): List<Map<Object>> {
+function bad(): List<Map<Object>> {
   return Order.aggregate(sum(total)).groupBy(customerX);
 }
 `);
@@ -582,7 +578,7 @@ logic bad(): List<Map<Object>> {
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic bad(): List<Order> {
+function bad(): List<Order> {
   return Order.where(total > 0).frobnicate();
 }
 `);
@@ -596,7 +592,7 @@ describe('typecheck/M7 多文件工程', () => {
   it('诊断带 file：跨文件悬空类型引用定位到引用所在文件', () => {
     const app = parseProject([
       { path: 'a.tdsl', content: "@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }\n" },
-      { path: 'b.tdsl', content: "logic bad(): List<Order> {\n  return Order.where(nofield > 0);\n}\n" },
+      { path: 'b.tdsl', content: "function bad(): List<Order> {\n  return Order.where(nofield > 0);\n}\n" },
     ]);
     const r = check(app);
     expect(r.ok).toBe(false);
@@ -608,7 +604,7 @@ describe('typecheck/M7 多文件工程', () => {
   it('诊断带 file：未知查询链方法定位到所在文件', () => {
     const app = parseProject([
       { path: '01_model.tdsl', content: "@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }\n" },
-      { path: '02_query.tdsl', content: "logic bad(): List<Order> {\n  return Order.where(total > 0).frobnicate();\n}\n" },
+      { path: '02_query.tdsl', content: "function bad(): List<Order> {\n  return Order.where(total > 0).frobnicate();\n}\n" },
     ]);
     const r = check(app);
     expect(r.ok).toBe(false);
@@ -617,7 +613,7 @@ describe('typecheck/M7 多文件工程', () => {
   });
 
   it('单文件 parse：诊断 file 为 <stdin>', () => {
-    const app = parse("@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }\nlogic bad(): List<Order> {\n  return Order.where(nofield > 0);\n}\n");
+    const app = parse("@datasource('d')\nentity Order { id: Integer @pk; total: Decimal; }\nfunction bad(): List<Order> {\n  return Order.where(nofield > 0);\n}\n");
     const r = check(app);
     const d = r.diagnostics.find((x) => x.message.includes('nofield'));
     expect(d?.file).toBe('<stdin>');

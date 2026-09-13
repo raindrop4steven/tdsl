@@ -43,7 +43,7 @@ export function compileSandbox(ws: Workspace, appName: string): CompileReport {
           `✓ 编译通过：${app.name}（datasources ${app.datasources.length}，` +
           `entities ${app.datasources.reduce((s, d) => s + d.entities.length, 0)}，` +
           `structures ${app.structures.length}，logics ${app.logics.length}，views ${app.views.length}，` +
-          `services ${app.services.length}，components ${app.components.length}）。` +
+          `services ${app.services.length}）。` +
           '如所有功能域已完成，可调用 generate_code 生成双端代码（落盘 generated/）并文字总结交付。',
         diagnostics: [],
         app,

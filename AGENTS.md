@@ -23,7 +23,7 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 | P2 复杂逻辑（运算符/List 方法/where 单条件/@Transactional/Decimal 算术/扁平表外键） | ✅ |
 | M1 命名空间（实体→数据源作用域、限定名 `ds.Entity`、歧义报错） | ✅ |
 | M4 View 声明层（`page` + JSX 子集、useQuery/useMutation/navigate、多页面路由、antd 映射） | ✅ |
-| M6 外部能力（`service` dubbo/bean/http → 注入；`component` npm 组件注册） | ✅ |
+| M6 外部能力（`service` dubbo/http → 注入；npm 一等公民 `dependency npm` 声明直用组件；dev/33 删 bean/component 层） | ✅ |
 | M2 查询语言（where 复合条件、orderBy/page/limit、aggregate+groupBy） | ✅ |
 | P2 LLM Prompt Pack（示例矩阵/prompt 组装/诊断修复闭环，`packages/llm`，13 单测） | ✅ |
 | P2 Playground（浏览器试验台：Monaco + 实时诊断/AST/双端代码，`packages/playground`，6 单测） | ✅ |
@@ -79,7 +79,7 @@ docs/
   00_参考资料/     # NASL 调研（NASL调研 + NASL设计原理调研汇报）
   10_设计/设计总览.md   # 项目级设计一份读完（原需求/系统/详细设计三份已合并删除）
   dev/11~19        # 切面级研发文档（11=M3 未来设计；12-19=已落地里程碑；QA记录.xlsx）
-  70_教程/         # 当前版教程（00 总览 / 01-05 逐包 / 06 工具链总索引 + 07 cli/08 llm/09 server/10 eval）；v1/ = P0 时代历史版归档
+  70_教程/         # 当前版教程（00 总览 / 01-05 逐包 / 06 工具链总索引 + 07 cli/08 llm/09 server/10 eval / 20 语法手册）；v1/ = P0 时代历史版归档
 ```
 
 ## 6. 研发流程（enterprise-module-dev 技能适配）

@@ -29,11 +29,10 @@ export interface AppNode extends BaseNode {
   interfaces: InterfaceNode[];
   views: ViewNode[];
   services: ServiceNode[];
-  components: ComponentNode[];
   dependencies: DependencyNode[];
 }
 
-/** 依赖声明（dev/32）：dependency java "g:a:v" / dependency npm "pkg@range"（可 as <ns> 限定引用） */
+/** 依赖声明（dev/32/34）：dependency java/npm "坐标" [as ns] [import X | import { A, B as C }] */
 export interface DependencyNode extends BaseNode {
   kind: 'Dependency';
   eco: 'java' | 'npm';
@@ -41,8 +40,12 @@ export interface DependencyNode extends BaseNode {
   name: string;
   /** java: 版本段；npm: range（可缺省，缺省 = 匹配产物坐标任意版本） */
   version?: string;
-  /** `as <ns>`：该依赖产物类的限定引用前缀（同名类消解） */
+  /** `as <ns>`：jar 级命名空间（撞名时产物类以 ns.Alias 限定引用） */
   ns?: string;
+  /** `import { A, B as C }`：具名导入（npm=具名导出组件；java=显式进裸名的产物类，B 的 TDSL alias 为 C） */
+  imports?: Array<{ name: string; alias?: string }>;
+  /** `import X`（单名无花括号）：npm 默认导出组件 */
+  importDefault?: string;
 }
 
 /** 数据源：聚合实体 */
@@ -163,7 +166,7 @@ export interface BindingNode extends BaseNode {
 export interface ServiceNode extends BaseNode {
   kind: 'Service';
   name: string;
-  kind_: 'dubbo' | 'bean' | 'http';
+  kind_: 'dubbo' | 'http';
   /** dubbo: group/version；bean: bean/jar；http: baseUrl/timeout */
   config: Record<string, string>;
   operations: ServiceOperationNode[];
@@ -177,15 +180,6 @@ export interface ServiceOperationNode extends BaseNode {
   returns: ReturnNode[];
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   path?: string;
-}
-
-/** 第三方前端组件注册：pkg npm 包名，ViewElement.type 引用 */
-export interface ComponentNode extends BaseNode {
-  kind: 'Component';
-  name: string;
-  pkg: string;
-  defaultProps: string[];
-  events: string[];
 }
 
 export type AnyNode =
@@ -207,8 +201,7 @@ export type AnyNode =
   | ViewElementNode
   | BindingNode
   | ServiceNode
-  | ServiceOperationNode
-  | ComponentNode;
+  | ServiceOperationNode;
 
 export type NodeKind = AnyNode['kind'];
 

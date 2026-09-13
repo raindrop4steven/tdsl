@@ -1,4 +1,4 @@
-# 02 parser：文本 → AST（双语法 + 绑定）
+# 02 parser：文本 → AST（TS 词法面 + 绑定）
 
 > 配套代码：`packages/parser/src/`（lexer 124 行 / parser 1271 行）
 > 定位：递归下降解析 + **linkApp 引用绑定**。产出"已 link"的 Typed AST——所有短名都已换算成 nodePath。
@@ -30,17 +30,17 @@ dependency npm "antd@^5.21.0";                              → npm 按**最后�
 
 java 坐标必须 `g:a[:v]` 三段内，否则语法错误；`parseProject` 合并分片时依赖按 `eco|name|version|ns` 去重。
 
-## 3. 双语法（P11，D4 口径落地）
+## 3. TS 词法面（P11，D4 口径落地）
 
-TDSL 是 **TS 风格 + 领域扩展**，不是严格 TS 子集。兼容期双语法并存，**AST 同构零改动**：
+TDSL 是 **TS 风格 + 领域扩展**，不是严格 TS 子集。**TS 面是唯一书写口径**：
 
-| legacy | TS 面 |
-|--------|-------|
-| `logic foo(): X { ... }` | `function foo(): X { ... }` |
-| `x := expr` | `const x = expr`（可带 `: T`） |
-| `for (x in xs)` | `for (const x of xs)` |
+| 逻辑声明 | 变量声明 | 遍历 |
+|----------|----------|------|
+| `function foo(): X { ... }` | `const x = expr`（可带 `: T`） | `for (const x of xs)` |
 
-实测口径：`:=`/`for-in` 过不了 tsc（TS1109）——自家 parser 是权威校验，不指望 TS 工具链。
+legacy 词法（`logic` / `:=` / `for-in`）已从 parser **物理删除**——写入即报语法错误（含废弃口径提示），TS 面是唯一合法形态。
+
+实测口径：TDSL 的 `:=`/`for-in` 过不了 tsc（TS1109）——TS 面之后自家 parser 仍是权威校验，不指望 TS 工具链。
 
 ## 4. 查询语言的解析技巧（parseCallArgs，最值得精读）
 
@@ -58,7 +58,7 @@ TDSL 是 **TS 风格 + 领域扩展**，不是严格 TS 子集。兼容期双语
 ## 5. linkApp 的绑定策略（M1 核心）
 
 1. 同数据源内实体重名 → `duplicate entity` 报错
-2. 全局概念（struct/enum/logic/interface/service/component）重名 → `duplicate type name` 报错
+2. 全局概念（struct/enum/function/interface/service/component）重名 → `duplicate type name` 报错
 3. TypeRef 引用：`erp.Order` 限定名 / `Order` 短名（`resolveShort` 带上下文数据源优先本源）/ 歧义 → 提示写限定名 / `Object` 内建放行
 4. `endpoint.logicRef` 与页面 `Binding.target`（useQuery/useMutation → logic nodePath；navigate → 页面校验）
 
@@ -76,6 +76,6 @@ TDSL 是 **TS 风格 + 领域扩展**，不是严格 TS 子集。兼容期双语
 
 1. **parser 出的是"已绑定" AST**：短名→nodePath 换算发生在 linkApp，下游拿到的引用全部可直接 `resolve()`。
 2. **形态分派**是查询语言能长在普通调用语法里的关键——`where` 的实参不是表达式而是"条件"。
-3. **双语法是兼容期策略**：AST 同构意味着 typecheck/codegen 对两种写法完全无感。
+3. **TS 面是唯一书写口径**：legacy 已物理删除（报错即文档——废弃口径直接写在语法错误消息里）；typecheck/codegen 对词法面完全无感。
 
 **动手练习**：写一个含 `erp.Order` 与 `crm.Order` 同名实体的双数据源 TDSL，先用短名引用看歧义报错，再改限定名看绑定结果（`packages/parser/test/parser.test.ts` 的 M1 describe 有现成样本）。

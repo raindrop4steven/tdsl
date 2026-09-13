@@ -50,7 +50,7 @@ describe('playground/pipeline', () => {
     const src = `
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic bad(): List<Order> {
+function bad(): List<Order> {
   return Order.batchDelete();
 }
 `;

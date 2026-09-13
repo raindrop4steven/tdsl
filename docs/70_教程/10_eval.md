@@ -46,6 +46,6 @@ npm run check-spec -w jxc
 
 1. **评测是 compiler 的镜子**：eval 失败分类直接产出改进项（C4 报告 → C1 小补丁 → B3 SDK 生成器的排期依据）。
 2. **spec 是可执行的验收标准**：exit code 能进 CI，覆盖度是数字不是感觉。
-3. **jxc 是第一个完整测试样例**：13 实体/5 枚举/32 logic/15 页面，它暴露的 7 项表达力缺口（枚举 label/表单联动/where+aggregate）就是语言 roadmap。
+3. **jxc 是第一个完整测试样例**：13 实体/5 枚举/32 函数/15 页面，它暴露的 7 项表达力缺口（枚举 label/表单联动/where+aggregate）就是语言 roadmap。
 
 **动手练习**：跑 `npm run check-spec -w jxc` 看满绿报告；再到 `packages/eval/src/samples.ts` 挑一份样卷需求文本读一读，体会"结构化 spec"与"一句话需求"的差别。

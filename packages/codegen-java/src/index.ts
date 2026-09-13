@@ -337,9 +337,9 @@ ${items}
   };
 }
 
-// ---------- External Service → Dubbo/Bean/Feign 接口 ----------
+// ---------- External Service → Dubbo/Feign 接口 ----------
 
-/** 外部服务接口文件：dubbo/bean 生成普通接口；http 生成 @FeignClient 接口 */
+/** 外部服务接口文件（dev/33）：dubbo 生成普通接口；http 生成 @FeignClient 接口 */
 function serviceApiFile(pkg: string, svc: ServiceNode): GeneratedFile {
   const methods = svc.operations
     .map((op) => {
@@ -429,7 +429,7 @@ ${gettersSetters}
 function scaffoldFiles(app: AppNode, libs: LoadedCatalog[]): GeneratedFile[] {
   const pkg = pkgOf(app);
 
-  // 外部服务依赖：dubbo → dubbo starter；bean(jar) → jar 坐标；http → openfeign
+  // 外部服务依赖（dev/33）：dubbo → dubbo starter；http → openfeign（本地 jar 走 dependency java 声明）
   const serviceDeps = app.services
     .map((svc) => {
       if (svc.kind_ === 'dubbo') {
@@ -437,14 +437,6 @@ function scaffoldFiles(app: AppNode, libs: LoadedCatalog[]): GeneratedFile[] {
       <groupId>org.apache.dubbo</groupId>
       <artifactId>dubbo-spring-boot-starter</artifactId>
       <version>2.7.23</version>
-    </dependency>`;
-      }
-      if (svc.kind_ === 'bean' && svc.config['jar']) {
-        const [g, a, v] = svc.config['jar'].split(':');
-        return `    <dependency>
-      <groupId>${g}</groupId>
-      <artifactId>${a}</artifactId>
-      <version>${v}</version>
     </dependency>`;
       }
       if (svc.kind_ === 'http') {

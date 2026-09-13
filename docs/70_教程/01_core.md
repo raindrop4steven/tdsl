@@ -30,7 +30,7 @@ interface AppNode {
 | `EntityProperty` | `type: TypeRef` + `primary/nullable/unique` | 数据完整性标记直接进 AST |
 | `ViewElement` | `type/props/bindings/children` | JSX 子集 → IR（不是真 JSX，props 表达式有限集合） |
 | `Binding` | `name:'useQuery'\|'useMutation'\|'navigate'` | 从 props 表达式提取，前端 hooks 生成的依据 |
-| `Service` | `kind_:'dubbo'\|'bean'\|'http'` + `config` | 三种外部能力共用签名体 |
+| `Service` | `kind_:'dubbo'\|'http'` + `config` | 外部系统对接（dev/33 删 bean：本地 jar 走 dependency+libs 直调） |
 | `Dependency`（dev/32） | `eco:'java'\|'npm'` + `name/version/ns` | `dependency java "g:a:v" as ns;` → 声明式依赖 |
 
 ## 2. 类型与表达式（typeref / expr / statement）
@@ -47,7 +47,7 @@ interface AppNode {
 - `dataSources`：`dsName → Map<实体短名, nodePath>`（实体短名归数据源作用域）
 - `resolveShort(table, name, ctxDs)`：先查当前数据源，再回退全局；`isAmbiguousEntity` 报歧义
 - `resolveQualified(table, dsName, entName)`：限定名 `ds.Entity`
-- `VarScope`：logic 内变量块作用域，**Java 复用语义**（同块同名复用、无遮蔽）
+- `VarScope`：function 内变量块作用域，**Java 复用语义**（同块同名复用、无遮蔽）
 
 **寻址**（`path.ts`）：引用一律存 nodePath 字符串，`resolve(app, path)` 编译期绑定；悬空返回 null → typecheck 报诊断。`nodePathOf` 反向：从节点拿路径（诊断 `path` 字段的来源）。
 

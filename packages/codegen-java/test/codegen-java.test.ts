@@ -11,9 +11,9 @@ entity Todo {
 }
 
 @export
-logic findTodos(): List<Todo> {
-  result := new List<Todo>();
-  for (todo in Todo.all) {
+function findTodos(): List<Todo> {
+  const result = new List<Todo>();
+  for (const todo of Todo.all) {
     if (todo.done === false) {
       result.add(todo);
     }
@@ -56,7 +56,7 @@ describe('codegen-java', () => {
     expect(repo).toContain('public interface TodoRepository extends JpaRepository<Todo, Long>');
   });
 
-  it('translates logic body to service', () => {
+  it('translates function body to service', () => {
     const files = generateJava(parse(SAMPLE));
     const svc = files.find((f) => f.path.endsWith('service/FindTodosService.java'))!.content;
     expect(svc).toContain('@Service');
@@ -85,26 +85,26 @@ entity Todo {
 struct TodoInput { title: String; done: Boolean; }
 
 @export
-logic findTodos(): List<Todo> { return Todo.all; }
+function findTodos(): List<Todo> { return Todo.all; }
 @export
-logic createTodo(input: TodoInput): Todo {
-  todo := new Todo();
+function createTodo(input: TodoInput): Todo {
+  const todo = new Todo();
   todo.title = input.title;
   todo.done = input.done;
   todo.save();
   return todo;
 }
 @export
-logic updateTodo(id: Integer, input: TodoInput): Todo {
-  todo := Todo.get(id);
+function updateTodo(id: Integer, input: TodoInput): Todo {
+  const todo = Todo.get(id);
   todo.title = input.title;
   todo.done = input.done;
   todo.save();
   return todo;
 }
 @export
-logic deleteTodo(id: Integer): Boolean {
-  todo := Todo.get(id);
+function deleteTodo(id: Integer): Boolean {
+  const todo = Todo.get(id);
   todo.delete();
   return true;
 }
@@ -176,14 +176,14 @@ struct OrderInput { customer: String; items: List<OrderItemInput>; }
 struct OrderItemInput { product: String; price: Decimal; qty: Integer; }
 struct OrderDetail { order: Order; items: List<OrderItem>; }
 @export
-logic createOrder(input: OrderInput): Order {
+function createOrder(input: OrderInput): Order {
   if (input.items.count === 0) { return null; }
-  order := new Order();
+  const order = new Order();
   order.customer = input.customer;
   order.total = 0;
   order.save();
-  for (it in input.items) {
-    item := new OrderItem();
+  for (const it of input.items) {
+    const item = new OrderItem();
     item.orderId = order.id;
     item.product = it.product;
     item.price = it.price;
@@ -195,17 +195,17 @@ logic createOrder(input: OrderInput): Order {
   return order;
 }
 @export
-logic getOrderDetail(id: Integer): OrderDetail {
-  order := Order.get(id);
-  detail := new OrderDetail();
+function getOrderDetail(id: Integer): OrderDetail {
+  const order = Order.get(id);
+  const detail = new OrderDetail();
   detail.order = order;
   detail.items = OrderItem.where(orderId = id);
   return detail;
 }
 @export
-logic deleteOrder(id: Integer): Boolean {
-  order := Order.get(id);
-  for (it in OrderItem.where(orderId = id)) { it.delete(); }
+function deleteOrder(id: Integer): Boolean {
+  const order = Order.get(id);
+  for (const it of OrderItem.where(orderId = id)) { it.delete(); }
   order.delete();
   return true;
 }
@@ -262,7 +262,7 @@ entity Order { id: Integer @pk; erpNo: String; }
 @datasource('crm')
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic listErp(): List<erp.Order> { return erp.Order.all; }
+function listErp(): List<erp.Order> { return erp.Order.all; }
 `));
     const erpEntity = files.find((f) => f.path.endsWith('entity/Order.java'))!;
     expect(erpEntity.content).toContain('erpNo');
@@ -277,8 +277,8 @@ logic listErp(): List<erp.Order> { return erp.Order.all; }
     const files = generateJava(parse(`
 entity Order { id: Integer @pk; total: Decimal; }
 @export
-logic f(): Order {
-  order := new Order();
+function f(): Order {
+  const order = new Order();
   order.total = 0;
   if (true) {
     order.total = 1;
@@ -299,19 +299,15 @@ describe('codegen-java M6 external service', () => {
   const M6_DSL = `
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic createOrder(input: Order): Order {
+function createOrder(input: Order): Order {
   return userService.createOrder(input);
 }
 @export
-logic getOrderFromErp(id: Integer): Order {
+function getOrderFromErp(id: Integer): Order {
   return erpApi.getOrder(id);
 }
 @service(kind = 'dubbo', group = 'order-center', version = '1.0.0')
 service UserService {
-  createOrder(input: Order): Order;
-}
-@service(kind = 'bean', jar = 'com.example:order-sdk:1.0')
-service OrderSdk {
   createOrder(input: Order): Order;
 }
 @service(kind = 'http', baseUrl = 'http://erp-center')
@@ -344,28 +340,27 @@ interface OrderApi {
     expect(erp).toContain('Order getOrder(Long id);');
   });
 
-  it('generates dubbo/bean interface files', () => {
+  it('generates dubbo interface files', () => {
     const files = generateJava(parse(M6_DSL));
     const us = files.find((f) => f.path.endsWith('service/api/UserService.java'))!.content;
     expect(us).toContain('public interface UserService');
     expect(us).toContain('Order createOrder(Order input);');
-    const sdk = files.find((f) => f.path.endsWith('service/api/OrderSdk.java'))!.content;
-    expect(sdk).toContain('public interface OrderSdk');
   });
 
-  it('adds dubbo/bean/http deps to pom.xml', () => {
+  it('adds dubbo/http deps to pom.xml', () => {
     const files = generateJava(parse(M6_DSL));
     const pom = files.find((f) => f.path === 'pom.xml')!.content;
     expect(pom).toContain('org.apache.dubbo');
-    expect(pom).toContain('<groupId>com.example</groupId>\n      <artifactId>order-sdk</artifactId>');
     expect(pom).toContain('spring-cloud-starter-openfeign');
+    // bean(jar) 坐标注入已删除（dev/33）：本地 jar 走 dependency java 声明
+    expect(pom).not.toContain('order-sdk');
   });
 
   it('without services no service deps in pom', () => {
     const files = generateJava(parse(`
 entity Order { id: Integer @pk; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 interface OrderApi { GET '/api/orders' -> listOrders }
 `));
     const pom = files.find((f) => f.path === 'pom.xml')!.content;
@@ -384,22 +379,22 @@ entity Order {
   status: String;
 }
 @export
-logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+function searchOrders(customer: String, minTotal: Decimal): List<Order> {
   return Order.where(customer like '%' + customer + '%', total >= minTotal);
 }
-logic topOrders(): List<Order> {
+function topOrders(): List<Order> {
   return Order.where(total > 0).orderBy(total desc).limit(10);
 }
-logic pageOrders(n: Integer, size: Integer): Page<Order> {
+function pageOrders(n: Integer, size: Integer): Page<Order> {
   return Order.where(total > 0).orderBy(total desc).page(n, size);
 }
-logic orderStats(): Decimal {
+function orderStats(): Decimal {
   return Order.aggregate(sum(total));
 }
-logic sumByCustomer(): List<Map<Object>> {
+function sumByCustomer(): List<Map<Object>> {
   return Order.aggregate(sum(total)).groupBy(customer);
 }
-logic inQuery(statuses: List<String>): List<Order> {
+function inQuery(statuses: List<String>): List<Order> {
   return Order.where(status in statuses);
 }
 interface OrderApi {
@@ -497,15 +492,15 @@ struct Row { code: String; qty: Integer; }
 entity Item { id: Integer @pk; orderId: Integer; qty: Integer; price: Decimal; }
 entity Head { id: Integer @pk; amount: Decimal; }
 @export
-logic summary(): List<Row> {
-  rows := new List<Row>();
-  r := new Row();
+function summary(): List<Row> {
+  const rows = new List<Row>();
+  const r = new Row();
   rows.add(r);
   return rows;
 }
 @export
-logic adjust(id: Integer, amount: Decimal): Boolean {
-  h := Head.get(id);
+function adjust(id: Integer, amount: Decimal): Boolean {
+  const h = Head.get(id);
   if (h.amount >= amount) {
     h.amount = h.amount - amount;
     h.save();
@@ -513,9 +508,9 @@ logic adjust(id: Integer, amount: Decimal): Boolean {
   return true;
 }
 @export
-logic tally(id: Integer): Integer {
-  n := 0;
-  for (it in Item.where(orderId = id)) {
+function tally(id: Integer): Integer {
+  const n = 0;
+  for (const it of Item.where(orderId = id)) {
     n = n + it.qty;
   }
   return n;
@@ -593,7 +588,7 @@ describe('codegen-java dev/32 依赖声明驱动 pom', () => {
 dependency java "com.alibaba:fastjson2";
 dependency java "com.other:lib:1.2.3";
 @export
-logic f(): Boolean { return true; }
+function f(): Boolean { return true; }
 `), { libs: [{ eco: 'java', coordinate: 'com.alibaba:fastjson2:2.0.58', classes: [] }] });
     const pom = files.find((f) => f.path === 'pom.xml')!.content;
     expect(pom).toContain('<groupId>com.alibaba</groupId>');
@@ -606,7 +601,7 @@ logic f(): Boolean { return true; }
   it('无依赖声明 → pom 无第三方依赖（不再从目录反推）', () => {
     const files = generateJava(parse(`
 @export
-logic f(o: Object): String { return JSON.toJSONString(o); }
+function f(o: Object): String { return JSON.toJSONString(o); }
 `), { libs: [{
       eco: 'java',
       coordinate: 'com.alibaba:fastjson2:2.0.58',
@@ -620,7 +615,7 @@ logic f(o: Object): String { return JSON.toJSONString(o); }
     const files = generateJava(parse(`
 dependency java "com.alibaba:fastjson2:2.0.58";
 @export
-logic f(o: Object): String { return JSON.toJSONString(o); }
+function f(o: Object): String { return JSON.toJSONString(o); }
 `), { libs: [{
       eco: 'java',
       coordinate: 'com.alibaba:fastjson2:2.0.58',

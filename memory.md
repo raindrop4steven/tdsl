@@ -88,3 +88,8 @@
 
 ## 2026-09-13 会话追加（教程改版）
 - `docs/70_教程` 重组：P0 时代教程（00-05 + 06 Tour）原样归档 `v1/`（README 顶部加归档横幅）；新写当前版教程 12 篇（00 总览十包流水线 / 01-05 逐包设计 / 06 工具链总索引 / 07 cli / 08 llm / 09 server / 10 eval 独立成篇），风格对齐 v1（编号+表格+源码导读+动手练习），数据以 261 单测实测为准；抽查修正 throw 翻译事实（TdslError 非 IllegalStateException）。AGENTS/设计总览/index.html 引用同步。
+- **新增 20_语法手册**（面向书写者的人+LLM 语言参考）：六章（顶层声明/逻辑/查询/接口/页面/第三方接入），片段来自 examples+单测并**过编译验证**（临时单测实测，enum label 语法实测修正为 `KEY('中文')`）；定位为 cheatsheet 的语义权威来源；README 加"想直接写 TDSL 跳过 00-10"入口。
+- **TS 化收尾（用户拍板"不要双语法"）**：TS 面为唯一书写口径，legacy（logic/:=/for-in）降级为"废弃仅存量兼容"。清理：8 个测试文件 ~180 处 legacy 写法全改 TS 面（sed 批量+同构测试改写为兼容性测试）；cheatsheet 禁止事项补三条；手册/00/02 教程/设计总览 D4 口径同步改写。261 单测全绿、slice/slice:multi/check-spec 100%。
+- **parser 物理删除 legacy（用户拍板"没必要兼容老项目"）**：parser.ts 三处 legacy 分支删除（`logic` 关键词/`:=` VarDecl/`for-in`）——`logic` 报 unexpected、`:=`/`for-in` 报"已废弃"口径（报错即文档）、`for` 缺 `const` 报人话提示；lexer 的 `:=` token 保留（分词报错需要）。兼容性单测改写为 5 条废弃报错断言 + TS 面解析断言。文档"仅存量兼容"口径全量改为"已物理删除"。265 单测全绿（+4）。
+- **dev/33 外部能力一等公民化（用户批评"封装层违背一等公民承诺"）**：①删 `service kind='bean'`——本地 jar 类与 FFI 直调重叠，dependency java + libs 产物是唯一通道；②删 `component` 注册层——npm 一等公民对标 java 侧，页面直接写三方组件标签，import 包名由 `dependency npm` 声明解析（`as ns` 显式命名优先 + 包名尾段 norm 兜底），未声明报 D-dep 口径；③dubbo/http 保留重定位为"外部系统对接"（运行中 RPC/REST 契约，非依赖封装）。设计文档 dev/33。265 单测全绿、slice/slice:multi/check-spec 100%。
+- **dev/34 依赖声明统一 import 形态（用户三轮收敛语法）**：`dependency xxx "坐标" [as ns] [import X | import { A, B as C }]`——`as ns` 回归 jar 级命名空间本义（撞名消解，可选）；`import` 与 JS 语义字面一致（npm 默认/具名导出，java 产物类显式进裸名 + 列表内 `B as C` 改名）；无 import 的 java 声明保持产物全量进裸名（兼容）。三方组件匹配改按 imports 列表（显式导入后不再尾段兜底）。codegen-react 具名导出同包聚合生成。272 单测全绿、全链路回归 ✓。

@@ -15,9 +15,9 @@ struct TodoInput {
 }
 
 @export
-logic findTodos(): List<Todo> {
-  result := new List<Todo>();
-  for (todo in Todo.all) {
+function findTodos(): List<Todo> {
+  const result = new List<Todo>();
+  for (const todo of Todo.all) {
     if (todo.done === false) {
       result.add(todo);
     }
@@ -26,7 +26,7 @@ logic findTodos(): List<Todo> {
 }
 `;
 
-describe('parser/lexer', () => {
+describe('parser/lexer（legacy 兼容期）', () => {
   it('tokenizes operators and identifiers', () => {
     const tokens = tokenize('a === b && c <= d := e');
     const values = tokens.map((t) => t.value);
@@ -68,7 +68,7 @@ describe('parser/parse', () => {
     }
   });
 
-  it('parses logic body statements', () => {
+  it('parses function body statements', () => {
     const app = parse(SAMPLE);
     const body = app.logics[0].body;
     expect(body[0]).toMatchObject({ kind: 'VarDecl', name: 'result' });
@@ -186,13 +186,13 @@ entity Todo { id: Integer @pk; title: String; done: Boolean; }
 struct TodoInput { title: String; done: Boolean; }
 
 @export
-logic findTodos(): List<Todo> { return Todo.all; }
+function findTodos(): List<Todo> { return Todo.all; }
 @export
-logic createTodo(input: TodoInput): Todo { return new Todo(); }
+function createTodo(input: TodoInput): Todo { return new Todo(); }
 @export
-logic updateTodo(id: Integer, input: TodoInput): Todo { return new Todo(); }
+function updateTodo(id: Integer, input: TodoInput): Todo { return new Todo(); }
 @export
-logic deleteTodo(id: Integer): Boolean { return true; }
+function deleteTodo(id: Integer): Boolean { return true; }
 
 interface TodoApi {
   GET    '/api/todos'       -> findTodos
@@ -238,9 +238,9 @@ describe('parser/operators', () => {
     const app = parse(`
 entity T { id: Integer @pk; }
 @export
-logic calc(a: Integer, b: Integer): Integer {
-  x := a * b + 2;
-  y := a / b - 1;
+function calc(a: Integer, b: Integer): Integer {
+  const x = a * b + 2;
+  const y = a / b - 1;
   if (a >= b && b > 0) { return x; }
   return y;
 }
@@ -267,7 +267,7 @@ logic calc(a: Integer, b: Integer): Integer {
 entity Order { id: Integer @pk; }
 entity OrderItem { id: Integer @pk; orderId: Integer; }
 @export
-logic find(id: Integer): List<OrderItem> {
+function find(id: Integer): List<OrderItem> {
   return OrderItem.where(orderId = id);
 }
 `);
@@ -286,9 +286,9 @@ describe('parser/page (M4 View)', () => {
   const PAGE_DSL = `
 entity Order { id: Integer @pk; customer: String; total: Decimal; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 @export
-logic deleteOrder(id: Integer): Boolean { return true; }
+function deleteOrder(id: Integer): Boolean { return true; }
 interface OrderApi {
   GET    '/api/orders'      -> listOrders
   DELETE '/api/orders/{id}' -> deleteOrder
@@ -333,12 +333,12 @@ page OrderCreate { }
     expect(q?.target).toBe('app.logics.listOrders');
   });
 
-  it('rejects dangling logic in page binding', () => {
+  it('rejects dangling function in page binding', () => {
     expect(() =>
       parse(`
 entity Order { id: Integer @pk; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 page X { <table dataSource={useQuery('nope')}><column field="id" /></table> }
 `),
     ).toThrow(/cannot resolve logic 'nope'/);
@@ -349,25 +349,21 @@ page X { <table dataSource={useQuery('nope')}><column field="id" /></table> }
       parse(`
 entity Order { id: Integer @pk; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 page X { <button action={navigate('Nope')} /> }
 `),
     ).toThrow(/cannot resolve page 'Nope'/);
   });
 });
 
-describe('parser/M6 service + component', () => {
+describe('parser/M6 service（dev/33：dubbo/http 一等公民；bean/component 已删除）', () => {
   const M6_DSL = `
 entity Order { id: Integer @pk; customer: String; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 @service(kind = 'dubbo', group = 'order-center', version = '1.0.0')
 service UserService {
   getUser(id: Integer): Order;
-}
-@service(kind = 'bean', jar = 'com.example:order-sdk:1.0')
-service OrderSdk {
-  createOrder(input: Order): Order;
 }
 @service(kind = 'http', baseUrl = 'http://erp-center')
 service ErpApi {
@@ -376,22 +372,17 @@ service ErpApi {
 interface OrderApi {
   GET '/api/orders' -> listOrders
 }
-component ECharts {
-  pkg: 'echarts-for-react';
-  defaultProps: { option: Json; style: Json };
-  events: ['onClick'];
-}
 `;
 
-  it('parses dubbo/bean/http services with operations', () => {
+  it('parses dubbo/http services with operations', () => {
     const app = parse(M6_DSL);
-    expect(app.services).toHaveLength(3);
+    expect(app.services).toHaveLength(2);
     const dubbo = app.services[0];
     expect(dubbo.kind_).toBe('dubbo');
     expect(dubbo.config['group']).toBe('order-center');
     expect(dubbo.operations[0].name).toBe('getUser');
     expect(dubbo.operations[0].params[0].name).toBe('id');
-    const http = app.services[2];
+    const http = app.services[1];
     expect(http.kind_).toBe('http');
     expect(http.operations[0].method).toBe('GET');
     expect(http.operations[0].path).toBe('/api/orders/{id}');
@@ -403,14 +394,22 @@ component ECharts {
     expect(dubbo.operations[0].returns[0].type.kind === 'reference' ? dubbo.operations[0].returns[0].type.path : '').toContain('app.datasources');
   });
 
-  it('parses component registration', () => {
-    const app = parse(M6_DSL);
-    expect(app.components).toHaveLength(1);
-    const c = app.components[0];
-    expect(c.name).toBe('ECharts');
-    expect(c.pkg).toBe('echarts-for-react');
-    expect(c.defaultProps).toContain('option');
-    expect(c.events).toContain('onClick');
+  it('rejects bean kind（本地 jar 走 dependency java + libs 直调）', () => {
+    expect(() =>
+      parse(`
+@service(kind = 'bean', jar = 'com.example:order-sdk:1.0')
+service OrderSdk { createOrder(input: Order): Order; }
+entity Order { id: Integer @pk; }
+`),
+    ).toThrow(/dependency java/);
+  });
+
+  it('rejects component 顶层注册（npm 一等公民：页面直用 + dependency npm 匹配）', () => {
+    expect(() =>
+      parse(`
+component ECharts { pkg: 'echarts-for-react'; defaultProps: { option: Json }; events: ['onClick']; }
+`),
+    ).toThrow(/dependency npm/);
   });
 
   it('rejects service without kind in @service', () => {
@@ -432,15 +431,6 @@ entity Order { id: Integer @pk; }
     ).toThrow(/requires @service\(kind/);
   });
 
-  it('rejects component without pkg', () => {
-    expect(() =>
-      parse(`
-component X {
-  events: ['onClick'];
-}
-`),
-    ).toThrow(/requires pkg/);
-  });
 });
 
 describe('parser/M2 查询语言', () => {
@@ -453,25 +443,25 @@ entity Order {
   status: String;
 }
 
-logic searchOrders(customer: String, minTotal: Decimal): List<Order> {
+function searchOrders(customer: String, minTotal: Decimal): List<Order> {
   return Order.where(customer like '%' + customer + '%', total >= minTotal);
 }
-logic topOrders(): List<Order> {
+function topOrders(): List<Order> {
   return Order.where(total > 0).orderBy(total desc).limit(10);
 }
-logic pageOrders(n: Integer, size: Integer): Page<Order> {
+function pageOrders(n: Integer, size: Integer): Page<Order> {
   return Order.where(total > 0).orderBy(total desc).page(n, size);
 }
-logic orderStats(): Decimal {
+function orderStats(): Decimal {
   return Order.aggregate(sum(total));
 }
-logic sumByCustomer(): List<Map<Object>> {
+function sumByCustomer(): List<Map<Object>> {
   return Order.aggregate(sum(total)).groupBy(customer);
 }
-logic statusCount(): List<Order> {
+function statusCount(): List<Order> {
   return Order.where(status in ['A', 'B']);
 }
-logic orQuery(): List<Order> {
+function orQuery(): List<Order> {
   return Order.where(total > 100 || status = 'C');
 }
 `;
@@ -580,7 +570,7 @@ logic orQuery(): List<Order> {
       parse(`
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
-logic bad(): List<Order> {
+function bad(): List<Order> {
   return Order.where(total);
 }
 `),
@@ -592,7 +582,7 @@ logic bad(): List<Order> {
       parse(`
 @datasource('d')
 entity Order { id: Integer @pk; total: Decimal; }
-logic bad(): List<Order> {
+function bad(): List<Order> {
   return Order.where(total > 0).orderBy(total sideways);
 }
 `),
@@ -609,8 +599,8 @@ entity OrderItem { id: Integer @pk; orderId: Integer; }
 `;
   const B_REF = `struct OrderInput { total: Decimal; }
 
-logic createOrder(input: OrderInput): Order {
-  result := new Order();
+function createOrder(input: OrderInput): Order {
+  const result = new Order();
   result.total = input.total;
   return result;
 }
@@ -672,11 +662,11 @@ entity Order { id: Integer @pk; }
   });
 
   it('跨文件重名 logic 报错（消息含双文件）', () => {
-    const B_LOGIC = `logic createOrder(): Integer {
+    const B_LOGIC = `function createOrder(): Integer {
   return 0;
 }
 `;
-    const C_LOGIC = `logic createOrder(): Integer {
+    const C_LOGIC = `function createOrder(): Integer {
   return 1;
 }
 `;
@@ -718,8 +708,8 @@ entity Order { id: Integer @pk; }
 entity Order { id: Integer @pk; total: Decimal; }
 struct OrderInput { total: Decimal; }
 `;
-    const FEATURE = `logic createOrder(input: OrderInput): Order {
-  result := new Order();
+    const FEATURE = `function createOrder(input: OrderInput): Order {
+  const result = new Order();
   result.total = input.total;
   return result;
 }
@@ -781,24 +771,37 @@ page GoodsList { <text value="x" /> }
   });
 });
 
-describe('parser/双语法（P11：TS 词法面兼容期）', () => {
-  it('function/const(: T)/for-of 与 logic/:=/for-in 解析为同构 AST', () => {
-    const legacy = parse(`
+describe('parser/legacy 废弃（P11 收尾：TS 面为唯一书写口径）', () => {
+  it('logic 关键词已删除：报 unexpected', () => {
+    expect(() => parse(`
 @datasource('defaultDS')
-entity Order { id: Integer @pk; total: Decimal; }
-struct OrderInput { total: Decimal; }
-@export
-logic createOrder(input: OrderInput): Order {
-  order := new Order();
-  order.total = input.total;
-  for (it in input.items_list) {
-    order.total = order.total + 1;
-  }
-  order.save();
-  return order;
-}
-`);
-    const modern = parse(`
+logic f(): Boolean { return true; }
+`)).toThrow(TdslSyntaxError);
+  });
+
+  it(':= 已废弃：报废弃口径', () => {
+    expect(() => parse(`
+@datasource('defaultDS')
+function f(): Boolean { x := 1; return true; }
+`)).toThrow(/已废弃/);
+  });
+
+  it('for-in 已废弃：先报 const 缺失口径', () => {
+    expect(() => parse(`
+@datasource('defaultDS')
+function f(xs: List<Object>): Boolean { for (const x in xs) { } return true; }
+`)).toThrow(/已废弃/);
+  });
+
+  it('for 缺 const 报人话口径', () => {
+    expect(() => parse(`
+@datasource('defaultDS')
+function f(xs: List<Object>): Boolean { for (x of xs) { } return true; }
+`)).toThrow(/for \(const x of y\)/);
+  });
+
+  it('TS 面（function/const =/for-of）解析正常', () => {
+    const app = parse(`
 @datasource('defaultDS')
 entity Order { id: Integer @pk; total: Decimal; }
 struct OrderInput { total: Decimal; }
@@ -806,28 +809,24 @@ struct OrderInput { total: Decimal; }
 function createOrder(input: OrderInput): Order {
   const order = new Order();
   order.total = input.total;
-  for (const it of input.items_list) {
+  for (const it of input.items) {
     order.total = order.total + 1;
   }
   order.save();
   const zero: Decimal = 0;
-  return zero;
+  return order;
 }
 `);
-    expect(modern.logics.length).toBe(1);
-    expect(modern.logics[0].body.map((s) => s.kind)).toEqual([
+    expect(app.logics.length).toBe(1);
+    expect(app.logics[0].body.map((s) => s.kind)).toEqual([
       'VarDecl', 'Assign', 'ForEach', 'CallStmt', 'VarDecl', 'Return',
     ]);
     // typed const → VarDecl.type（TS 词法面的类型标注进 AST）
-    const decls = modern.logics[0].body.filter((s) => s.kind === 'VarDecl');
+    const decls = app.logics[0].body.filter((s) => s.kind === 'VarDecl');
     expect((decls[1] as { type?: unknown }).type).toBeDefined();
-    // legacy 与 modern 同构：顶层五段（VarDecl/Assign/ForEach/CallStmt/…）逐段对齐
-    expect(legacy.logics[0].body.slice(0, 4).map((s) => s.kind)).toEqual(
-      modern.logics[0].body.slice(0, 4).map((s) => s.kind),
-    );
-    const modernFor = modern.logics[0].body[2];
-    expect(modernFor.kind).toBe('ForEach');
-    expect((modernFor as { body: { kind: string }[] }).body.map((s) => s.kind)).toEqual(['Assign']);
+    const forSt = app.logics[0].body[2];
+    expect(forSt.kind).toBe('ForEach');
+    expect((forSt as { body: { kind: string }[] }).body.map((s) => s.kind)).toEqual(['Assign']);
   });
 });
 
@@ -889,6 +888,41 @@ dependency npm "@scope/ui";
     const app = parseProject([
       { path: 'a.tdsl', content: `dependency java "g:a:1";` },
       { path: 'b.tdsl', content: `dependency java "g:a:1";` },
+    ]);
+    expect(app.dependencies).toHaveLength(1);
+  });
+});
+
+describe('parser/dev34 dependency 统一 import 形态', () => {
+  it('import { A, B as C } 具名导入（含改名）', () => {
+    const app = parse(`dependency npm "@ant-design/charts" import { Pie, Bar as BarChart };`);
+    const d = app.dependencies[0];
+    expect(d.imports).toEqual([{ name: 'Pie' }, { name: 'Bar', alias: 'BarChart' }]);
+    expect(d.importDefault).toBeUndefined();
+  });
+
+  it('import X 默认导入', () => {
+    const app = parse(`dependency npm "echarts-for-react" import ECharts;`);
+    expect(app.dependencies[0].importDefault).toBe('ECharts');
+  });
+
+  it('java as ns + import 组合', () => {
+    const app = parse(`dependency java "com.fasterxml:jackson:2.17.0" as jackson import { JSON };`);
+    const d = app.dependencies[0];
+    expect(d.ns).toBe('jackson');
+    expect(d.imports).toEqual([{ name: 'JSON' }]);
+  });
+
+  it('纯依赖（无 import）', () => {
+    const app = parse(`dependency npm "dayjs";`);
+    expect(app.dependencies[0].imports).toBeUndefined();
+    expect(app.dependencies[0].importDefault).toBeUndefined();
+  });
+
+  it('parseProject 去重含 import 形态', () => {
+    const app = parseProject([
+      { path: 'a.tdsl', content: `dependency npm "p" import { A };` },
+      { path: 'b.tdsl', content: `dependency npm "p" import { A };` },
     ]);
     expect(app.dependencies).toHaveLength(1);
   });

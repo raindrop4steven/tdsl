@@ -20,14 +20,14 @@
 
 ## 2. QuerySpec 机制（M2 的核心）
 
-扫描所有 logic 的实体查询表达式 → 每个实体归集"查询形态"（条件集 + 排序 + 分页/聚合/分组）→ 去重（`sameSpec`）→ 每个 QuerySpec 生成一个 Repository 方法：
+扫描所有函数的实体查询表达式 → 每个实体归集"查询形态"（条件集 + 排序 + 分页/聚合/分组）→ 去重（`sameSpec`）→ 每个 QuerySpec 生成一个 Repository 方法：
 
 - 派生方法名：`findByCustomerLikeAndTotalGreaterThanOrderByTotalDesc`（`opSuffix` 映射运算符后缀）
 - `limit(n)` → `findTop{n}By...`
 - `.page(n,size)` → `Pageable` 参数 + 返回 `Page<T>`
 - 聚合 → `@Query("select sum(o.total) from Order o ...")` JPQL；`.groupBy` → `List<Map<String,Object>>`
 
-**为什么不用固定模板**：logic 方法体是**逐语句翻译**（`genStatement`/`genExpr`）——TDSL 能表达什么，Java 就能生成什么，这是"非固定模板生成"的底气。
+**为什么不用固定模板**：函数体是**逐语句翻译**（`genStatement`/`genExpr`）——TDSL 能表达什么，Java 就能生成什么，这是"非固定模板生成"的底气。
 
 ## 3. 表达式翻译要点
 
@@ -40,7 +40,7 @@
 
 ## 4. FFI 与依赖（dev/27 + dev/32）
 
-- **import 收集**：`collectFfiClassesInExpr` 扫 logic 表达式树 → 内核五域 + 依赖产物类（含 `ns.Alias` 限定形态）→ 显式 `import 全限定名;`
+- **import 收集**：`collectFfiClassesInExpr` 扫函数表达式树 → 内核五域 + 依赖产物类（含 `ns.Alias` 限定形态）→ 显式 `import 全限定名;`
 - **pom 注入改声明驱动**：`dependency java "g:a:v"` 全量进 `<dependencies>`（service 的 dubbo/bean/http 依赖另有注入通道）；**不再从目录反推**——目录是能力清单，声明才是意图
 - 产物类成员按 `FfiMethod.java` 模板翻译（缺省 `{recv}.{name}({args})` 直发）
 

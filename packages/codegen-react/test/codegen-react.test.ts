@@ -12,13 +12,13 @@ entity Todo {
 struct TodoInput { title: String; done: Boolean; }
 
 @export
-logic findTodos(): List<Todo> { return Todo.all; }
+function findTodos(): List<Todo> { return Todo.all; }
 @export
-logic createTodo(input: TodoInput): Todo { return new Todo(); }
+function createTodo(input: TodoInput): Todo { return new Todo(); }
 @export
-logic updateTodo(id: Integer, input: TodoInput): Todo { return new Todo(); }
+function updateTodo(id: Integer, input: TodoInput): Todo { return new Todo(); }
 @export
-logic deleteTodo(id: Integer): Boolean { return true; }
+function deleteTodo(id: Integer): Boolean { return true; }
 
 interface TodoApi {
   GET    '/api/todos'       -> findTodos
@@ -86,13 +86,13 @@ describe('codegen-react M4 view', () => {
 @datasource('defaultDS')
 entity Order { id: Integer @pk; customer: String; total: Decimal; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
+function listOrders(): List<Order> { return Order.all; }
 @export
-logic createOrder(input: OrderInput): Order { return new Order(); }
+function createOrder(input: OrderInput): Order { return new Order(); }
 @export
-logic getOrderDetail(id: Integer): OrderDetail { return new OrderDetail(); }
+function getOrderDetail(id: Integer): OrderDetail { return new OrderDetail(); }
 @export
-logic deleteOrder(id: Integer): Boolean { return true; }
+function deleteOrder(id: Integer): Boolean { return true; }
 struct OrderInput { customer: String; items: List<OrderItemInput>; }
 struct OrderItemInput { product: String; price: Decimal; qty: Integer; }
 struct OrderDetail { order: Order; items: List<OrderItem>; }
@@ -225,18 +225,14 @@ page OrderDetail {
   });
 });
 
-describe('codegen-react M6 external component', () => {
-  it('renders registered component with import and package.json dep', () => {
+describe('codegen-react dev/33 三方组件（npm 一等公民）', () => {
+  it('页面直用三方组件：import 包名由 dependency npm 匹配，package.json 只来自声明', () => {
     const files = generateReact(
       parse(`
+dependency npm "echarts-for-react" import ECharts;
 entity Order { id: Integer @pk; customer: String; amount: Integer; }
 @export
-logic listOrders(): List<Order> { return Order.all; }
-component ECharts {
-  pkg: 'echarts-for-react';
-  defaultProps: { option: Json; style: Json };
-  events: ['onClick'];
-}
+function listOrders(): List<Order> { return Order.all; }
 page P {
   <ECharts option={null} dataSource={useQuery('listOrders')} />
 }
@@ -246,7 +242,43 @@ page P {
     expect(page).toContain("import ECharts from 'echarts-for-react';");
     expect(page).toContain('<ECharts data={qListOrders.data} option={null} />');
     const pkg = files.find((f) => f.path === 'package.json')!.content;
-    expect(pkg).toContain('"echarts-for-react": "*"');
+    expect(pkg).toContain('"echarts-for-react"');
+  });
+
+  it('scoped 包名：as ns 显式命名 ↔ <Charts />', () => {
+    const files = generateReact(
+      parse(`
+dependency npm "@ant-design/charts@^2.0.0" import { Pie, Bar };
+@export
+function f(): Boolean { return true; }
+page P {
+  <Pie data={null} />
+  <Bar data={null} />
+}
+`),
+    );
+    const page = files.find((f) => f.path === 'src/pages/P.tsx')!.content;
+    expect(page).toContain("import { Pie, Bar } from '@ant-design/charts';");
+    expect(page).toContain('<Pie');
+    expect(page).toContain('<Bar');
+  });
+
+  it('默认导出与具名导出混用（dev/34）', () => {
+    const files = generateReact(
+      parse(`
+dependency npm "echarts-for-react" import ECharts;
+dependency npm "@ant-design/charts" import { Pie };
+@export
+function f(): Boolean { return true; }
+page P {
+  <ECharts option={null} />
+  <Pie data={null} />
+}
+`),
+    );
+    const page = files.find((f) => f.path === 'src/pages/P.tsx')!.content;
+    expect(page).toContain("import ECharts from 'echarts-for-react';");
+    expect(page).toContain("import { Pie } from '@ant-design/charts';");
   });
 });
 
@@ -256,7 +288,7 @@ describe('codegen-react 搜索页回归（agent 2026-09 实际踩坑）', () => 
 @datasource('defaultDS')
 entity Contract { id: Integer @pk; title: String; }
 @export
-logic searchContracts(keyword: String, page: Integer, size: Integer): List<Contract> { return Contract.all; }
+function searchContracts(keyword: String, page: Integer, size: Integer): List<Contract> { return Contract.all; }
 interface ContractApi {
   GET '/api/contracts/search' -> searchContracts
 }
@@ -297,7 +329,7 @@ entity Contract { id: Integer @pk; title: String; type: ContractType; amount: De
 enum ContractType { DRAFT, ACTIVE }
 struct ContractInput { title: String; type: ContractType; amount: Decimal; signDate: Date; createdAt: DateTime; }
 @export
-logic createContract(input: ContractInput): Contract { return new Contract(); }
+function createContract(input: ContractInput): Contract { return new Contract(); }
 interface ContractApi {
   POST '/api/contracts' -> createContract
 }
@@ -341,9 +373,9 @@ entity Car { id: Integer @pk; plate: String; status: CarStatus; }
 enum CarStatus { DRAFT, ACTIVE }
 struct CarInput { plate: String; status: CarStatus; }
 @export
-logic listCars(): List<Car> { return Car.all; }
+function listCars(): List<Car> { return Car.all; }
 @export
-logic saveCar(input: CarInput): Car { return new Car(); }
+function saveCar(input: CarInput): Car { return new Car(); }
 interface CarApi {
   GET '/api/cars'        -> listCars
   POST  '/api/cars'      -> saveCar
@@ -392,11 +424,11 @@ describe('codegen-react spec 对拍修复（jxc）', () => {
 struct PayableInput { amount: Decimal; signAt: DateTime; }
 entity Payable { id: Integer @pk; amount: Decimal; }
 @export
-logic listPayables(): List<Payable> { return Payable.all; }
+function listPayables(): List<Payable> { return Payable.all; }
 @export
-logic pay(id: Integer, amount: Decimal): Boolean { return true; }
+function pay(id: Integer, amount: Decimal): Boolean { return true; }
 @export
-logic savePayable(input: PayableInput): Payable { return new Payable(); }
+function savePayable(input: PayableInput): Payable { return new Payable(); }
 interface Api {
   GET  '/api/payables' -> listPayables
   POST '/api/pay'      -> pay
@@ -436,9 +468,9 @@ describe('codegen-react 编辑闭环（G6）', () => {
 struct GoodsInput { id: Integer; code: String; }
 entity Goods { id: Integer @pk; code: String; }
 @export
-logic listGoods(): List<Goods> { return Goods.all; }
+function listGoods(): List<Goods> { return Goods.all; }
 @export
-logic saveGoods(input: GoodsInput): Goods { return new Goods(); }
+function saveGoods(input: GoodsInput): Goods { return new Goods(); }
 interface Api {
   GET  '/api/goods' -> listGoods
   POST '/api/goods' -> saveGoods
@@ -486,7 +518,7 @@ enum SettleMode { CASH('现金'), ACCOUNT('对账') }
 entity Goods { id: Integer @pk; mode: SettleMode; }
 struct GoodsInput { mode: SettleMode; }
 @export
-logic saveGoods(input: GoodsInput): Goods { return new Goods(); }
+function saveGoods(input: GoodsInput): Goods { return new Goods(); }
 @title('商品列表')
 page GoodsList {
   <form submit={useMutation('saveGoods')}><input field="mode" /></form>
@@ -505,7 +537,7 @@ describe('codegen-react 折叠菜单（@menu 分组）', () => {
 @datasource('defaultDS')
 entity G { id: Integer @pk; code: String; }
 @export
-logic listG(): List<G> { return G.all; }
+function listG(): List<G> { return G.all; }
 interface Api { GET '/api/gs' -> listG }
 @title('商品列表')
 @menu('基础数据')
@@ -573,7 +605,7 @@ describe('codegen-react dev/32 dependency npm 声明进 package.json', () => {
 dependency npm "antd@^5.21.0";
 dependency npm "lodash-es@^4.17.21";
 @export
-logic f(): Boolean { return true; }
+function f(): Boolean { return true; }
 `));
     const pkg = files.find((f) => f.path === 'package.json')!.content;
     expect(pkg).toContain('"antd": "^5.21.0"');
@@ -581,17 +613,19 @@ logic f(): Boolean { return true; }
     expect(pkg.match(/"antd"/g)).toHaveLength(1);
   });
 
-  it('component 注册的 pkg 已被 dependency 声明时不重复注入', () => {
+  it('三方组件与骨架默认项不重复注入 package.json', () => {
     const files = generateReact(parse(`
 dependency npm "echarts-for-react@^3.0.2";
-component ECharts {
-  pkg: 'echarts-for-react';
-  defaultProps: { option: Json };
-  events: ['onClick'];
+dependency npm "antd@^5.21.0";
+@export
+function f(): Boolean { return true; }
+page P {
+  <ECharts option={null} />
 }
 `));
     const pkg = files.find((f) => f.path === 'package.json')!.content;
     expect(pkg).toContain('"echarts-for-react": "^3.0.2"');
+    expect(pkg).toContain('"antd": "^5.21.0"');
     expect(pkg.match(/echarts-for-react/g)).toHaveLength(1);
   });
 });

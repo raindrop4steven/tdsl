@@ -31,7 +31,6 @@ export function humanizePath(app: AppNode, path: string): string {
   const view = find('views', app.views);
   const structure = find('structures', app.structures);
   const service = find('services', app.services);
-  const component = find('components', app.components);
   if (entity !== null) {
     const dsIdx = seg.indexOf('datasources');
     const ds = dsIdx >= 0 && seg[dsIdx + 1] ? `（数据源 ${seg[dsIdx + 1]}）` : '';
@@ -41,7 +40,6 @@ export function humanizePath(app: AppNode, path: string): string {
   if (view) return `页面 ${view}`;
   if (structure) return `结构 ${structure}`;
   if (service) return `服务 ${service}`;
-  if (component) return `组件 ${component}`;
   return path;
 }
 

@@ -7,20 +7,24 @@ export const SYNTAX_CHEATSHEET = `// ===== TDSL 语法速查（形态一览，�
 
 // ---- 声明（领域扩展，TS 无对应）----
 @datasource('dsName')        // 独立顶层语句（非实体修饰符）：声明/切换当前数据源，此后 entity 归入它直到下一次切换；跨源同名实体引用用 dsName.Entity
+dependency java "g:a:v" import { JSON, JSONObject };   // 依赖声明：java 进 pom（import 列表=裸名可用的类）；npm 进 package.json
+dependency npm "@ant-design/charts" import { Pie, Bar };   // npm 组件导入：页面直接 <Pie />（import 语句自动生成）
 entity Order { id: Integer @pk; total: Decimal; createdAt: DateTime }  // 注解: @pk @nullable @unique
 struct OrderInput { items: List<OrderItemInput> }                      // DTO / 嵌套结构
 enum Priority { LOW, HIGH }
 interface OrderApi { GET '/api/orders/{id}' -> getOrderDetail }        // GET/POST/PUT/DELETE -> 绑定 logic 名
-@service(kind = 'dubbo', group = 'x', version = '1.0') service UserSvc { getUser(id: Integer): User; }
+@service(kind = 'dubbo', group = 'x', version = '1.0') service UserSvc { getUser(id: Integer): User; }   // 外部系统对接（dubbo=运行中 RPC / http=REST 契约）；本地 jar 类不用 service——dependency java + libs 直调
 @service(kind = 'http', baseUrl = 'http://x') service ErpApi { GET '/path' -> opName(id: Integer): Order; }
-component RichTable { pkg: 'npm-pkg-name'; defaultProps: { data: Json }; events: ['onClick'] }
 page OrderList { <table dataSource={useQuery('listOrders')}> <column field="id" /> </table> }
 //   页面绑定: useQuery('logic') / useMutation('logic', args...) / navigate('PageName', row.id) / openDialog('DialogName')
 //   内置组件: table/column/button/form/input/repeat/text/detail；管理端常用: tag(color)/statistic(title,value)
 //     tabs > pane(title) / checkbox / switch / radio(options="A,B") / avatar / badge(count) / card(title)——枚举列自动彩色标签、Boolean 字段自动开关
-//   新增/编辑类表单用 dialog 声明（不进路由），列表页用 openDialog('DialogName') 打开；三方组件用 component 注册名
+//   新增/编辑类表单用 dialog 声明（不进路由），列表页用 openDialog('DialogName') 打开
+//   三方组件（npm 一等公民）：dependency npm "包名" import ECharts;（默认导出）或 import { Pie, Bar };（具名）→ 页面直接 <组件名 .../>
 
 // ---- 逻辑（TS 词法：const/let、for-of、function；骨架声明用领域关键词）----
+// 变量声明只用 const/let =（类型可标：const n: Integer = 0）；遍历只用 for-of（无 for-in 键遍历）
+// 逻辑声明只用 function（无 logic 关键词、无 := 赋值——已从 parser 删除，写入即报错）
 @export
 function createOrder(input: OrderInput): Order {
   if (input.items.count === 0) { return null; }
@@ -50,6 +54,6 @@ List<T> Map<T> Page<T>                              // 泛型；实体/结构/�
 // throw '仅暂存单可提交';            // → HTTP 400 {code:'GENERIC', message:'仅暂存单可提交'}
 
 // ---- 禁止事项 ----
-// 变量声明用 const/let（类型可标：const n: Integer = 0）；遍历用 for-of（不是 for-in 键遍历）
 // 无三元 ?:；无模板字符串；无 ==（用 ===）；逻辑声明用 function（不用箭头函数）；
+// 无 := 赋值 / for-in 键遍历 / logic 关键词（已从 parser 删除；用 const = / for-of / function）；
 // 无 Decimal(10,2) 以外的类型参数化；接口体仍是领域 DSL（method 'path' -> function），不是 TS 接口方法`;

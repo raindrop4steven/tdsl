@@ -20,7 +20,7 @@ check(app: AppNode, opts?: { libs?: LoadedCatalog[] }): CheckResult
 | 2 | ForEach 容器 | 必须是可迭代 List：实体查询 / 已知变量 / 成员访问 / Call（宽松——明显非 List 才报） |
 | 3 | Interface | 每个 endpoint 的 logicRef 必须可 resolve |
 | 4 | 实体方法与查询链（最大块） | 见 §3；含 FFI 成员解析（4.6） |
-| 5 | View | 组件类型 ∈ 内置集合或已注册 component；binding 的 logic/页面必须存在；**端点暴露**（绑定逻辑必须被 interface 暴露，实战教训）；G2 form 语义（derive 纯函数 + IO 禁令 + carryBy 可达） |
+| 5 | View | 组件类型 ∈ 内置集合或 dependency npm 匹配的三方组件（dev/33）；binding 的函数/页面必须存在；**端点暴露**（绑定逻辑必须被 interface 暴露，实战教训）；G2 form 语义（derive 纯函数 + IO 禁令 + carryBy 可达） |
 | 6 | 文件定位（M7） | 按诊断 path 反查顶层声明节点的 `file` 标，诊断落到分片 |
 
 外部服务（4.5）：kind 合法；http 操作必须带 method + path。

@@ -204,7 +204,7 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
 
   // 4.5. 外部服务：kind 合法；http 操作必须带 method + path；调用方校验在 checkEntityCalls 内
   for (const s of app.services) {
-    if (!s.kind_ || (s.kind_ !== 'dubbo' && s.kind_ !== 'bean' && s.kind_ !== 'http')) {
+    if (!s.kind_ || (s.kind_ !== 'dubbo' && s.kind_ !== 'http')) {
       diagnostics.push({
         path: ownerPath(s),
         message: `外部服务 ${s.name} 的 kind 必须为 dubbo|bean|http`,
@@ -221,16 +221,6 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
           });
         }
       }
-    }
-  }
-  // 4.6. 第三方组件：pkg 非空
-  for (const c of app.components) {
-    if (!c.pkg) {
-      diagnostics.push({
-        path: ownerPath(c),
-        message: `组件 ${c.name} 必须声明 pkg`,
-        severity: 'error',
-      });
     }
   }
 
@@ -270,7 +260,6 @@ function fileMapOf(app: AppNode): Map<string, string> {
   app.interfaces.forEach((i) => put(`app.interfaces.${i.name}`, i));
   app.views.forEach((v) => put(`app.views.${v.name}`, v));
   app.services.forEach((s) => put(`app.services.${s.name}`, s));
-  app.components.forEach((c) => put(`app.components.${c.name}`, c));
   return map;
 }
 
@@ -303,11 +292,11 @@ function checkView(
 ): void {
   for (const el of elements) {
     const isBuiltin = KNOWN_VIEW_TYPES.has(el.type);
-    const isComponent = app.components.some((c) => c.name === el.type);
-    if (!isBuiltin && !isComponent) {
+    // 三方组件（dev/33）：非内置标签 → dependency npm 声明匹配（camelCase 组件名 ↔ 包名尾段）
+    if (!isBuiltin && !npmDepCoversComponent(app, el.type)) {
       diagnostics.push({
         path: ownerPath(el),
-        message: `未知页面组件类型 '${el.type}'`,
+        message: `三方组件 '${el.type}' 未匹配到 dependency npm 声明——请补 dependency npm "<包名>"（import 包名由声明解析）`,
         severity: 'error',
       });
     }
@@ -320,6 +309,24 @@ function checkView(
     }
     if (el.children.length > 0) checkView(app, el.children, diagnostics, ownerPath, exposedLogics);
   }
+}
+
+/** 组件名是否被某个 dependency npm 声明覆盖（dev/33）：
+ *  ① as <ns> 显式命名 = 组件名（首选，无歧义）
+ *  ② 兜底：包名尾段去分隔符小写 == 组件名小写（ECharts ↔ echartsforreact 不成立时不误报——宽松放行策略下交由 codegen import 实测） */
+/** 组件名是否被某个 dependency npm 声明覆盖（dev/34）：
+ *  ① import { A } 具名列表命中（alias 优先）② import X 默认导出命中
+ *  ③ 兜底：无显式导入的声明，包名尾段去分隔符小写比对（宽松放行） */
+function npmDepCoversComponent(app: AppNode, typeName: string): boolean {
+  const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return app.dependencies.some((d) => {
+    if (d.eco !== 'npm') return false;
+    if (d.imports?.some((i) => (i.alias ?? i.name) === typeName)) return true;
+    if (d.importDefault === typeName) return true;
+    if (d.imports || d.importDefault) return false; // 已显式声明导入 → 不再兜底
+    const tail = d.name.split('/').pop() ?? d.name;
+    return norm(tail) === norm(typeName);
+  });
 }
 
 /** binding 校验：useQuery/useMutation → logic 存在；navigate → 页面存在 */

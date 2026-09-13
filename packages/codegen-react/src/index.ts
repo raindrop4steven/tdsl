@@ -1,7 +1,6 @@
 import type {
   AppNode,
   BindingNode,
-  ComponentNode,
   EndpointNode,
   EntityNode,
   Expr,
@@ -85,16 +84,13 @@ export function generateReact(app: AppNode): GeneratedFile[] {
 function projectFiles(app: AppNode): GeneratedFile[] {
   const name = `${app.name}-react`;
   const hasViews = app.views.length > 0;
-  // npm 依赖集合（dev/32）：页面骨架默认项 → component 注册 → dependency npm 声明（声明版本优先覆盖）
+  // npm 依赖集合（dev/33）：页面骨架默认项 → dependency npm 声明（三方组件 import 的唯一包名来源）
   const depEntries = new Map<string, string>();
   if (hasViews) {
     // antd：页面声明（M4）默认 UI 组件库，提供样式；dayjs：DatePicker 值转换（antd 生态标准）
     depEntries.set('react-router-dom', '^6.30.0');
     depEntries.set('antd', '^5.0.0');
     depEntries.set('dayjs', '^1.11.0');
-  }
-  for (const c of app.components) {
-    if (!depEntries.has(c.pkg)) depEntries.set(c.pkg, '*');
   }
   for (const d of app.dependencies) {
     if (d.eco === 'npm') depEntries.set(d.name, d.version ?? '*');
@@ -732,9 +728,21 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   if (typeNames.length > 0) {
     imports.push(`import type { ${typeNames.join(', ')} } from '../types';`);
   }
-  // 页面用到的第三方组件 → import ECharts from 'echarts-for-react'
-  for (const comp of collectUsedComponents(app, v)) {
+  // 页面用到的三方组件 → 按 dependency npm 声明的导入形态生成（dev/34）
+  //   默认导出 → import ECharts from 'echarts-for-react'
+  //   具名导出 → 同包聚合：import { Pie, Bar } from '@ant-design/charts'
+  const usedComps = collectUsedComponents(app, v);
+  for (const comp of usedComps.filter((c) => c.kind === 'default')) {
     imports.push(`import ${comp.name} from '${comp.pkg}';`);
+  }
+  const namedByPkg = new Map<string, string[]>();
+  for (const comp of usedComps.filter((c) => c.kind === 'named')) {
+    const list = namedByPkg.get(comp.pkg) ?? [];
+    if (!list.includes(comp.name)) list.push(comp.name);
+    namedByPkg.set(comp.pkg, list);
+  }
+  for (const [pkg, names] of namedByPkg) {
+    imports.push(`import { ${names.join(', ')} } from '${pkg}';`);
   }
   // Card 页面容器 + antd 升级控件统一入 import；dialog 页面用 Drawer（不进路由）
   const isDialog = v.viewKind === 'dialog';
@@ -1109,18 +1117,16 @@ function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, st
       // 管理端常用组件（tag/statistic/tabs/checkbox/switch/radio/avatar/badge/card）
       const common = genCommonElement(app, el, queryVars, states);
       if (common !== undefined) return common;
-      // 第三方组件：component 注册命中 → <ECharts data={...} option={...} />
-      const comp = app.components.find((c) => c.name === el.type);
-      if (comp) return genComponentElement(app, comp, el, queryVars);
+      // 三方组件（dev/33）：dependency npm 匹配 → <ECharts data={...} option={...} />（未匹配交 typecheck 报错）
+      if (npmImportOfComponent(app, el.type)) return genComponentElement(app, el, queryVars);
       return `{/* ${el.type} */}`;
     }
   }
 }
 
-/** component 注册的第三方组件元素：dataSource 绑定 → data={q.data}；其余 prop 透传 */
+/** 三方组件元素（dev/33）：组件名即生成标签名；dataSource 绑定 → data={q.data}；其余 prop 透传 */
 function genComponentElement(
   app: AppNode,
-  comp: ComponentNode,
   el: ViewElementNode,
   queryVars: Map<string, string>,
 ): string {
@@ -1140,24 +1146,51 @@ function genComponentElement(
       propParts.push(`${k}={${genBindingArg(v, false)}}`);
     }
   }
-  return `<${comp.name} ${propParts.join(' ')} />`;
+  return `<${el.type} ${propParts.join(' ')} />`;
 }
 
-/** 页面用到的第三方组件（component 注册命中 el.type） */
-function collectUsedComponents(app: AppNode, v: ViewNode): ComponentNode[] {
-  const found = new Map<string, ComponentNode>();
+/** 页面用到的三方组件（dev/34）：组件名 + npm 导入解析（pkg + 默认/具名） */
+function collectUsedComponents(app: AppNode, v: ViewNode): Array<{ name: string; pkg: string; kind: 'default' | 'named' }> {
+  const found = new Map<string, { pkg: string; kind: 'default' | 'named' }>();
   const visit = (els: ViewElementNode[]): void => {
     for (const el of els) {
-      const comp = app.components.find((c) => c.name === el.type);
-      if (comp) found.set(comp.name, comp);
+      if (!KNOWN_VIEW_TYPES_LOCAL.has(el.type)) {
+        const imp = npmImportOfComponent(app, el.type);
+        if (imp) found.set(el.type, imp);
+      }
       visit(el.children);
     }
   };
   visit(v.elements);
-  return [...found.values()];
+  return [...found].map(([name, imp]) => ({ name, pkg: imp.pkg, kind: imp.kind }));
+}
+
+/** 组件名 → dependency npm 包名（与 typecheck 同规则）：as <ns> 显式命名优先，包名尾段 norm 兜底 */
+/** 组件名 → npm 依赖导入解析（dev/34）：返回 { pkg, kind: 'default'|'named' }
+ *  ① import { A } 具名列表命中（alias 优先）② import X 默认导出命中
+ *  ③ 兜底：无显式导入的声明，包名尾段 norm 比对 → 按默认导出生成 */
+function npmImportOfComponent(app: AppNode, typeName: string): { pkg: string; kind: 'default' | 'named' } | undefined {
+  const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const d of app.dependencies) {
+    if (d.eco !== 'npm') continue;
+    if (d.imports?.some((i) => (i.alias ?? i.name) === typeName)) return { pkg: d.name, kind: 'named' };
+    if (d.importDefault === typeName) return { pkg: d.name, kind: 'default' };
+  }
+  const dep = app.dependencies.find((d) => {
+    if (d.eco !== 'npm' || d.imports || d.importDefault) return false;
+    const tail = d.name.split('/').pop() ?? d.name;
+    return norm(tail) === norm(typeName);
+  });
+  return dep ? { pkg: dep.name, kind: 'default' } : undefined;
 }
 
 /** 内置元素类型 → antd 组件名（table/button/form/input/detail → 对应 UI 组件） */
+/** 内置页面元素类型集（ANTD_OF 键；三方组件之外的合法标签） */
+const KNOWN_VIEW_TYPES_LOCAL = new Set<string>(Object.keys({
+  table: '', button: '', input: '', detail: '', text: '', form: '', repeat: '', column: '',
+  tag: '', statistic: '', tabs: '', pane: '', checkbox: '', radio: '', switch: '', avatar: '', badge: '', card: '',
+}));
+
 const ANTD_OF: Record<string, string> = {
   table: 'Table',
   button: 'Button',

@@ -21,7 +21,6 @@ import {
   type ReturnNode,
   type ServiceNode,
   type ServiceOperationNode,
-  type ComponentNode,
   type Statement,
   type StructureNode,
   type StructurePropertyNode,
@@ -88,7 +87,6 @@ function mergeApp(name: string, fragments: AppNode[]): AppNode {
     interfaces: [],
     views: [],
     services: [],
-    components: [],
     dependencies: [],
   };
   const seenDeps = new Set<string>();
@@ -104,9 +102,8 @@ function mergeApp(name: string, fragments: AppNode[]): AppNode {
     app.interfaces.push(...frag.interfaces);
     app.views.push(...frag.views);
     app.services.push(...frag.services);
-    app.components.push(...frag.components);
     for (const d of frag.dependencies) {
-      const key = `${d.eco}|${d.name}|${d.version ?? ''}|${d.ns ?? ''}`;
+      const key = `${d.eco}|${d.name}|${d.version ?? ""}|${d.ns ?? ""}|${d.importDefault ?? ""}|${JSON.stringify(d.imports ?? [])}`;
       if (seenDeps.has(key)) continue;
       seenDeps.add(key);
       app.dependencies.push(d);
@@ -170,8 +167,7 @@ class Parser {
       interfaces: [],
       views: [],
       services: [],
-      components: [],
-      dependencies: [],
+        dependencies: [],
     };
     let currentDs: DataSourceNode | null = null;
     // @title('中文') / @menu('模块') → 紧随其后的 page/dialog 显示名与菜单分组（中文化 + 折叠菜单）
@@ -215,9 +211,8 @@ class Parser {
         app.structures.push(this.parseStructure());
       } else if (kw === 'enum') {
         app.enums.push(this.parseEnum());
-      } else if (kw === 'logic' || kw === 'function') {
-        // 双语法：logic（legacy）/ function（TS 面）——同一 LogicNode
-        app.logics.push(this.parseLogic(kw));
+      } else if (kw === 'function') {
+        app.logics.push(this.parseLogic());
       } else if (kw === 'interface') {
         app.interfaces.push(this.parseInterface());
       } else if (kw === 'page' || kw === 'dialog') {
@@ -235,10 +230,10 @@ class Parser {
         const cfg = pendingServiceConfig ?? {};
         pendingServiceConfig = null;
         app.services.push(this.parseService(cfg));
-      } else if (kw === 'component') {
-        app.components.push(this.parseComponent());
       } else if (kw === 'dependency') {
         app.dependencies.push(this.parseDependency());
+      } else if (kw === 'component') {
+        this.fail("'component' 注册层已删除（dev/33）：npm 一等公民——页面直接写三方组件标签，import 由 dependency npm 声明解析");
       } else {
         this.fail(`unexpected '${kw}' at top level`);
       }
@@ -269,8 +264,8 @@ class Parser {
     this.expect('service');
     const name = this.expectIdent();
     const kind = config['kind'] as ServiceNode['kind_'] | undefined;
-    if (!kind || (kind !== 'dubbo' && kind !== 'bean' && kind !== 'http')) {
-      this.fail(`service '${name}' requires @service(kind = 'dubbo'|'bean'|'http')`);
+    if (!kind || (kind !== 'dubbo' && kind !== 'http')) {
+      this.fail(`service '${name}' requires @service(kind = 'dubbo'|'http')（本地 jar 类请用 dependency java + libs 产物直调，dev/33）`);
     }
     this.expect('{');
     const operations: ServiceOperationNode[] = [];
@@ -313,7 +308,7 @@ class Parser {
     return { ...createNode('ServiceOperation'), name, params, returns, method, path };
   }
 
-  /** dependency java "g:a:v" / dependency npm "pkg@range"（可 as <ns> 限定引用） */
+  /** dependency java/npm "坐标" [as ns] [import X | import { A, B as C }]（dev/34 统一形态） */
   private parseDependency(): DependencyNode {
     this.expect('dependency');
     const ecoTok = this.expectIdent();
@@ -325,6 +320,30 @@ class Parser {
     if (this.peek().value === 'as') {
       this.next();
       ns = this.expectIdent();
+    }
+    let importDefault: string | undefined;
+    let imports: Array<{ name: string; alias?: string }> | undefined;
+    if (this.peek().value === 'import') {
+      this.next();
+      if (this.peek().value === '{') {
+        // 具名导入：import { A, B as C }
+        this.next();
+        imports = [];
+        while (this.peek().value !== '}') {
+          const n = this.expectIdent();
+          let alias: string | undefined;
+          if (this.peek().value === 'as') {
+            this.next();
+            alias = this.expectIdent();
+          }
+          imports.push(alias ? { name: n, alias } : { name: n });
+          if (this.peek().value === ',') this.next();
+        }
+        this.expect('}');
+      } else {
+        // 默认导入：import X
+        importDefault = this.expectIdent();
+      }
     }
     this.expect(';');
     let name: string;
@@ -348,49 +367,7 @@ class Parser {
         name = coord;
       }
     }
-    return { ...createNode('Dependency'), eco: ecoTok as 'java' | 'npm', name, version, ns };
-  }
-
-  /** component Name { pkg: 'x'; defaultProps: {...}; events: [...] } */
-  private parseComponent(): ComponentNode {
-    this.expect('component');
-    const name = this.expectIdent();
-    this.expect('{');
-    let pkg = '';
-    const defaultProps: string[] = [];
-    const events: string[] = [];
-    while (this.peek().value !== '}') {
-      const key = this.expectIdent();
-      this.expect(':');
-      if (key === 'pkg') {
-        pkg = this.expectString();
-        this.expect(';');
-      } else if (key === 'defaultProps') {
-        this.expect('{');
-        while (this.peek().value !== '}') {
-          const pname = this.expectIdent();
-          this.expect(':');
-          this.parseTypeRef(); // props 类型先解析占位，本切面只取字段名
-          if (this.peek().value === ';') this.next();
-          defaultProps.push(pname);
-        }
-        this.expect('}');
-        if (this.peek().value === ';') this.next();
-      } else if (key === 'events') {
-        this.expect('[');
-        while (this.peek().value !== ']') {
-          events.push(this.expectString());
-          if (this.peek().value === ',') this.next();
-        }
-        this.expect(']');
-        if (this.peek().value === ';') this.next();
-      } else {
-        this.fail(`unknown component field '${key}'`);
-      }
-    }
-    this.expect('}');
-    if (!pkg) this.fail(`component '${name}' requires pkg`);
-    return { ...createNode('Component'), name, pkg, defaultProps, events };
+    return { ...createNode('Dependency'), eco: ecoTok as 'java' | 'npm', name, version, ns, imports, importDefault };
   }
 
   private parseEntity(): EntityNode {
@@ -455,13 +432,13 @@ class Parser {
     return { ...createNode('Enum'), name, items };
   }
 
-  private parseLogic(kw: string): LogicNode {
+  private parseLogic(): LogicNode {
     // 可选注解 @export 等
     while (this.peek().value === '@') {
       this.next();
       this.expectIdent();
     }
-    this.expect(kw === 'function' ? 'function' : 'logic');
+    this.expect('function');
     const name = this.expectIdent();
     this.expect('(');
     const params: ParamNode[] = [];
@@ -623,7 +600,7 @@ class Parser {
     }
 
     if (t.value === 'const' || t.value === 'let') {
-      // TS 词法双面：const x = / const x: T = （legacy `x := y` 仍兼容）
+      // TS 词法面：const x = / const x: T =（唯一形态；legacy `:=` 已删除）
       this.next();
       const name = this.expectIdent();
       let type: TypeRef | undefined;
@@ -640,14 +617,13 @@ class Parser {
     if (t.value === 'for') {
       this.next();
       this.expect('(');
-      // 双语法：`x in y`（legacy）/ `const x of y`（TS 面）
-      let item: string;
-      if (this.peek().value === 'const' || this.peek().value === 'let') {
-        this.next();
-      }
-      item = this.expectIdent();
+      // TS 词法面：for (const x of y)（唯一形态；legacy `for-in` 已删除）
+      const isConst = this.peek().value === 'const' || this.peek().value === 'let';
+      if (isConst) this.next();
+      else this.fail("for 循环须为 for (const x of y) 形态（'const' 缺失）");
+      const item = this.expectIdent();
       const conn = this.next().value;
-      if (conn !== 'in' && conn !== 'of') this.fail(`expected 'in' or 'of' in for statement, got '${conn}'`);
+      if (conn !== 'of') this.fail(`expected 'of' in for statement, got '${conn}'（legacy 'for-in' 已废弃）`);
       const container = this.parseExpr();
       this.expect(')');
       this.expect('{');
@@ -659,11 +635,7 @@ class Parser {
     // 先解析一个表达式，再根据后续 token 决定语句类型
     const expr = this.parseExpr();
     if (this.peek().value === ':=') {
-      this.next();
-      const init = this.parseExpr();
-      this.expect(';');
-      if (expr.kind !== 'Ident') this.fail('left side of := must be an identifier');
-      return { kind: 'VarDecl', name: expr.name, init };
+      this.fail("':=' 已废弃：变量声明请用 const x = expr");
     }
     if (this.peek().value === '=') {
       this.next();
@@ -1011,7 +983,6 @@ function stampFile(app: AppNode, file: string): void {
   app.interfaces.forEach(mark);
   app.views.forEach(mark);
   app.services.forEach(mark);
-  app.components.forEach(mark);
 }
 
 function linkApp(app: AppNode): void {
@@ -1075,12 +1046,6 @@ function linkApp(app: AppNode): void {
   for (const l of app.logics) declareGlobal(l.name, `app.logics.${l.name}`, l);
   for (const itf of app.interfaces) declareGlobal(itf.name, `app.interfaces.${itf.name}`, itf);
   for (const s of app.services) declareGlobal(s.name, `app.services.${s.name}`, s);
-  for (const c of app.components) declareGlobal(c.name, `app.components.${c.name}`, c);
-  for (const c of app.components) {
-    if (!c.pkg) {
-      throw new TdslSyntaxError(`component '${c.name}' requires pkg`, 0, 0);
-    }
-  }
 
   // 接口端点：绑定 logicRef 短名 → Logic nodePath
   for (const itf of app.interfaces) {

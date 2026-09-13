@@ -62,9 +62,6 @@ export function collectPaths(app: AppNode): PathEntry[] {
       entries.push({ path: `app.services.${s.name}.operations[${i}]`, node: op });
     });
   }
-  for (const c of app.components) {
-    entries.push({ path: `app.components.${c.name}`, node: c });
-  }
   return entries;
 }
 

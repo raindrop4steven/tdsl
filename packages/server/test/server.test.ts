@@ -12,11 +12,11 @@ import { Workspace, safeSandboxPath } from '../src/workspace';
 const MODEL = `@datasource('defaultDS')
 entity Order { id: Integer @pk; total: Decimal; }
 `;
-const QUERY = `logic listOrders(): List<Order> {
+const QUERY = `function listOrders(): List<Order> {
   return Order.all;
 }
 `;
-const BAD = `logic bad(): List<Order> {
+const BAD = `function bad(): List<Order> {
   return Order.where(nofield > 0);
 }
 `;
