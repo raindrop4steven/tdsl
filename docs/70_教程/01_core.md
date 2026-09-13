@@ -1,118 +1,87 @@
-# 01 core：语义核 / Typed AST
+# 01 core：语义核 / Typed AST / FFI 目录
 
-> 配套代码：`packages/core/src/`
-> 定位：全项目的**唯一事实来源（SSoT）**。只定义"树长什么样"，不含业务逻辑。
+> 配套代码：`packages/core/src/`（types 222 行 / stdlib 203 行 / symbols 100 行 / path 79 行 / expr 37 行 / typeref 13 行 / statement 11 行 / id 24 行）
+> 定位：**唯一事实来源（SSoT）**。所有下游（parser 产它、typecheck 验它、双端 codegen 吃它）都围绕这棵 Typed AST。
 
-## 1. 文件分组
+## 1. 节点全家福（types.ts）
 
-```
-src/types.ts       # 树的主干节点类型（App/DataSource/Entity/...）
-src/typeref.ts     # 类型引用 TypeRef
-src/expr.ts        # 小语言表达式
-src/statement.ts   # 小语言语句
-src/id.ts          # createId / createNode（uuid 生成）
-src/path.ts        # nodePath 寻址：collectPaths / nodePathOf / resolve
-src/index.ts       # 出口
-```
-
-前四个文件**只有类型没有逻辑**。
-
-## 2. 树的主干（types.ts）
+`App` 是聚合根，十类域挂在其下：
 
 ```ts
-interface BaseNode {
-  kind: string;      // 判别标签（字面量）
-  id: string;        // 全局唯一 uuid
-}
-
-interface AppNode extends BaseNode {
+interface AppNode {
   kind: 'App';
   name: string;
-  datasources: DataSourceNode[];   // 数据源（含实体）
-  structures: StructureNode[];     // 结构（DTO）
-  enums: EnumNode[];
-  logics: LogicNode[];             // 业务逻辑（含小语言）
+  datasources: DataSourceNode[];   // 实体（M1：实体短名归数据源作用域）
+  structures: StructureNode[];     // DTO / 嵌套结构
+  enums: EnumNode[];               // 枚举（G1：label 字段）
+  logics: LogicNode[];             // 业务逻辑（P11 双语法同构）
+  interfaces: InterfaceNode[];     // REST 契约 → Controller + 前端 fetch
+  views: ViewNode[];               // M4：page/dialog 声明层
+  services: ServiceNode[];         // M6：dubbo/bean/http 外部服务
+  components: ComponentNode[];     // M6：npm 三方前端组件注册
+  dependencies: DependencyNode[];  // dev/32：dependency java/npm 声明
 }
 ```
 
-`AppNode` 是树根，逐层嵌套：`DataSource → Entity → Property`。每个具体节点 `kind` 是**字符串字面量类型**（`'App'`/`'Entity'`…），这就是判别联合的判别符。
+几个值得注意的节点设计：
 
-### 关于 kind 用字面量而非 enum
+| 节点 | 关键字段 | 设计意图 |
+|------|----------|----------|
+| `EntityProperty` | `type: TypeRef` + `primary/nullable/unique` | 数据完整性标记直接进 AST |
+| `ViewElement` | `type/props/bindings/children` | JSX 子集 → IR（不是真 JSX，props 表达式有限集合） |
+| `Binding` | `name:'useQuery'\|'useMutation'\|'navigate'` | 从 props 表达式提取，前端 hooks 生成的依据 |
+| `Service` | `kind_:'dubbo'\|'bean'\|'http'` + `config` | 三种外部能力共用签名体 |
+| `Dependency`（dev/32） | `eco:'java'\|'npm'` + `name/version/ns` | `dependency java "g:a:v" as ns;` → 声明式依赖 |
 
-这是判别联合的标准做法，不是偷懒：
+## 2. 类型与表达式（typeref / expr / statement）
 
-1. **收窄机制依赖字面量** —— `switch (node.kind)` 自动收窄，靠 kind 是字面量类型。若 `kind: NodeKind`（整个枚举）则判别式失效，收窄全废。
-2. **行业先例** —— Babel / Prettier / swc / ESLint 的 AST 节点 type/kind 全是字符串字面量联合；**Token 类型**（封闭且频繁比较的集合）才用枚举/集中定义（见 `parser/src/lexer.ts` 顶部的 `TokenType`）。
-3. **集中定义已由类型推导保证** —— `export type NodeKind = AnyNode['kind']` 从节点类型自动推导，新增节点自动纳入，无需手维护枚举表（手维护反而有"改了类型忘了改表"的漂移风险）。
+- `TypeRef` 四形态：`primitive`（String/Integer/Decimal/Boolean/Date/DateTime/Time）/ `reference`（nodePath）/ `generic`（List|Map|Page）/ `db`。
+- `Expr` 小表达式语言：字面量、Ident、Member、Call、Binary（含 M2 的 `like`/`in`）、New/NewList、Group。**没有**赋值/自增——语句面才有的东西不进表达式。
+- `Statement`：VarDecl(`:=`/`const`)、Assign、If、ForEach、Return、CallStmt、Throw（dev/30 A1）。
 
-## 3. 类型引用（typeref.ts）
+## 3. 符号表与寻址（symbols.ts / path.ts）
 
-```ts
-type TypeRef =
-  | { kind: 'primitive'; builtin: 'Boolean'|'Integer'|'Decimal'|'String'|'Date'|'Time'|'DateTime' }
-  | { kind: 'reference'; path: string }        // ← 指向某节点的 nodePath
-  | { kind: 'generic'; name: 'List'|'Map'|'Page'; args: TypeRef[] }
-  | { kind: 'db'; builtin: string; args?: ... };
-```
+**M1 分层符号表**（`buildTypeSymbolTable`）：
 
-注意 `reference` 用 `path: string` 而非对象指针 —— **符号引用**（设计决策 D3）。`List<Todo>` 的 AST 形态：
+- `global`：结构/枚举/逻辑/接口 + **全局唯一**的实体短名 → nodePath
+- `dataSources`：`dsName → Map<实体短名, nodePath>`（实体短名归数据源作用域）
+- `resolveShort(table, name, ctxDs)`：先查当前数据源，再回退全局；`isAmbiguousEntity` 报歧义
+- `resolveQualified(table, dsName, entName)`：限定名 `ds.Entity`
+- `VarScope`：logic 内变量块作用域，**Java 复用语义**（同块同名复用、无遮蔽）
 
-```ts
-{ kind: 'generic', name: 'List',
-  args: [{ kind: 'reference', path: 'app.datasources.defaultDS.entities.Todo' }] }
-```
+**寻址**（`path.ts`）：引用一律存 nodePath 字符串，`resolve(app, path)` 编译期绑定；悬空返回 null → typecheck 报诊断。`nodePathOf` 反向：从节点拿路径（诊断 `path` 字段的来源）。
 
-## 4. 小语言（expr.ts / statement.ts）
+## 4. FFI 目录（stdlib.ts，dev/27 + dev/32）
 
-逻辑体里的代码在 AST 里是嵌套的语句/表达式对象树：
+Java 一等公民的机制核心，分两层：
 
-```ts
-type Expr =
-  | { kind: 'Ident'; name: string }                          // todo
-  | { kind: 'Member'; obj: Expr; prop: string }              // todo.done
-  | { kind: 'Call'; callee: Expr; args: Expr[] }             // result.add(todo)
-  | { kind: 'NewList'; elem: TypeRef; items: Expr[] }        // new List<Todo>()
-  | { kind: 'Binary'; operator: '==='|'!=='|...; left; right }  // todo.done === false
-  | ...字面量/分组
+**内核五域**（`FFI_CORE`，语言自有，属于类型定义的一部分）：
 
-type Statement =
-  | { kind: 'VarDecl'; name: string; init?: Expr }           // result := new List<Todo>()
-  | { kind: 'Return'; value?: Expr }
-  | { kind: 'If'; cond: Expr; then: Statement[]; else?: Statement[] }
-  | { kind: 'ForEach'; item: string; container: Expr; body: Statement[] }
-  | { kind: 'CallStmt'; call: Expr }
-  | { kind: 'Assign'; target: Expr; value: Expr }
-```
+| 别名 | Java 类 | 端 |
+|------|---------|-----|
+| `String` | `java.lang.String` | 双端（js 模板翻译如 `contains` → `includes`） |
+| `Decimal` | `java.math.BigDecimal` | backend-only |
+| `Date` / `DateTime` | `java.time.LocalDate/LocalDateTime` | backend-only |
+| `List` | `java.util.List` | 双端（前端数组原生映射） |
 
-`if (todo.done === false) { result.add(todo); }` 会被 parse 成嵌套对象树。之后 typecheck 检查它、生成器翻译它，都只认这棵树，不认识 TDSL 文本。
+每个成员是 `FfiMethod{ name, static?, params, ret, java?, js? }`——**有 java 才能后端调、有 js 才能前端调**；模板缺省 = `{recv}.{name}({args})` 直发。
 
-## 5. 工具函数（id.ts / path.ts）
-
-### id.ts
+**第三方外置**（dev/32 边界）：一切带 Maven/npm 坐标的类**不进 core**，放工程 `libs/*.json` 扫描产物，经 `createCatalog(loaded, deps)` 合并：
 
 ```ts
-function createId(): string { return randomUUID(); }                       // uuid
-function createNode(kind): { kind; id }                                    // 骨架节点，供构造方 spread 扩展
+const cat = createCatalog(libs, app.dependencies);
+cat.byAlias('JSON')            // 裸名：唯一命中才返回（撞车 undefined + collisions 记录）
+cat.byQualified('fj', 'JSON')  // dependency ... as fj 的限定命中
 ```
 
-### path.ts —— 树寻址（本包最值得看）
+- 产物类自动补 `maven` 坐标（来自产物头 `coordinate`）
+- **alias 全局唯一不变式**：撞车（fastjson vs jackson 都有 `JSON`）记入 `collisions`，诊断权在 typecheck（D-dep-4）
+- `depMatches`：按 name 段匹配（版本通配），版本比对归 D-dep-3
 
-```ts
-function collectPaths(app): PathEntry[] {
-  // 遍历整棵树，给每个节点算出一条 nodePath
-  //   app.datasources.defaultDS.entities.Todo
-  //   app.datasources.defaultDS.entities.Todo.properties.title
-  //   app.logics.findTodos.returns[0]
-}
+## 5. 本包要记住的 3 件事
 
-function nodePathOf(app, node): string | null    // 节点 → 路径（反查）
-function resolve(app, path): T | null             // 路径 → 节点（找不到返回 null）
-```
+1. **core 是 SSoT**：改 `types.ts` 判别联合后，TS 编译会强制你补齐所有消费端的 `never` 收窄点——顺着报错改完即闭环。
+2. **语言自有 vs 第三方的边界**：五域进 `FFI_CORE`，带坐标的一律外置 libs/（dev/32），core 不认识任何第三方 jar。
+3. **引用即路径**：所有跨节点引用都是 nodePath 字符串 + `resolve()`，这让 AST 可序列化、可 diff、可被 LLM 按 path 定点修复。
 
-`collectPaths` 是纯遍历：从 `app` 出发逐层拼字符串路径，把每个节点和它的路径配对收集。`resolve` 线性查找（树小够用，以后可换 Map）。**悬空引用 = 查不到 = 返回 null**。
-
-## 6. 本包要记住的 3 件事
-
-1. **树形数据模型**：`App → DataSource → Entity → Property`，加上 logic/expr/statement，全是指向嵌套的类型化对象。
-2. **判别联合**：每个节点有 `kind` 字面量，是后续所有 switch/收窄的基础。
-3. **引用是字符串路径**：`TypeRef.path` 不是对象指针，统一走 nodePath + `resolve`。
+**动手练习**：在 `packages/core/test/stdlib.test.ts` 基础上，构造两个同名 alias 的产物 + 一个 `as ns` 声明，验证 `byAlias` 返回 undefined、`byQualified` 命中、`collisions` 为空。

@@ -85,3 +85,6 @@
 - pom 依赖注入从"目录 maven 字段反推"改为声明驱动；react package.json 并入 dependency npm 声明（声明版本覆盖 component 默认 `*`）。
 - 交付：261 单测全绿（+28）、fastjson-demo 迁移真机双端 build ✓、jxc spec 100% 不回归。
 - 余项：ffiCheckExpr 不递归 Binary（存量宽松）→ 包在比较里的第三方调用不触发 D-dep-1；ns 限定未声明依赖宽松放行（避免 ds.Entity/enum 误报）；npm d.ts 投影仅留字段位（B3）。
+
+## 2026-09-13 会话追加（教程改版）
+- `docs/70_教程` 重组：P0 时代教程（00-05 + 06 Tour）原样归档 `v1/`（README 顶部加归档横幅）；新写当前版教程 12 篇（00 总览十包流水线 / 01-05 逐包设计 / 06 工具链总索引 / 07 cli / 08 llm / 09 server / 10 eval 独立成篇），风格对齐 v1（编号+表格+源码导读+动手练习），数据以 261 单测实测为准；抽查修正 throw 翻译事实（TdslError 非 IllegalStateException）。AGENTS/设计总览/index.html 引用同步。
