@@ -17,18 +17,24 @@
 
 ```
 @datasource('x')   @service(kind='dubbo', ...)   @title('中文')  @menu('模块')  @export
-entity / struct / enum / logic | function / interface / page | dialog / service / component / dependency
+entity / struct / enum / logic | function / interface / page | dialog / service / dependency
 ```
 
-`dependency`（dev/32）解析要点：
+`dependency`（dev/32/34）解析要点——统一形态 `dependency java|npm "坐标" [as ns] [import X | import { A, B as C }]`：
 
 ```
-dependency java "com.alibaba:fastjson2:2.0.58";            → { eco:'java', name:'com.alibaba:fastjson2', version:'2.0.58' }
+dependency java "com.alibaba:fastjson2:2.0.58";            → { eco:'java', name:'com.alibaba:fastjson2', version:'2.0.58' }（无 import = 产物全量兼容）
 dependency java "g:a" as jackson;                           → ns='jackson'（版本缺省）
-dependency npm "antd@^5.21.0";                              → npm 按**最后一个 @** 切 name/version（scoped 包名 @scope/ui 不受影响）
+dependency java "g:a:v" import { JSON, JSONObject };        → { imports:[JSON,JSONObject] }（java 显式进裸名）
+dependency java "g:a:v" as fj import { JSON as JacksonJSON }→ 改名：产物类 alias 覆盖
+dependency npm "antd@^5.21.0";                              → 纯依赖（只进 package.json）
+dependency npm "echarts-for-react" import ECharts;          → importDefault：npm 默认导出组件
+dependency npm "@ant-design/charts" import { Pie, Bar };    → npm 具名导出组件（一包多组件）
 ```
 
-java 坐标必须 `g:a[:v]` 三段内，否则语法错误；`parseProject` 合并分片时依赖按 `eco|name|version|ns` 去重。
+- npm 按**最后一个 @** 切 name/version（scoped 包名 `@scope/ui` 不受影响）；java 坐标必须 `g:a[:v]` 三段内，否则语法错误。
+- 顶层已无 `component`（dev/33 删除，写 `component` 直接报"注册层已删除"口径）。
+- `parseProject` 合并分片时依赖按 `eco|name|version|ns|import*` 去重。
 
 ## 3. TS 词法面（P11，D4 口径落地）
 
@@ -58,7 +64,7 @@ legacy 词法（`logic` / `:=` / `for-in`）已从 parser **物理删除**——
 ## 5. linkApp 的绑定策略（M1 核心）
 
 1. 同数据源内实体重名 → `duplicate entity` 报错
-2. 全局概念（struct/enum/function/interface/service/component）重名 → `duplicate type name` 报错
+2. 全局概念（struct/enum/function/interface/service）重名 → `duplicate type name` 报错
 3. TypeRef 引用：`erp.Order` 限定名 / `Order` 短名（`resolveShort` 带上下文数据源优先本源）/ 歧义 → 提示写限定名 / `Object` 内建放行
 4. `endpoint.logicRef` 与页面 `Binding.target`（useQuery/useMutation → logic nodePath；navigate → 页面校验）
 

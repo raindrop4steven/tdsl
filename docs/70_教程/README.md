@@ -1,6 +1,6 @@
 # TDSL 编译器教程（当前版 · 2026-09）
 
-> 定位：面向新读者的编译器实现讲解，基于**当前代码实测**（261 单测全绿、10 包）逐包拆解：
+> 定位：面向新读者的编译器实现讲解，基于**当前代码实测**（272 单测全绿、10 包）逐包拆解：
 > 编译器整体设计 → 流水线 → 每个包的设计与源码导读。
 > 阅读前提：先读 `00_参考资料/NASL调研.md` → `10_设计/设计总览.md`。
 > 配套代码：`packages/*`，示例驱动 `examples/todo-app/scripts/slice.ts`。
@@ -33,7 +33,7 @@
 ## 快速建立直觉（先跑再说）
 
 ```bash
-npm test              # 261 个单测（十包各自 vitest）
+npm test              # 272 个单测（十包各自 vitest）
 npm run slice         # 端到端：todo.tdsl → parse → typecheck → 双端 codegen → mvn compile + vite build
 npm run playground    # 浏览器试验台：左编辑 TDSL，右看诊断/AST/双端代码
 ```

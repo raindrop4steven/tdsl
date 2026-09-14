@@ -49,7 +49,7 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 ## 4. 常用命令
 
 ```bash
-npm test              # 九包 vitest（261 个用例）
+npm test              # 九包 vitest（272 个用例）
 npm run typecheck     # 九包 tsc --noEmit
 npm run dsl           # CLI：npm run dsl -- check examples/todo-multi/tdsl（parse/check/generate/build/bundle-jar）
 npm run slice         # 端到端：todo.tdsl → parse → typecheck → 双端 codegen → mvn compile + vite build

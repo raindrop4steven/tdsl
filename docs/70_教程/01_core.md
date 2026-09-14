@@ -31,7 +31,7 @@ interface AppNode {
 | `ViewElement` | `type/props/bindings/children` | JSX 子集 → IR（不是真 JSX，props 表达式有限集合） |
 | `Binding` | `name:'useQuery'\|'useMutation'\|'navigate'` | 从 props 表达式提取，前端 hooks 生成的依据 |
 | `Service` | `kind_:'dubbo'\|'http'` + `config` | 外部系统对接（dev/33 删 bean：本地 jar 走 dependency+libs 直调） |
-| `Dependency`（dev/32） | `eco:'java'\|'npm'` + `name/version/ns` | `dependency java "g:a:v" as ns;` → 声明式依赖 |
+| `Dependency`（dev/32/34） | `eco:'java'\|'npm'` + `name/version/ns` + `imports?`/`importDefault?` | `dependency java "g:a:v" as ns import { JSON as J };` → 声明式依赖；import 可选（缺省 = 产物全量兼容） |
 
 ## 2. 类型与表达式（typeref / expr / statement）
 
