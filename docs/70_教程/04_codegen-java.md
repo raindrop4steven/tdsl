@@ -15,7 +15,7 @@
 | `structure/Xxx.java` | Structure | POJO + getter/setter；引用实体自动补 import |
 | `service/XxxService.java` | Logic | 每逻辑一个方法；`.save()/.delete()` 自动 `@Transactional` |
 | `controller/XxxApiController.java` | Interface | `@RestController`；路径参数 `{id}` → `@PathVariable` |
-| `service/api/UserService.java` | Service | dubbo/bean → 普通接口；http → `@FeignClient(name, url)` |
+| `service/api/UserService.java` | Service | dubbo → 普通接口；http → `@FeignClient(name, url)`（dev/33） |
 | `tdsl/TdslError*.java` | 脚手架 | 统一异常响应体（A1 配套） |
 
 ## 2. QuerySpec 机制（M2 的核心）
@@ -41,7 +41,7 @@
 ## 4. FFI 与依赖（dev/27 + dev/32）
 
 - **import 收集**：`collectFfiClassesInExpr` 扫函数表达式树 → 内核五域 + 依赖产物类（含 `ns.Alias` 限定形态）→ 显式 `import 全限定名;`
-- **pom 注入改声明驱动**：`dependency java "g:a:v"` 全量进 `<dependencies>`（service 的 dubbo/bean/http 依赖另有注入通道）；**不再从目录反推**——目录是能力清单，声明才是意图
+- **pom 注入改声明驱动**：`dependency java "g:a:v"` 全量进 `<dependencies>`（service 的 dubbo/http 依赖另有注入通道）；**不再从目录反推**——目录是能力清单，声明才是意图
 - 产物类成员按 `FfiMethod.java` 模板翻译（缺省 `{recv}.{name}({args})` 直发）
 
 ## 5. 本包要记住的 3 件事

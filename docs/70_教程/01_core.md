@@ -14,12 +14,11 @@ interface AppNode {
   datasources: DataSourceNode[];   // 实体（M1：实体短名归数据源作用域）
   structures: StructureNode[];     // DTO / 嵌套结构
   enums: EnumNode[];               // 枚举（G1：label 字段）
-  logics: LogicNode[];             // 业务逻辑（P11 双语法同构）
+  logics: LogicNode[];             // 业务逻辑（function 词法面，P11 TS 化）
   interfaces: InterfaceNode[];     // REST 契约 → Controller + 前端 fetch
   views: ViewNode[];               // M4：page/dialog 声明层
-  services: ServiceNode[];         // M6：dubbo/bean/http 外部服务
-  components: ComponentNode[];     // M6：npm 三方前端组件注册
-  dependencies: DependencyNode[];  // dev/32：dependency java/npm 声明
+  services: ServiceNode[];         // M6：dubbo/http 外部系统对接（dev/33 删 bean）
+  dependencies: DependencyNode[];  // dev/32/34：dependency java/npm 声明（含 imports；无 component 注册层）
 }
 ```
 

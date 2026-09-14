@@ -14,7 +14,7 @@
 
 - [00 总览：流水线与核心哲学](00_总览.md)
 - [01 core：语义核 / Typed AST / FFI 目录](01_core.md)
-- [02 parser：文本 → AST（双语法 + 绑定）](02_parser.md)
+- [02 parser：文本 → AST（TS 词法面 + 绑定）](02_parser.md)
 - [03 typecheck：六类诊断与宽松策略](03_typecheck.md)
 - [04 codegen-java：同一棵 AST → Spring Boot](04_codegen-java.md)
 - [05 codegen-react：同一棵 AST → React 工程](05_codegen-react.md)

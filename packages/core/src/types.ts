@@ -167,7 +167,7 @@ export interface ServiceNode extends BaseNode {
   kind: 'Service';
   name: string;
   kind_: 'dubbo' | 'http';
-  /** dubbo: group/version；bean: bean/jar；http: baseUrl/timeout */
+  /** dubbo: group/version；http: baseUrl/timeout */
   config: Record<string, string>;
   operations: ServiceOperationNode[];
 }
