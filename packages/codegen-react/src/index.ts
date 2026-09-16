@@ -3030,7 +3030,7 @@ export default function App() {
             selectedKeys={[base]}
             defaultOpenKeys={openKeys}
             items={pages}
-            onClick={({ key, keyPath }) => { if (keyPath.length === 1) nav(String(key)); }}
+            onClick={({ key }) => { const k = String(key); if (k.startsWith('/')) nav(k); }}
             style={{ height: '100%', overflow: 'auto', borderInlineEnd: 'none' }}
           />
         </Sider>

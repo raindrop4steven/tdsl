@@ -258,3 +258,8 @@
 - codegen-react：MODULES 增加 `groups: MenuItem[]`；左侧菜单 = 直属页面 + 分组（`defaultOpenKeys` 默认展开）；顶部点模块时跳「第一个直属页 ?? 第一个分组的第一页」（修用户报的"客户关系管理点不了"——该模块全是分组、无直属页）。
 - yudao：CRM 16 个页面分 5 组（客户管理/商机管理/合同与回款/产品与价格/跟进与待办）。
 - 回归：325 单测全绿（菜单用例同步）、react tsc+build ✓。
+
+## 2026-09-16 续十五（修：左侧分组内菜单点不动）
+- 用户报"客户关系左侧菜单都点不了，固定第一个"——根因：左侧菜单 `onClick` 用 `keyPath.length === 1` 判断"是否页面项"，但 antd 对**子菜单内的子项** keyPath 长度是 2（子项+父组）→ 组内所有页面都不导航。
+- 修：改为按 key 形态判断——`const k = String(key); if (k.startsWith('/')) nav(k);`（分组 key 是文案、页面 key 是路由），与层级无关。
+- 回归：325 单测 / react tsc+build ✓。
