@@ -667,10 +667,10 @@ function f(d: Date): Boolean {
     const okApp = check(parse(`
 @datasource('defaultDS')
 @export
-function g(): String {
+function g(): Integer {
   const y: Date = Date.now();
-  const s: String = y.getYear();
-  return 'ok';
+  const n: Integer = y.getYear();
+  return n;
 }
 `));
     expect(okApp.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);

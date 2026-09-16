@@ -16,6 +16,7 @@ import {
   type ViewElementNode,
 } from '@tdsl/core';
 import { createCatalog, ffiByAlias, type FfiParamType, type LogicNode } from '@tdsl/core';
+import { checkExpressions } from './check-expressions';
 
 export interface Diagnostic {
   path: string;
@@ -25,6 +26,50 @@ export interface Diagnostic {
   file?: string;
   message: string;
   severity: 'error' | 'warning';
+  /** 结构化错误码（dev/36 F1）：出牌层表见 DIAG_LAYERS，新核对面必须携带 */
+  code: string;
+  /** 结构化修复指引（dev/36 F1）：不藏在 message 文案里 */
+  suggestion?: string;
+  /** 级联归属键（dev/36 F2）：`${根因code}#${根因path}`；根因诊断自身不填 */
+  root?: string;
+}
+
+/** 诊断分层（dev/37 §2.2）：SYNTAX 仅 parse 阶段直收；排序与 llm 出牌共用此表 */
+export const DIAG_LAYERS = { TYPE: 1, API: 2, DEP: 3 } as const;
+export type DiagLayer = keyof typeof DIAG_LAYERS;
+
+/** code → 层（未登记的旧 code 兜底进 DEP 层；声明序内层保序） */
+export function diagLayerOf(code: string): number {
+  switch (code) {
+    case 'DANGLE-REF':
+    case 'ASSIGN-TYPE':
+    case 'CALL-ARITY':
+    case 'MEMBER-UNKNOWN':
+    case 'RETURN-TYPE':
+      return DIAG_LAYERS.TYPE;
+    case 'FOREACH-CONTAINER':
+    case 'INTERFACE-LOGICREF':
+    case 'ENTITY-METHOD':
+    case 'ENTITY-WHERE':
+    case 'ENTITY-CHAIN':
+    case 'SERVICE-MEMBER':
+    case 'LIST-SHAPE':
+    case 'VIEW-COMPONENT':
+    case 'VIEW-BINDING':
+    case 'FORM-SEMANTICS':
+    case 'FFI-MEMBER':
+    case 'FFI-STATIC':
+      return DIAG_LAYERS.API;
+    case 'SERVICE-KIND':
+    case 'SERVICE-HTTP-OPER':
+    case 'DEP-1':
+    case 'DEP-2':
+    case 'DEP-3':
+    case 'DEP-4':
+      return DIAG_LAYERS.DEP;
+    default:
+      return DIAG_LAYERS.DEP;
+  }
 }
 
 export interface CheckResult {
@@ -141,6 +186,8 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
         path: ownerPath(owner),
         message: `悬空引用: ${tr.path}`,
         severity: 'error',
+        code: 'DANGLE-REF',
+        suggestion: `补声明类型 ${tr.path.split('.').pop()}（entity/struct/enum），或引用已声明类型`,
       });
     }
   });
@@ -166,6 +213,8 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
             path: ownerPath(l),
             message: `ForEach 容器必须是 List（实体查询 / 已知变量 / 成员）`,
             severity: 'error',
+            code: 'FOREACH-CONTAINER',
+            suggestion: '容器改为实体查询（X.all / X.where）或已声明的列表变量',
           });
         }
       }
@@ -182,6 +231,8 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
           path: ownerPath(itf),
           message: `接口端点悬空引用 logic: ${ep.logicRef}`,
           severity: 'error',
+          code: 'INTERFACE-LOGICREF',
+          suggestion: `声明 function ${ep.logicRef?.split('.').pop() ?? ''} 或改正端点指向的 logic 名`,
         });
       }
     });
@@ -199,6 +250,11 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
     checkFfi(cat, app, l, diagnostics, ownerPath, usedCoords);
   }
 
+  // 4.8 表达式核对（dev/36 F3）：赋值/互调 arity/成员/return 核对 + nullable 提示；判不出一律放行
+  for (const l of app.logics) {
+    checkExpressions(app, cat, l, diagnostics, ownerPath);
+  }
+
   // 4.7 依赖声明与目录一致性（dev/32）：D-dep-1/2/3/4
   checkDependencies(app, cat, opts.libs ?? [], usedCoords, diagnostics, ownerPath);
 
@@ -209,6 +265,8 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
         path: ownerPath(s),
         message: `外部服务 ${s.name} 的 kind 必须为 dubbo|bean|http`,
         severity: 'error',
+        code: 'SERVICE-KIND',
+        suggestion: `@service(kind = 'dubbo') 或 @service(kind = 'http')（本地 jar 类用 dependency java 直调）`,
       });
     }
     if (s.kind_ === 'http') {
@@ -218,6 +276,8 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
             path: ownerPath(op),
             message: `http 服务 ${s.name} 的操作 ${op.name} 必须声明 METHOD 'path'`,
             severity: 'error',
+            code: 'SERVICE-HTTP-OPER',
+            suggestion: `操作体写 GET '/api/xxx' -> ${op.name}`,
           });
         }
       }
@@ -241,7 +301,18 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
     if (f) d.file = f;
   }
 
-  return { ok: diagnostics.length === 0, diagnostics };
+  // 7. 定序（dev/36 F2）：全量齐报不截断；error → warning，层内按依赖（根因层前）
+  //    稳定排序保证同层内保持声明序，输出确定性
+  diagnostics.sort((a, b) => {
+    const sev = (d: Diagnostic) => (d.severity === 'error' ? 0 : 1);
+    return sev(a) - sev(b) || diagLayerOf(a.code) - diagLayerOf(b.code);
+  });
+
+  // ok 语义（dev/36 F2 / ch06 口径）：只要存在任一 error 就失败；warning（D-dep-2/3、NULLABLE-HINT）只是提醒不阻断
+  return {
+    ok: !diagnostics.some((d) => d.severity === 'error'),
+    diagnostics,
+  };
 }
 
 /** nodePath → 所在文件（顶层声明节点的 file 标） */
@@ -298,6 +369,8 @@ function checkView(
         path: ownerPath(el),
         message: `三方组件 '${el.type}' 未匹配到 dependency npm 声明——请补 dependency npm "<包名>"（import 包名由声明解析）`,
         severity: 'error',
+        code: 'VIEW-COMPONENT',
+        suggestion: `dependency npm "<包名>" import { ${el.type} }`,
       });
     }
     for (const b of el.bindings) {
@@ -343,6 +416,8 @@ function checkBinding(
         path: ownerPath(b),
         message: `页面绑定 ${b.name} 悬空逻辑引用: ${b.target}`,
         severity: 'error',
+        code: 'VIEW-BINDING',
+        suggestion: `声明 function ${b.target.split('.').pop()} 或改正 ${b.name}('...') 指向`,
       });
     } else if (!exposedLogics.has(b.target.split('.').pop() ?? b.target)) {
       // 逻辑存在但没有 interface 端点暴露 → api.ts 不会生成该函数 → 前端运行时 TypeError（真白屏）
@@ -350,6 +425,8 @@ function checkBinding(
         path: ownerPath(b),
         message: `页面绑定 ${b.name}('${b.target}') 但没有 interface 端点暴露该逻辑，api.ts 不会生成对应函数；请在 interface 中声明（如 GET '/api/...' -> ${b.target}）`,
         severity: 'error',
+        code: 'VIEW-BINDING',
+        suggestion: `interface XxxApi { GET '/api/...' -> ${b.target} }`,
       });
     }
   } else if (b.name === 'openDialog') {
@@ -359,12 +436,16 @@ function checkBinding(
         path: ownerPath(b),
         message: `页面绑定 openDialog 悬空页面: ${b.target}`,
         severity: 'error',
+        code: 'VIEW-BINDING',
+        suggestion: `先声明 dialog ${b.target}`,
       });
     } else if (target.viewKind !== 'dialog') {
       diagnostics.push({
         path: ownerPath(b),
         message: `openDialog 目标 '${b.target}' 是 page 而非 dialog；page 用 navigate 跳转，dialog 才用 openDialog`,
         severity: 'error',
+        code: 'VIEW-BINDING',
+        suggestion: `改写 navigate('${b.target}')`,
       });
     }
   } else if (b.name === 'navigate') {
@@ -374,12 +455,16 @@ function checkBinding(
         path: ownerPath(b),
         message: `页面绑定 navigate 悬空页面: ${b.target}`,
         severity: 'error',
+        code: 'VIEW-BINDING',
+        suggestion: `先声明 page ${b.target}`,
       });
     } else if (target.viewKind === 'dialog') {
       diagnostics.push({
         path: ownerPath(b),
         message: `'${b.target}' 是 dialog 页面（右侧抽屉），不进路由；请改用 openDialog('${b.target}')`,
         severity: 'error',
+        code: 'VIEW-BINDING',
+        suggestion: `改写 openDialog('${b.target}')`,
       });
     }
   }
@@ -407,12 +492,16 @@ function checkEntityCalls(
                 path: ownerPath(owner),
                 message: `外部服务 ${svc.name} 无方法 ${callee.prop}`,
                 severity: 'error',
+                code: 'SERVICE-MEMBER',
+                suggestion: `在 service ${svc.name} 内声明 oper ${callee.prop}`,
               });
             } else if (op.params.length !== e.args.length) {
               diagnostics.push({
                 path: ownerPath(owner),
                 message: `外部服务 ${svc.name}.${callee.prop}() 需要 ${op.params.length} 个参数，实际 ${e.args.length}`,
                 severity: 'error',
+                code: 'SERVICE-MEMBER',
+                suggestion: `实参数量对齐声明的 ${op.params.length} 个`,
               });
             }
           }
@@ -428,6 +517,8 @@ function checkEntityCalls(
                 path: ownerPath(owner),
                 message: `实体 ${recvName}.get() 需要 1 个参数（主键）`,
                 severity: 'error',
+                code: 'ENTITY-METHOD',
+                suggestion: `${recvName}.get(id)`,
               });
             } else if (method === 'where') {
               // Entity.where(cond, ...)：逗号 = AND；cond 叶子 = field op value，支持 && / || 组合
@@ -436,6 +527,8 @@ function checkEntityCalls(
                   path: ownerPath(owner),
                   message: `${recvName}.where() 至少需要一个条件`,
                   severity: 'error',
+                  code: 'ENTITY-METHOD',
+                  suggestion: `${recvName}.where(field op value, ...)`,
                 });
               }
               for (const cond of e.args) {
@@ -448,6 +541,8 @@ function checkEntityCalls(
                   path: ownerPath(owner),
                   message: `${recvName}.aggregate() 至少需要一个聚合函数（sum/avg/max/min/count）`,
                   severity: 'error',
+                  code: 'ENTITY-METHOD',
+                  suggestion: `${recvName}.aggregate(sum(field))`,
                 });
               }
               for (const a of e.args) {
@@ -456,8 +551,10 @@ function checkEntityCalls(
             } else if (method !== 'get' && method !== 'all' && method !== 'where' && method !== 'aggregate') {
               diagnostics.push({
                 path: ownerPath(owner),
-                message: `实体 ${recvName} 无方法 ${method}`,
-                severity: 'error',
+              message: `实体 ${recvName} 无方法 ${method}`,
+              severity: 'error',
+              code: 'ENTITY-METHOD',
+              suggestion: `可用方法: get / all / where / aggregate；或改走查询链 .orderBy/.page/.limit/.groupBy`,
               });
             }
           } else if (callee.obj.kind === 'Call') {
@@ -477,6 +574,8 @@ function checkEntityCalls(
                 path: ownerPath(owner),
                 message: `${method}() 不接受参数`,
                 severity: 'error',
+                code: 'LIST-SHAPE',
+                suggestion: `${method}() 无参`,
               });
             }
           } else if (method === 'add') {
@@ -486,6 +585,8 @@ function checkEntityCalls(
                 path: ownerPath(owner),
                 message: `.add() 接收者必须是 List`,
                 severity: 'error',
+                code: 'LIST-SHAPE',
+                suggestion: `接收者改为实体查询或已声明的列表变量`,
               });
             }
           }
@@ -501,6 +602,8 @@ function checkEntityCalls(
             path: ownerPath(owner),
             message: `.count 接收者必须是 List`,
             severity: 'error',
+            code: 'LIST-SHAPE',
+            suggestion: `接收者改为 List 表达式（实体查询/列表变量）`,
           });
         }
         checkExpr(e.obj);
@@ -653,6 +756,8 @@ function checkWhereCond(
       path: ownerPath(owner),
       message: `${recvName}.where() 条件必须是 field op value 形式（op: = >= <= > < like in）`,
       severity: 'error',
+      code: 'ENTITY-WHERE',
+      suggestion: `叶子条件写 field op value`,
     });
     return;
   }
@@ -667,6 +772,8 @@ function checkWhereCond(
       path: ownerPath(owner),
       message: `${recvName}.where() 不支持运算符 '${cond.operator}'（允许: = >= <= > < like in）`,
       severity: 'error',
+      code: 'ENTITY-WHERE',
+      suggestion: `改用允许的运算符`,
     });
     return;
   }
@@ -675,6 +782,7 @@ function checkWhereCond(
       path: ownerPath(owner),
       message: `${recvName}.where() 条件左侧必须是字段名`,
       severity: 'error',
+      code: 'ENTITY-WHERE',
     });
     return;
   }
@@ -684,6 +792,8 @@ function checkWhereCond(
       path: ownerPath(owner),
       message: `实体 ${recvName} 无字段 ${fieldName}`,
       severity: 'error',
+      code: 'ENTITY-WHERE',
+      suggestion: `补实体字段或换已声明字段`,
     });
   }
 }
@@ -702,6 +812,7 @@ function checkAggregateArg(
       path: ownerPath(owner),
       message: `${recvName}.aggregate() 参数必须是 sum(f)/avg(f)/max(f)/min(f)/count(f)/count()`,
       severity: 'error',
+      code: 'ENTITY-METHOD',
     });
     return;
   }
@@ -711,6 +822,7 @@ function checkAggregateArg(
       path: ownerPath(owner),
       message: `${recvName}.aggregate() 不支持聚合函数 '${fn}'（允许: sum/avg/max/min/count）`,
       severity: 'error',
+      code: 'ENTITY-METHOD',
     });
     return;
   }
@@ -721,6 +833,7 @@ function checkAggregateArg(
         path: ownerPath(owner),
         message: `${recvName}.aggregate(${fn}()) 需要 1 个字段参数`,
         severity: 'error',
+        code: 'ENTITY-METHOD',
       });
     }
     return;
@@ -730,6 +843,7 @@ function checkAggregateArg(
       path: ownerPath(owner),
       message: `${recvName}.aggregate(${fn}()) 最多 1 个字段参数`,
       severity: 'error',
+      code: 'ENTITY-METHOD',
     });
     return;
   }
@@ -739,6 +853,7 @@ function checkAggregateArg(
       path: ownerPath(owner),
       message: `${recvName}.aggregate(${fn}()) 参数必须是字段名`,
       severity: 'error',
+      code: 'ENTITY-METHOD',
     });
     return;
   }
@@ -747,6 +862,7 @@ function checkAggregateArg(
       path: ownerPath(owner),
       message: `实体 ${recvName} 无字段 ${arg.name}`,
       severity: 'error',
+      code: 'ENTITY-METHOD',
     });
   }
 }
@@ -806,6 +922,8 @@ function checkChainMethod(
         path: ownerPath(owner),
         message: `${name}.orderBy() 至少需要一个字段`,
         severity: 'error',
+        code: 'ENTITY-CHAIN',
+        suggestion: `orderBy(field asc|desc, ...)`,
       });
     }
     for (let i = 0; i < args.length; i += 2) {
@@ -814,6 +932,7 @@ function checkChainMethod(
           path: ownerPath(owner),
           message: `${name}.orderBy() 字段 '${fieldOf(args[i]) ?? args[i].kind}' 不存在`,
           severity: 'error',
+          code: 'ENTITY-CHAIN',
         });
       }
       const dir = args[i + 1];
@@ -822,6 +941,7 @@ function checkChainMethod(
           path: ownerPath(owner),
           message: `${name}.orderBy() 方向必须是 asc 或 desc`,
           severity: 'error',
+          code: 'ENTITY-CHAIN',
         });
       }
     }
@@ -831,6 +951,7 @@ function checkChainMethod(
         path: ownerPath(owner),
         message: `${name}.page() 需要 2 个参数（页码, 每页条数）`,
         severity: 'error',
+        code: 'ENTITY-CHAIN',
       });
     }
   } else if (method === 'limit') {
@@ -839,6 +960,7 @@ function checkChainMethod(
         path: ownerPath(owner),
         message: `${name}.limit() 需要 1 个参数（条数）`,
         severity: 'error',
+        code: 'ENTITY-CHAIN',
       });
     }
   } else if (method === 'groupBy') {
@@ -847,6 +969,8 @@ function checkChainMethod(
         path: ownerPath(owner),
         message: `${name}.groupBy() 至少需要一个字段`,
         severity: 'error',
+        code: 'ENTITY-CHAIN',
+        suggestion: `groupBy(field, ...)`,
       });
     }
     for (const a of args) {
@@ -855,6 +979,7 @@ function checkChainMethod(
           path: ownerPath(owner),
           message: `${name}.groupBy() 字段 '${fieldOf(a) ?? a.kind}' 不存在`,
           severity: 'error',
+          code: 'ENTITY-CHAIN',
         });
       }
     }
@@ -863,6 +988,8 @@ function checkChainMethod(
       path: ownerPath(owner),
       message: `实体 ${name} 查询链无方法 ${method}`,
       severity: 'error',
+      code: 'ENTITY-CHAIN',
+      suggestion: `链式方法仅: orderBy / page / limit / groupBy`,
     });
   }
 }
@@ -954,12 +1081,16 @@ function ffiCheckExpr(
           path: ownerPath(owner),
           message: `成员 ${nsCls.alias}.${prop} 不在依赖 ${nsCls.maven ?? ''} 的扫描产物（可用成员：${nsCls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——请重跑 dsl bundle-jar 更新产物`,
           severity: 'error',
+          code: 'FFI-MEMBER',
+          suggestion: `重跑 dsl bundle-jar 更新 libs/ 产物，或改用可用成员`,
         });
       } else if (m && !m.static) {
         diagnostics.push({
           path: ownerPath(owner),
           message: `${nsCls.alias}.${prop} 是实例方法，须先实例化再调用`,
           severity: 'error',
+          code: 'FFI-STATIC',
+          suggestion: `先 const x = new 类(…) 再 x.${prop}(…)`,
         });
       }
     } else if (alias) {
@@ -974,18 +1105,24 @@ function ffiCheckExpr(
             path: ownerPath(owner),
             message: `成员 ${cls.alias}.${prop} 不在 FFI 目录（可用成员：${cls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——若为 Java 库成员，请运行 dsl bundle-jar 并入后重试`,
             severity: 'error',
+            code: 'FFI-MEMBER',
+            suggestion: `改用可用成员，或 bundle-jar 并入该类`,
           });
         } else if (m && isStatic && !m.static) {
           diagnostics.push({
             path: ownerPath(owner),
             message: `${cls?.alias}.${prop} 是实例方法，静态调用非法`,
             severity: 'error',
+            code: 'FFI-STATIC',
+            suggestion: `先 new 再实例调用`,
           });
         } else if (m && !isStatic && m.static) {
           diagnostics.push({
             path: ownerPath(owner),
             message: `${cls?.alias}.${prop} 是静态方法，需 ${cls?.alias}.${prop}(…) 形式调用`,
             severity: 'error',
+            code: 'FFI-STATIC',
+            suggestion: `改为静态形式 ${cls?.alias}.${prop}(…)`,
           });
         }
         // 双端目录里未标 js 的成员（backend-only）在前端生成的调用面交给 binding 层（本轮不展开——宽松）
@@ -1050,6 +1187,8 @@ function checkDependencies(
       path: 'app',
       message: `类别名 ${c.alias} 在多个来源重名（${c.coordinates.join(' , ')}）——请在产物 JSON 中修改 alias，或用 dependency ... as <ns> 限定引用`,
       severity: 'error',
+      code: 'DEP-4',
+      suggestion: `产物 JSON 改 alias或 dependency ... as <ns>`,
     });
   }
   for (const d of app.dependencies) {
@@ -1061,6 +1200,8 @@ function checkDependencies(
         path: ownerPath(d),
         message: `依赖 ${depCoordinate(d)} 已声明但 libs/ 无匹配扫描产物——运行 dsl bundle-jar <jar> -o libs/<名>.json 并入`,
         severity: 'warning',
+        code: 'DEP-2',
+        suggestion: `dsl bundle-jar <jar> -o libs/<名>.json`,
       });
       continue;
     }
@@ -1072,6 +1213,8 @@ function checkDependencies(
             path: ownerPath(d),
             message: `依赖版本漂移：声明 ${depCoordinate(d)}，扫描产物为 ${lc.coordinate}`,
             severity: 'warning',
+            code: 'DEP-3',
+            suggestion: `声明与产物坐标对齐为 ${lc.coordinate}`,
           });
         }
       }
@@ -1084,6 +1227,8 @@ function checkDependencies(
         path: 'app',
         message: `使用了第三方库 ${coord} 但未声明依赖——请补 dependency java "${coord}"`,
         severity: 'error',
+        code: 'DEP-1',
+        suggestion: `补 dependency java "${coord}"`,
       });
     }
   }
@@ -1163,6 +1308,7 @@ function checkFormSemantics(
             path: ownerPath(form),
             message: `字段 ${field} 的 derive 必须是表达式（derive={quantity * price}）`,
             severity: 'error',
+            code: 'FORM-SEMANTICS',
           });
         } else {
           const de = derive as Expr;
@@ -1174,6 +1320,7 @@ function checkFormSemantics(
                 path: ownerPath(form),
                 message: `字段 ${field} 的 derive 是纯函数表达式，不允许 IO 绑定（${id}）——需要后端数据请用 carryBy 或将计算放 logic`,
                 severity: 'error',
+                code: 'FORM-SEMANTICS',
               });
             }
           }
@@ -1185,6 +1332,7 @@ function checkFormSemantics(
               path: ownerPath(form),
               message: `字段 ${field} 的 derive 引用了未声明名 '${id}'（仅可用本表单字段 / row / initial / 目录类型）`,
               severity: 'error',
+              code: 'FORM-SEMANTICS',
             });
           }
         }
@@ -1199,12 +1347,14 @@ function checkFormSemantics(
             path: ownerPath(form),
             message: `字段 ${field} 的 carryBy 指向不存在的 logic '${target}'`,
             severity: 'error',
+            code: 'FORM-SEMANTICS',
           });
         } else if (!exposedLogics.has(target)) {
           diagnostics.push({
             path: ownerPath(form),
             message: `carryBy logic '${target}' 未被任何 interface 端点暴露`,
             severity: 'error',
+            code: 'FORM-SEMANTICS',
           });
         } else {
           // 嵌套 children 字段必须出现在返回实体属性里（带出可达性）
@@ -1221,6 +1371,7 @@ function checkFormSemantics(
                 path: ownerPath(form),
                 message: `carryBy '${target}' 返回实体无字段 '${cf}'（字段 ${field} 带出不可达）`,
                 severity: 'error',
+                code: 'FORM-SEMANTICS',
               });
             }
           }
@@ -1235,6 +1386,7 @@ function checkFormSemantics(
             path: ownerPath(form),
             message: `字段 ${field} 的 ${attr} 取值类型应为 ${ty}`,
             severity: 'error',
+            code: 'FORM-SEMANTICS',
           });
         }
       }
@@ -1244,3 +1396,14 @@ function checkFormSemantics(
   };
   walk(form.children);
 }
+
+// ---------- 表达式核对承接导出（dev/36 F3/F4：供单测/调用方复用判定核） ----------
+export { exprType, assignable } from './expr-type';
+export {
+  containerElemType,
+  contribute,
+  receiverReferenceOf,
+  scopeOfLogic,
+  type VarInfo,
+  type VarScope,
+} from './scope';

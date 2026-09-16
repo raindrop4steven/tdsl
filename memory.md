@@ -94,3 +94,23 @@
 - **dev/33 外部能力一等公民化（用户批评"封装层违背一等公民承诺"）**：①删 `service kind='bean'`——本地 jar 类与 FFI 直调重叠，dependency java + libs 产物是唯一通道；②删 `component` 注册层——npm 一等公民对标 java 侧，页面直接写三方组件标签，import 包名由 `dependency npm` 声明解析（`as ns` 显式命名优先 + 包名尾段 norm 兜底），未声明报 D-dep 口径；③dubbo/http 保留重定位为"外部系统对接"（运行中 RPC/REST 契约，非依赖封装）。设计文档 dev/33。265 单测全绿、slice/slice:multi/check-spec 100%。
 - **dev/34 依赖声明统一 import 形态（用户三轮收敛语法）**：`dependency xxx "坐标" [as ns] [import X | import { A, B as C }]`——`as ns` 回归 jar 级命名空间本义（撞名消解，可选）；`import` 与 JS 语义字面一致（npm 默认/具名导出，java 产物类显式进裸名 + 列表内 `B as C` 改名）；无 import 的 java 声明保持产物全量进裸名（兼容）。三方组件匹配改按 imports 列表（显式导入后不再尾段兜底）。codegen-react 具名导出同包聚合生成。272 单测全绿、全链路回归 ✓。
 - **新建 72_教材（面向本科生的教科书式教程）**：用户两次否掉浅大纲（"太片面没有深度"→"只包括编译器部分，外围的 cli/llm 不要；java/npm 一等公民这个设计要好好写；不要动手练习"）。最终 11 章 + 附录：1 导论 → 2 AST 设计 → 3 词法 → 4-5 语法（含查询语言/JSX/linkApp）→ 6 类型检查 → 7 符号表 → 8 codegen 原理 → 9 Java codegen → 10 React codegen → 11 FFI 专题（最深章，占教材四分之一）。风格：先理论（正则/CFG/类型论）→ 设计决策 → 源码映射推导"为什么代码长这样"。索引已同步 docs/index.html。
+- **03-15 会话（72_教材修订 + dev/35 第一优先清单）**：用户逐节对拍教材与源码，发现并修正 4 处教材-代码漂移（ch05 parseCallArgs 按真实内联实现重写——括号归 parsePostfix/方向存 String 节点/isQueryChain 无 aggregate；§5.4 parseViewElement §5.5 dependency 核对一致；§5.6 parseAnnotations 系虚构改写为就地解析机制；ch06 check 签名/函数体按真实内联流程重写）。**dev/35 新建（第一优先）**：LLM 优先商用就绪清单——北极星"意图拦不了其他都能拦"，P0=诊断结构化(code/suggestion/根因裁剪,1-2周)+表达式层类型核对(无推导简单核对,1-2人月,五类漏拦点:赋值传参/互调arity/成员访问/return核对/nullable)+修复闭环策略化；P1=运行前验证(第二道裁判,编译绿≠通过)/API面闭包防幻觉/业务表达力(try-join-G2)/本地src依赖形态；P2=编译延迟/eval运行维度/安全审计/服务化。**明确不做（用户拍板 LLM 消费形态）**：LSP/round-trip/迁移器/外围工具投入；用户代码走 jar/npm 外部依赖路线 A（src 目录扫描形态待做），绝不开放生成工程内部文件编辑。索引已同步。
+
+## 2026-09-15 会话追加（dev/35 修订）
+- 用户对 dev/35 拍板两条：①增量编译明确不做（P2-1 收窄为耗时基线测量，先量再议）；②P1-1 运行前验证（冒烟+Spec 对拍）定性为 harness 侧职责（packages/eval + server runner 编排层），不占编译器投入——编译器只承担"面向归因的诊断接口"。文档 P1-1/推论/执行顺序/QA/索引同步改。
+- 追问确认：P1-3（try/throw、join/事务、G2 表达式域，language 面全链路）与 P1-4（src 目录依赖，core 依赖模型+CLI 扫描+D-dep+生成装载）均属编译器/工具链侧；dev/35 新增 §1.1 责任归属分界表（编译器 vs harness，判据：动语法/检查规则/代码生成/依赖模型=编译器，只跑与对拍=harness）。
+- 终版拍板：harness 侧整体暂缓（运行前验证、eval 扩容都移出，只留编译器侧诊断接口可归因的余量）；dev/35 全文精简重写为纯编译器路线（P0 三项/P1 三项/P2 三项 + 不做清单 + 一句话顺序），去掉归属分界表；编号重排。
+- 终版（第四次）："跟 PPT 一样"——dev/35 精简为两栏：编译器相关（P0 三项/P1 三项/P2 三项，每项一两行）+ harness 暂时不做（留诊断接口可归因余量）+ 不做清单一行。 rationale/估时/章节论述全删，QA 记录保留三次修订轨迹。
+- 用户纠偏：编译器必须全量报错（人类/IDE 也消费），"一轮一个"是错的——定调"都给，然后分层"：编译器=全量+依赖序排序+级联分组；修牌挑选（一轮一类/token 截断）属 packages/llm 调用方策略，非编译器职责。dev/35 P0 第一项改为"诊断全量结构化"，第三项标注 llm 侧。
+- 第五次收敛：P2 整体不做（延迟基线/安全审计/服务化进不做栏）；业务表达力升入 P0（编译器主战场第一位级）；API 面闭包目录导出与 src 目录依赖形态暂缓。终版 P0 四项：①诊断全量结构化②表达式类型核对③业务表达力④修复出牌策略（llm 侧）。
+- 第六次：出牌策略彻底逐出编译器清单——定调"我们只要把报错分类，LLM 怎么拿怎么修是他的事"（P0-1 的 code/依赖序排序/级联分组已覆盖）。dev/35 收敛为 P0 三项：诊断全量结构化、表达式层类型核对、业务表达力。
+
+## 2026-09-15 会话追加（P0 编码落地 · dev/36-38）
+- 用户 "do" 启动，六阶段全走完（四道 Gate 全部一次通过）。落地内容：
+  1) Diagnostic + code/suggestion/root（48 处 push 收口，message 文案零改动），新增 DIAG_LAYERS{TYPE=1,API=2,DEP=3} + diagLayerOf
+  2) check() 尾部稳定排序（error→warning→layer，层内声明序）；**ok 语义改为"无 error 即过"**（warning 不阻断，与 ch06 口径一致，NULLABLE-HINT warning 落地）
+  3) 新文件 scope.ts（VarScope{type,mayNull,source}，contribute/contributeForOf）+ expr-type.ts（exprType 判定核/queryResultType 链：X.all|where→List<X>，.limit/.orderBy 保型，.page→Page<T>；assignable 名义等价+Integer→Decimal 单向+Object 通放+泛型递归）+ check-expressions.ts（五核对点：VarDecl 声明初值/Assign/logic 互调 arity+参数型/Member 存在性/Return 核对/NULLABLE-HINT warning；不下钻 Call callee 避重；判不出一律放行）
+  4) llm/repair 三段式出牌：摘要行（共 N 个问题；当前层）+ 首层≤3 条带 [code]/humanize/（改成: …）+ 暂缓尾注 + 4000 字符截断 + repairLoopPlan 轮间 diff（上轮→本轮）
+- 新增测试 18：typecheck/p0.test.ts(15) + llm/p0.test.ts(3)；存量样本修正 1 处（typecheck.test.ts 静态调静态 member 成功例：y.getYear()←String 错配改为 y:Date=Date.now()+n:Integer=y.getYear()，属 F3 正确性收紧）
+- 回归：290 单测全绿（272→290）、typecheck 九包 ✓、slice/slice:multi 双端 build ✓、todo/todo-multi/jxc check 0 问题
+- 教训：closure 内 narrowing 失效（forEach 的 recv 需先提变量）；Diagnostic 住在 typecheck 不在 core（dev/38 笔误已 QA 记录）；kernel Date.now() ret 'Date' 而非 DateTime

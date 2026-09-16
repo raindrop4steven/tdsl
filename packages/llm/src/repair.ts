@@ -4,7 +4,7 @@
  */
 import { parse, TdslSyntaxError } from '@tdsl/parser';
 import type { AppNode } from '@tdsl/core';
-import { check, type Diagnostic } from '@tdsl/typecheck';
+import { check, diagLayerOf, DIAG_LAYERS, type Diagnostic } from '@tdsl/typecheck';
 
 export interface ValidationResult {
   ok: boolean;
@@ -62,13 +62,9 @@ export function validateTdsl(input: string): ValidationResult {
   }
   const result = check(app);
   if (!result.ok) {
-    const lines = result.diagnostics.map((d: Diagnostic) => {
-      const where = d.path ? ` [${humanizePath(app, d.path)}]` : '';
-      return `- ${d.severity}${where}: ${d.message}`;
-    });
     return {
       ok: false,
-      feedback: `类型检查未通过（共 ${result.diagnostics.length} 个问题）：\n${lines.join('\n')}`,
+      feedback: buildTypeFeedback(app, result.diagnostics),
       diagnostics: result.diagnostics.map((d) => ({
         path: d.path,
         line: d.line,
@@ -78,6 +74,52 @@ export function validateTdsl(input: string): ValidationResult {
     };
   }
   return { ok: true, app };
+}
+
+/** 出牌层中文名（与 typecheck DIAG_LAYERS 对齐） */
+const LAYER_ZH: Record<number, string> = {
+  [DIAG_LAYERS.TYPE]: '类型层',
+  [DIAG_LAYERS.API]: 'API 层',
+  [DIAG_LAYERS.DEP]: '依赖/声明层',
+};
+
+/** FEEDBACK 截断上限（字符）：防 token 爆炸；按行截保完整条目 */
+const FEEDBACK_MAX_CHARS = 4000;
+/** 首层明细条数上限：一轮修太多 LLM 上下文错乱（dev/36 F5 一轮一类） */
+const FEEDBACK_TOP_N = 3;
+
+/**
+ * 三段式出牌（dev/36 F5）：
+ * ① 摘要行：问题总数 + 当前最小层（诊断按依赖序排序的产物）
+ * ② 首层明细 ≤ FEEDBACK_TOP_N 条：[code] [中文定位] message（改成: suggestion）
+ * ③ 尾注：其余条数与本轮截断说明；全文按行截断保完整首条
+ */
+function buildTypeFeedback(app: AppNode, diags: Diagnostic[]): string {
+  const layer = Math.min(...diags.map((d) => diagLayerOf(d.code)));
+  const zh = LAYER_ZH[layer] ?? '声明层';
+  const inLayer = diags.filter((d) => diagLayerOf(d.code) === layer);
+  const lines = inLayer.slice(0, FEEDBACK_TOP_N).map((d) => {
+    const where = d.path ? ` [${humanizePath(app, d.path)}]` : '';
+    const fix = d.suggestion ? `（改成: ${d.suggestion}）` : '';
+    return `- [${d.code}]${where} ${d.message}${fix}`;
+  });
+  const rest = diags.length - lines.length;
+  const tail = rest > 0 ? `\n（其余 ${rest} 条暂缓出示——先修这 ${lines.length} 条，修复后自动出示）` : '';
+  const text = `类型检查未通过（共 ${diags.length} 个问题；当前层: ${zh}）：\n${lines.join('\n')}${tail}`;
+  return truncateLines(text, FEEDBACK_MAX_CHARS);
+}
+
+/** 按行截断（保完整条目），超限时加溢出标注 */
+function truncateLines(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let out = '';
+  for (const line of text.split('\n')) {
+    if (out.length + line.length + 1 > max) {
+      return `${out}\n（feedback 已截断——先按以上条目修复）`;
+    }
+    out += (out ? '\n' : '') + line;
+  }
+  return out;
 }
 
 /** 修复 prompt：给出原稿 + 反馈，要求输出完整修正稿（不做 diff，避免 LLM 改错位置） */
@@ -107,9 +149,13 @@ export function repairLoopPlan(
   const rounds: Array<{ feedback: string; prompt: string }> = [];
   let current = draft;
   let result = validate(current);
+  let prevCount: number | null = null;
   for (let i = 0; i < maxRounds && !result.ok; i++) {
-    const prompt = repairPrompt(current, result.feedback ?? '');
-    rounds.push({ feedback: result.feedback ?? '', prompt });
+    const count = result.diagnostics?.length ?? 0;
+    const diff = prevCount !== null ? `（上轮 ${prevCount} 个问题 → 本轮 ${count} 个）\n` : '';
+    prevCount = count;
+    const feedback = `${diff}${result.feedback ?? ''}`;
+    rounds.push({ feedback, prompt: repairPrompt(current, feedback) });
     // 占位：真实循环由调用方用 LLM 响应替换 current；此处供测试/演示驱动
     current = draft;
     result = validate(current);
