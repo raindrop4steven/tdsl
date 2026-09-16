@@ -2131,7 +2131,7 @@ function columnDefsOf(app: AppNode, ent: EntityNode | undefined, columns: ViewEl
     const en = enumType?.kind === 'reference' ? app.enums.find((e) => e.name === nameFromPath(enumType.path)) : undefined;
     if (en) {
       // 枚举项→颜色/中文标签映射在生成期确定，运行期按 row 值取色取标签（生成代码不含未知符号）
-      const colorMap = `{ ${en.items.map((i) => `'${i.name}': '${tagColorFor(i.name)}'`).join(', ')} }`;
+      const colorMap = `{ ${en.items.map((i) => `'${i.name}': '${i.color ?? 'blue'}'`).join(', ')} }`;
       const labelMap = `{ ${en.items.map((i) => `'${i.name}': '${i.label ?? i.name}'`).join(', ')} }`;
       return `    { title: '${title}', dataIndex: '${field}', render: (_, row) => { const colors: Record<string, string> = ${colorMap}; const labels: Record<string, string> = ${labelMap}; return <Tag color={colors[String(row.${field})] ?? 'blue'}>{labels[String(row.${field})] ?? String(row.${field})}</Tag>; } }`;
     }
@@ -2789,16 +2789,6 @@ function genText(el: ViewElementNode): string {
   return `<span>{data${safePath}}</span>`;
 }
 
-/** 枚举值 → Tag 颜色（语义关键词映射，未知项蓝色兜底） */
-function tagColorFor(value: string): string {
-  const v = value.toUpperCase();
-  if (/APPROV|SUCCESS|ACTIVE|OK|ENABLE|PAID|COMPLET|DONE|NORMAL/.test(v)) return 'green';
-  if (/REJECT|FAIL|ERROR|CANCEL|TERMINAT|VOID|DISABLE|OVERDUE/.test(v)) return 'red';
-  if (/PENDING|WAIT|DRAFT|REVIEW|AUDIT|PROCESS|HOLD/.test(v)) return 'orange';
-  if (/CLOSE|ARCHIVE|INACTIVE|EXPIRE|STOP/.test(v)) return 'default';
-  return 'blue';
-}
-
 /** 管理端常用元素：tag / statistic / tabs / checkbox / switch / radio / avatar / badge / card */
 function genCommonElement(
   app: AppNode,
@@ -2979,7 +2969,7 @@ function listItemValueJsx(app: AppNode, owner: EntityNode | undefined, field: st
   const enumType = owner?.properties.find((p) => p.name === field)?.type;
   const en = enumType?.kind === 'reference' ? app.enums.find((e) => e.name === nameFromPath(enumType.path)) : undefined;
   if (en) {
-    const colorMap = `{ ${en.items.map((i) => `'${i.name}': '${tagColorFor(i.name)}'`).join(', ')} }`;
+    const colorMap = `{ ${en.items.map((i) => `'${i.name}': '${i.color ?? 'blue'}'`).join(', ')} }`;
     const labelMap = `{ ${en.items.map((i) => `'${i.name}': '${i.label ?? i.name}'`).join(', ')} }`;
     const v = `String(${rowVar}.${field} ?? '')`;
     return `{(() => { const colors: Record<string, string> = ${colorMap}; const labels: Record<string, string> = ${labelMap}; const v = ${v}; return <Tag color={colors[v] ?? 'blue'}>{labels[v] ?? v}</Tag>; })()}`;

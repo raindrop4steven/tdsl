@@ -109,6 +109,8 @@ export interface EnumItemNode extends BaseNode {
   name: string;
   /** 显示标签（可选，中文业务字典等）：KEY('暂存') */
   label?: string;
+  /** 标签颜色（可选，Tag 呈现由业务声明）：KEY('暂存', 'orange') */
+  color?: string;
 }
 
 /** 逻辑：后端业务方法（body 为小语言语句序列） */

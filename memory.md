@@ -227,3 +227,16 @@
     （路径如 `GET '/api/erp/purchase-orders/{orderId}/items' -> queryErpPurchaseOrderItems`）。
   - 采购入库/销售出库仍走详情 DTO 版本（同时补全区块字段）——两种形态并存且有测试锁定。
 - 真机：`purchase-orders/1/items`、`purchase-ins/1/detail`、`sale-orders/1/items`、`crm/contracts/1/products`、`crm/businesses/1/products` 均 200 返回明细；322 单测 / typecheck / java clean compile / react tsc+build / seed 105-0。
+
+## 2026-09-16 续十二（通用性审计：去业务化 + 架构护栏）
+- **用户关切**："一直修 yudao 的问题，会不会把语言/生成器改过拟合？"→ 做全量审计。
+- **审计方法与结论**（扫描 packages/*/src，剥离注释后判定）：
+  | 类别 | 结论 |
+  |------|------|
+  | 样例专名/业务字段字面量（yudao/supplier/ownerUserId/…） | 仅出现在**测试夹具与注释**，生成器源码零泄漏 |
+  | 业务中文文案 | 源码非注释行零出现（server/llm 的提示词属通用指导） |
+  | 唯一真实泄漏 | `tagColorFor()`（生成器内置 APPROV/REJECT/PENDING 等业务词→颜色表，用于枚举 Tag） |
+- **修复（去业务化）**：枚举 Tag 颜色改由 **DSL 声明**——`enum DocStatus { UNAUDIT('未审批','orange'), AUDITED('已审批','green') }`：
+  core `EnumItemNode.color` + parser 可选第二参数 + codegen 用 `i.color ?? 'blue'` + 删除 `tagColorFor`；yudao 10 个枚举补齐颜色（业务数据留在样例）；语法手册 §1.4 补说明。
+- **架构护栏（新增守门测试）**：`packages/core/test/generality.test.ts` —— 扫描 core/parser/typecheck/codegen-java/codegen-react 的 src（剥注释）禁止出现业务域词表（yudao/supplier/warehouse/contract/customer/clue/invoice/采购/销售/库存/审批/领取/公海/回款/商机/线索/客户/合同 等），测试夹具不受限。以后的业务需求必须走 DSL 声明（注解/枚举颜色/样例数据）而非改生成器。
+- 回归：325 单测全绿（core +1 守门）、九包 typecheck ✓、spec 1091 项 100%、react tsc ✓、枚举颜色生成实证。

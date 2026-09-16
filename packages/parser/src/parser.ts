@@ -454,14 +454,19 @@ class Parser {
     const items: EnumItemNode[] = [];
     while (this.peek().value !== '}') {
       const itemName = this.expectIdent();
-      // 可选显示标签 KEY('暂存')（G1：业务字典中文）
+      // 可选显示标签与颜色 KEY('暂存') / KEY('暂存', 'orange')（G1 业务字典；颜色由业务声明，生成器不做语义猜测）
       let label: string | undefined;
+      let color: string | undefined;
       if (this.peek().value === '(') {
         this.next();
         label = this.expectString();
+        if (this.peek().value === ',') {
+          this.next();
+          color = this.expectString();
+        }
         this.expect(')');
       }
-      items.push({ ...createNode('EnumItem'), name: itemName, label });
+      items.push({ ...createNode('EnumItem'), name: itemName, label, ...(color !== undefined ? { color } : {}) });
       if (this.peek().value === ',') this.next();
     }
     this.expect('}');
