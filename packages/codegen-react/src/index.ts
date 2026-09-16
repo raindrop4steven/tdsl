@@ -696,8 +696,8 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   const mutationBindings = collectMutationBindings(v);
   const navBindings = collectNavBindings(v);
   const hasTable = viewHasTable(v);
-  // detail 页模式：无 table 且 useQuery args 引用 row → row 别名 = 主查询结果，页面路由带 /:id
-  const rowSrc = hasTable ? undefined : queryBindings.find((b) => b.args.some((a) => exprHasIdent(a, 'row')));
+  // detail 页模式：无 table 且 useQuery 参数引用 row，或按 $route.id 查单条 → row 别名 = 主查询结果，页面路由带 /:id
+  const rowSrc = hasTable ? undefined : queryBindings.find((b) => b.args.some((a) => exprHasIdent(a, 'row') || exprHasRoute(a)));
   const hasRoute = hasRouteParam(v.elements) || routeParamPages(app).has(v.name) || rowSrc !== undefined;
   const routePath = routePathOf(v) + (hasRoute ? '/:id' : '');
 
@@ -1946,6 +1946,9 @@ function genButton(
   const label = el.props['text'] ? String(el.props['text']) : '确定';
   const isRow = opts?.row ?? false;
   const states = opts?.states ?? [];
+  // 行内操作列用链接式按钮（管理端观感，实心按钮在每行太扎眼）；页面级按钮保持 primary
+  const rowLink = isRow ? ' type="link" size="small"' : '';
+  const primaryAttr = isRow ? rowLink : ' type="primary"';
   // 行内按钮点击时不触发 table 的 onRow 跳转
   const onClick = (expr: string): string =>
     isRow ? `(e) => { e.stopPropagation(); ${expr}; }` : expr.includes(';') ? `() => { ${expr} }` : `() => ${expr}`;
@@ -1953,9 +1956,9 @@ function genButton(
   if (navB) {
     if (navB.args.length > 0) {
       const argExpr = genBindingArg(navB.args[0], false);
-      return `<Button type="primary" onClick={${onClick(`nav('/${routeBaseOf(navB.target)}/' + String(${argExpr}))`)}}>${label}</Button>`;
+      return `<Button${primaryAttr} onClick={${onClick(`nav('/${routeBaseOf(navB.target)}/' + String(${argExpr}))`)}}>${label}</Button>`;
     }
-    return `<Button type="primary" onClick={${onClick(`nav('/${routeBaseOf(navB.target)}')`)}}>${label}</Button>`;
+    return `<Button${primaryAttr} onClick={${onClick(`nav('/${routeBaseOf(navB.target)}')`)}}>${label}</Button>`;
   }
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
   if (mutB) {
@@ -1967,22 +1970,22 @@ function genButton(
       : mutB.args.map((a) => genBindingArg(a, false)).join(', ');
     const danger = label.includes('删') ? ' danger' : '';
     const ref = opts?.refetch ? `.then(() => ${opts.refetch})` : '';
-    return `<Button${danger} onClick={${onClick(`${varname}.mutate(${callArgs})${ref}`)}}>${label}</Button>`;
+    return `<Button${danger}${rowLink} onClick={${onClick(`${varname}.mutate(${callArgs})${ref}`)}}>${label}</Button>`;
   }
   // onClick={useQuery('x', args)} → 点击触发查询刷新（fn 闭包捕获最新 state，refetch 即用新值重查）
   const qB = el.bindings.find((b) => b.name === 'useQuery');
   if (qB) {
     const varname = queryVars.get(qB.target) ?? `q${cap(logicNameOf(qB.target))}`;
-    return `<Button onClick={${onClick(`${varname}.refetch()`)}}>${label}</Button>`;
+    return `<Button${rowLink} onClick={${onClick(`${varname}.refetch()`)}}>${label}</Button>`;
   }
   // onClick={openDialog('X')} → 打开右侧抽屉（X 为 dialog 页面，父页面持有开关 state）
   // openDialog('X', row) 带参 → 编辑语义：先把选中行写入 initial state，dialog 打开时预填表单
   const odB = el.bindings.find((b) => b.name === 'openDialog');
   if (odB) {
     const initSet = odB.args.length > 0 ? `set${cap(odB.target)}Initial(${genBindingArg(odB.args[0], false)}); ` : `set${cap(odB.target)}Initial(null); `;
-    return `<Button type="primary" onClick={${onClick(`${initSet}setShow${cap(odB.target)}(true)`)}}>${label}</Button>`;
+    return `<Button${primaryAttr} onClick={${onClick(`${initSet}setShow${cap(odB.target)}(true)`)}}>${label}</Button>`;
   }
-  return `<Button>${label}</Button>`;
+  return `<Button${rowLink}>${label}</Button>`;
 }
 
 /** 父页面 openDialog 目标清单（去重保序） */
@@ -2538,9 +2541,10 @@ function genDetail(app: AppNode, el: ViewElementNode, queryVars: Map<string, str
   const itemEls = texts
     .map((t) => {
       const f = String(t.props.field ?? '');
+      const label = t.props['title'] !== undefined ? String(t.props['title']) : f;
       // 字段路径安全化：order.customer → data?.order?.customer（每段都加 ?.）
       const safePath = f.split('.').map((seg) => `?.${seg}`).join('');
-      return `    <Descriptions.Item label="${f}">{${dataVar}.data${safePath}}</Descriptions.Item>`;
+      return `    <Descriptions.Item label="${label}">{${dataVar}.data${safePath}}</Descriptions.Item>`;
     })
     .join('\n');
   return `<Descriptions bordered size="small" column={1}>

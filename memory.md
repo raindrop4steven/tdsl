@@ -141,3 +141,11 @@
   - 实证（真机 + 105 条数据）：`status=ENABLE`=7、`DISABLE`=[]、不带状态=7（null 宽松）、`name=联想&status=ENABLE` 命中、`purchase-orders?status=AUDITED/UNAUDIT` 正确分组 2/1、`categoryId+status` 组合 2。
   - 教训沉淀：**JPA 枚举/参数查询一律 named 参数**；`?n IS NULL OR` 位置参数 + 枚举是 Hibernate 5 的坑。
 - 回归：302 单测全绿、九包 typecheck ✓、yudao 双端 build ✓、真机筛选全对。
+
+### 2026-09-16 续二（详情页语义纠正 + 行内按钮样式 · 用户实测驱动）
+- **详情页错写成"列表页"（用户点名）**：yudao 14 个 `*Detail` 页原来声明为 `<table>`+顶部按钮，跳进来看到的是整张列表、`row` 被绑成首行、编辑不生效。
+  - TDSL 正确写法（对齐 todo-multi 范式）：`@export function getXxx(id: Integer): Entity { return Entity.get(id); }` + `GET '/api/.../{id}'` 端点 + `<detail dataSource={useQuery('getXxx', $route.id)}><text field=".." title="中文"/></detail>`，按钮保留在页面级。
+  - 覆盖：Product / PurchaseOrder·In·Return·Payment / SaleOrder·Out·Return·Receipt / CrmClue·Customer·Business·Contract·Receivable 共 14 页（+14 getter、+14 端点，java 309→323 文件）。
+- **codegen-react 配套修**：① `rowSrc` 检测扩展——无 table 且 useQuery 实参引用 `$route.id` 时，也把主查询结果绑成 `row`（详情页编辑/动作按钮需要；此前只在参数引用 `row` 时绑定）；② `genDetail` 支持 `title` 属性作 Descriptions 中文标签（此前只输出 field 名）。
+- **行内按钮样式（用户："行上按钮不要用实心按钮，丑"）**：`genButton` 行内（table 操作列）改用 antd 链接式 `type="link" size="small"`（删除保留 danger），页面级按钮仍 `primary`。
+- 回归：302 单测全绿、yudao `dsl check` 0 问题、check-spec **1091 项 100%**、java mvn compile ✓、react tsc+vite build ✓、真机：`/api/erp/products/1`、`/api/crm/clues/1`、`/api/erp/purchase-orders/1` 均按 id 返回单条；seed 105/0。

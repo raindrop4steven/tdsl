@@ -781,10 +781,12 @@ interface CrmApi {
   GET    '/api/crm/area-dicts'            -> queryAreaDict
   POST   '/api/crm/area-dicts'            -> saveAreaDict
   GET    '/api/crm/clues'                 -> queryCrmClue
+  GET    '/api/crm/clues/{id}'            -> getCrmClue
   POST   '/api/crm/clues'                 -> saveCrmClue
   DELETE '/api/crm/clues/{id}'            -> deleteCrmClue
   POST   '/api/crm/clues/{id}/transform'  -> transformCrmClue
   GET    '/api/crm/customers'             -> queryCrmCustomer
+  GET    '/api/crm/customers/{id}'        -> getCrmCustomer
   POST   '/api/crm/customers'             -> saveCrmCustomer
   DELETE '/api/crm/customers/{id}'        -> deleteCrmCustomer
   POST   '/api/crm/customers/{id}/pool'   -> putCrmCustomerToPool
@@ -807,6 +809,7 @@ interface CrmApi {
   POST   '/api/crm/business-statuses'     -> saveCrmBusinessStatus
   DELETE '/api/crm/business-statuses/{id}' -> deleteCrmBusinessStatus
   GET    '/api/crm/businesses'            -> queryCrmBusiness
+  GET    '/api/crm/businesses/{id}'       -> getCrmBusiness
   POST   '/api/crm/businesses'            -> saveCrmBusiness
   DELETE '/api/crm/businesses/{id}'       -> deleteCrmBusiness
   POST   '/api/crm/businesses/{id}/win'   -> winCrmBusiness
@@ -814,6 +817,7 @@ interface CrmApi {
   POST   '/api/crm/businesses/{id}/invalid' -> invalidateCrmBusiness
   POST   '/api/crm/businesses/stage'       -> changeCrmBusinessStage
   GET    '/api/crm/contracts'             -> queryCrmContract
+  GET    '/api/crm/contracts/{id}'        -> getCrmContract
   POST   '/api/crm/contracts'             -> saveCrmContract
   DELETE '/api/crm/contracts/{id}'        -> deleteCrmContract
   POST   '/api/crm/contracts/{id}/submit' -> submitCrmContract
@@ -825,6 +829,7 @@ interface CrmApi {
   POST   '/api/crm/receivable-plans'       -> saveCrmReceivablePlan
   DELETE '/api/crm/receivable-plans/{id}'  -> deleteCrmReceivablePlan
   GET    '/api/crm/receivables'            -> queryCrmReceivable
+  GET    '/api/crm/receivables/{id}'       -> getCrmReceivable
   POST   '/api/crm/receivables'            -> saveCrmReceivable
   DELETE '/api/crm/receivables/{id}'       -> deleteCrmReceivable
   POST   '/api/crm/receivables/{id}/submit' -> submitCrmReceivable
@@ -890,14 +895,23 @@ dialog crmLeadForm {
   </form>
 }
 
+@export
+function getCrmClue(id: Integer): CrmClue {
+  return CrmClue.get(id);
+}
+
 @title('线索详情')
 @menu('客户关系管理')
 page crmLeadDetail {
-  <table dataSource={useQuery('queryCrmClue')}>
-    <column field="name" title="线索名称" />
-    <column field="transformStatus" title="转化状态" />
-    <column field="mobile" title="手机" />
-  </table>
+  <detail dataSource={useQuery('getCrmClue', $route.id)}>
+    <text field="name" title="线索名称" />
+    <text field="mobile" title="手机" />
+    <text field="telephone" title="电话" />
+    <text field="detailAddress" title="详细地址" />
+    <text field="contactLastTime" title="最后跟进时间" />
+    <text field="contactLastContent" title="最后跟进内容" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('crmLeadForm', row)} />
   <button text="转化为客户" action={useMutation('transformCrmClue', row.id)} />
   <button text="新增跟进" action={openDialog('crmFollowUpForm')} />
@@ -950,14 +964,23 @@ dialog crmCustomerForm {
   </form>
 }
 
+@export
+function getCrmCustomer(id: Integer): CrmCustomer {
+  return CrmCustomer.get(id);
+}
+
 @title('客户详情')
 @menu('客户关系管理')
 page crmCustomerDetail {
-  <table dataSource={useQuery('queryCrmCustomer')}>
-    <column field="name" title="客户名称" />
-    <column field="dealStatus" title="成交状态" />
-    <column field="mobile" title="手机" />
-  </table>
+  <detail dataSource={useQuery('getCrmCustomer', $route.id)}>
+    <text field="name" title="客户名称" />
+    <text field="mobile" title="手机" />
+    <text field="telephone" title="电话" />
+    <text field="detailAddress" title="详细地址" />
+    <text field="contactLastTime" title="最后跟进时间" />
+    <text field="contactLastContent" title="最后跟进内容" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('crmCustomerForm', row)} />
   <button text="锁定" action={useMutation('lockCrmCustomer', row.id)} />
   <button text="解锁" action={useMutation('unlockCrmCustomer', row.id)} />
@@ -1155,15 +1178,21 @@ dialog crmBusinessForm {
   </form>
 }
 
+@export
+function getCrmBusiness(id: Integer): CrmBusiness {
+  return CrmBusiness.get(id);
+}
+
 @title('商机详情')
 @menu('客户关系管理')
 page crmBusinessDetail {
-  <table dataSource={useQuery('queryCrmBusiness')}>
-    <column field="name" title="商机名称" />
-    <column field="customerId" title="客户" />
-    <column field="statusId" title="当前阶段" />
-    <column field="totalPrice" title="优惠后金额" />
-  </table>
+  <detail dataSource={useQuery('getCrmBusiness', $route.id)}>
+    <text field="name" title="商机名称" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="totalProductPrice" title="产品总金额" />
+    <text field="dealTime" title="成交时间" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('crmBusinessForm', row)} />
   <button text="变更阶段" action={openDialog('crmBusinessStageForm', row)} />
   <button text="赢单" action={useMutation('winCrmBusiness', row.id)} />
@@ -1229,15 +1258,23 @@ dialog crmContractForm {
   </form>
 }
 
+@export
+function getCrmContract(id: Integer): CrmContract {
+  return CrmContract.get(id);
+}
+
 @title('合同详情')
 @menu('客户关系管理')
 page crmContractDetail {
-  <table dataSource={useQuery('queryCrmContract')}>
-    <column field="no" title="合同编号" />
-    <column field="name" title="合同名称" />
-    <column field="auditStatus" title="审批状态" />
-    <column field="totalPrice" title="优惠后金额" />
-  </table>
+  <detail dataSource={useQuery('getCrmContract', $route.id)}>
+    <text field="no" title="合同编号" />
+    <text field="name" title="合同名称" />
+    <text field="orderDate" title="下单时间" />
+    <text field="startTime" title="合同开始时间" />
+    <text field="endTime" title="合同结束时间" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('crmContractForm', row)} />
   <button text="提交审批" action={useMutation('submitCrmContract', row.id)} />
   <button text="审批通过" action={useMutation('approveCrmContract', row.id)} />
@@ -1340,15 +1377,20 @@ dialog crmReceivableForm {
   <button text="提交审批" action={useMutation('submitCrmReceivable', row.id)} />
 }
 
+@export
+function getCrmReceivable(id: Integer): CrmReceivable {
+  return CrmReceivable.get(id);
+}
+
 @title('回款详情')
 @menu('客户关系管理')
 page crmReceivableDetail {
-  <table dataSource={useQuery('queryCrmReceivable')}>
-    <column field="no" title="回款编号" />
-    <column field="auditStatus" title="审批状态" />
-    <column field="price" title="回款金额" />
-    <column field="returnTime" title="回款时间" />
-  </table>
+  <detail dataSource={useQuery('getCrmReceivable', $route.id)}>
+    <text field="no" title="回款编号" />
+    <text field="price" title="回款金额" />
+    <text field="returnTime" title="回款时间" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('crmReceivableForm', row)} />
   <button text="审批通过" action={useMutation('approveCrmReceivable', row.id)} />
   <button text="审批驳回" action={useMutation('rejectCrmReceivable', row.id)} />

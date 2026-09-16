@@ -348,21 +348,25 @@ function deauditErpPurchasePayment(id: Integer): Boolean {
 
 interface PurchaseApi {
   GET    '/api/erp/purchase-orders'            -> queryErpPurchaseOrder
+  GET    '/api/erp/purchase-orders/{id}'       -> getErpPurchaseOrder
   POST   '/api/erp/purchase-orders'            -> saveErpPurchaseOrder
   DELETE '/api/erp/purchase-orders/{id}'       -> deleteErpPurchaseOrder
   POST   '/api/erp/purchase-orders/{id}/audit' -> auditErpPurchaseOrder
   POST   '/api/erp/purchase-orders/{id}/deaudit' -> deauditErpPurchaseOrder
   GET    '/api/erp/purchase-ins'               -> queryErpPurchaseIn
+  GET    '/api/erp/purchase-ins/{id}'          -> getErpPurchaseIn
   POST   '/api/erp/purchase-ins'               -> saveErpPurchaseIn
   DELETE '/api/erp/purchase-ins/{id}'          -> deleteErpPurchaseIn
   POST   '/api/erp/purchase-ins/{id}/audit'    -> auditErpPurchaseIn
   POST   '/api/erp/purchase-ins/{id}/deaudit'  -> deauditErpPurchaseIn
   GET    '/api/erp/purchase-returns'           -> queryErpPurchaseReturn
+  GET    '/api/erp/purchase-returns/{id}'      -> getErpPurchaseReturn
   POST   '/api/erp/purchase-returns'           -> saveErpPurchaseReturn
   DELETE '/api/erp/purchase-returns/{id}'      -> deleteErpPurchaseReturn
   POST   '/api/erp/purchase-returns/{id}/audit' -> auditErpPurchaseReturn
   POST   '/api/erp/purchase-returns/{id}/deaudit' -> deauditErpPurchaseReturn
   GET    '/api/erp/purchase-payments'          -> queryErpPurchasePayment
+  GET    '/api/erp/purchase-payments/{id}'     -> getErpPurchasePayment
   POST   '/api/erp/purchase-payments'          -> saveErpPurchasePayment
   DELETE '/api/erp/purchase-payments/{id}'     -> deleteErpPurchasePayment
   POST   '/api/erp/purchase-payments/{id}/audit' -> auditErpPurchasePayment
@@ -418,15 +422,22 @@ dialog erpPurchaseOrderForm {
   </form>
 }
 
+@export
+function getErpPurchaseOrder(id: Integer): PurchaseOrder {
+  return PurchaseOrder.get(id);
+}
+
 @title('采购订单详情')
 @menu('采购管理')
 page erpPurchaseOrderDetail {
-  <table dataSource={useQuery('queryErpPurchaseOrder')}>
-    <column field="no" title="采购单号" />
-    <column field="status" title="单据状态" />
-    <column field="supplierId" title="供应商" />
-    <column field="totalPrice" title="优惠后金额" />
-  </table>
+  <detail dataSource={useQuery('getErpPurchaseOrder', $route.id)}>
+    <text field="no" title="采购单号" />
+    <text field="orderTime" title="下单时间" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="totalCount" title="总数量" />
+    <text field="depositPrice" title="定金" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)} />
   <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)} />
   <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)} />
@@ -480,15 +491,22 @@ dialog erpPurchaseInForm {
   </form>
 }
 
+@export
+function getErpPurchaseIn(id: Integer): PurchaseIn {
+  return PurchaseIn.get(id);
+}
+
 @title('采购入库详情')
 @menu('采购管理')
 page erpPurchaseInDetail {
-  <table dataSource={useQuery('queryErpPurchaseIn')}>
-    <column field="no" title="入库单号" />
-    <column field="status" title="单据状态" />
-    <column field="supplierId" title="供应商" />
-    <column field="totalPrice" title="优惠后金额" />
-  </table>
+  <detail dataSource={useQuery('getErpPurchaseIn', $route.id)}>
+    <text field="no" title="入库单号" />
+    <text field="inTime" title="入库时间" />
+    <text field="orderNo" title="关联单号" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="paymentPrice" title="已付金额" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('erpPurchaseInForm', row)} />
   <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)} />
   <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)} />
@@ -542,15 +560,22 @@ dialog erpPurchaseReturnForm {
   </form>
 }
 
+@export
+function getErpPurchaseReturn(id: Integer): PurchaseReturn {
+  return PurchaseReturn.get(id);
+}
+
 @title('采购退货详情')
 @menu('采购管理')
 page erpPurchaseReturnDetail {
-  <table dataSource={useQuery('queryErpPurchaseReturn')}>
-    <column field="no" title="退货单号" />
-    <column field="status" title="单据状态" />
-    <column field="supplierId" title="供应商" />
-    <column field="refundPrice" title="退款金额" />
-  </table>
+  <detail dataSource={useQuery('getErpPurchaseReturn', $route.id)}>
+    <text field="no" title="退货单号" />
+    <text field="returnTime" title="退货时间" />
+    <text field="orderNo" title="关联单号" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="refundPrice" title="退款金额" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('erpPurchaseReturnForm', row)} />
   <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)} />
   <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)} />
@@ -603,15 +628,21 @@ dialog erpPurchasePaymentForm {
   </form>
 }
 
+@export
+function getErpPurchasePayment(id: Integer): FinancePayment {
+  return FinancePayment.get(id);
+}
+
 @title('采购付款详情')
 @menu('采购管理')
 page erpPurchasePaymentDetail {
-  <table dataSource={useQuery('queryErpPurchasePayment')}>
-    <column field="no" title="付款单号" />
-    <column field="status" title="单据状态" />
-    <column field="supplierId" title="供应商" />
-    <column field="paymentPrice" title="实付金额" />
-  </table>
+  <detail dataSource={useQuery('getErpPurchasePayment', $route.id)}>
+    <text field="no" title="付款单号" />
+    <text field="paymentTime" title="付款时间" />
+    <text field="totalPrice" title="应付款金额" />
+    <text field="paymentPrice" title="实付金额" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('erpPurchasePaymentForm', row)} />
   <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)} />
   <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)} />

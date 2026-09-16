@@ -99,6 +99,7 @@ interface ProductApi {
   POST   '/api/erp/product-units'       -> saveErpProductUnit
   DELETE '/api/erp/product-units/{id}'  -> deleteErpProductUnit
   GET    '/api/erp/products'            -> queryErpProduct
+  GET    '/api/erp/products/{id}'       -> getErpProduct
   POST   '/api/erp/products'            -> saveErpProduct
   DELETE '/api/erp/products/{id}'       -> deleteErpProduct
   GET    '/api/erp/suppliers'           -> queryErpSupplier
@@ -235,14 +236,21 @@ dialog erpProductForm {
   </form>
 }
 
+@export
+function getErpProduct(id: Integer): Product {
+  return Product.get(id);
+}
+
 @title('产品详情')
 @menu('产品管理')
 page erpProductDetail {
-  <table dataSource={useQuery('queryErpProduct')}>
-    <column field="name" title="产品名称" />
-    <column field="barCode" title="条形码" />
-    <column field="categoryId" title="产品分类" />
-    <column field="salePrice" title="销售价" />
-  </table>
+  <detail dataSource={useQuery('getErpProduct', $route.id)}>
+    <text field="name" title="产品名称" />
+    <text field="barCode" title="条形码" />
+    <text field="salePrice" title="销售价" />
+    <text field="purchasePrice" title="采购价" />
+    <text field="standard" title="规格" />
+    <text field="remark" title="备注" />
+  </detail>
   <button text="编辑" action={openDialog('erpProductForm', row)} />
 }
