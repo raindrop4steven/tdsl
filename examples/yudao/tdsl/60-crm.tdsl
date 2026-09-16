@@ -869,7 +869,7 @@ page crmLeadList {
     <column field="contactLastTime" title="最后跟进时间" />
     <button text="编辑" action={openDialog('crmLeadForm', row)} />
     <button text="删除" action={useMutation('deleteCrmClue', row.id)} />
-    <button text="详情" action={navigate('crmLeadDetail', row.id)} />
+    <button text="详情" action={openDialog('crmLeadDetail', row)} />
   </table>
   <button text="新增线索" action={openDialog('crmLeadForm')} />
 }
@@ -902,8 +902,8 @@ function getCrmClue(id: Integer): CrmClue {
 
 @title('线索详情')
 @menu('客户关系管理')
-page crmLeadDetail {
-  <detail dataSource={useQuery('getCrmClue', $route.id)}>
+dialog crmLeadDetail {
+  <detail dataSource={useQuery('getCrmClue', initial.id)}>
     <text field="name" title="线索名称" />
     <text field="mobile" title="手机" />
     <text field="telephone" title="电话" />
@@ -938,7 +938,7 @@ page crmCustomerList {
     <button text="删除" action={useMutation('deleteCrmCustomer', row.id)} />
     <button text="放入公海" action={useMutation('putCrmCustomerToPool', row.id)} />
     <button text="领取" action={useMutation('takeCrmCustomerFromPool', row.id)} />
-    <button text="详情" action={navigate('crmCustomerDetail', row.id)} />
+    <button text="详情" action={openDialog('crmCustomerDetail', row)} />
   </table>
   <button text="新增客户" action={openDialog('crmCustomerForm')} />
 }
@@ -971,8 +971,8 @@ function getCrmCustomer(id: Integer): CrmCustomer {
 
 @title('客户详情')
 @menu('客户关系管理')
-page crmCustomerDetail {
-  <detail dataSource={useQuery('getCrmCustomer', $route.id)}>
+dialog crmCustomerDetail {
+  <detail dataSource={useQuery('getCrmCustomer', initial.id)}>
     <text field="name" title="客户名称" />
     <text field="mobile" title="手机" />
     <text field="telephone" title="电话" />
@@ -1152,7 +1152,7 @@ page crmBusinessList {
     <column field="followUpStatus" title="跟进状态" />
     <button text="编辑" action={openDialog('crmBusinessForm', row)} />
     <button text="删除" action={useMutation('deleteCrmBusiness', row.id)} />
-    <button text="详情" action={navigate('crmBusinessDetail', row.id)} />
+    <button text="详情" action={openDialog('crmBusinessDetail', row)} />
   </table>
   <button text="新增商机" action={openDialog('crmBusinessForm')} />
 }
@@ -1185,8 +1185,8 @@ function getCrmBusiness(id: Integer): CrmBusiness {
 
 @title('商机详情')
 @menu('客户关系管理')
-page crmBusinessDetail {
-  <detail dataSource={useQuery('getCrmBusiness', $route.id)}>
+dialog crmBusinessDetail {
+  <detail dataSource={useQuery('getCrmBusiness', initial.id)}>
     <text field="name" title="商机名称" />
     <text field="totalPrice" title="优惠后金额" />
     <text field="totalProductPrice" title="产品总金额" />
@@ -1227,7 +1227,7 @@ page crmContractList {
     <column field="orderDate" title="下单时间" />
     <button text="编辑" action={openDialog('crmContractForm', row)} />
     <button text="删除" action={useMutation('deleteCrmContract', row.id)} />
-    <button text="详情" action={navigate('crmContractDetail', row.id)} />
+    <button text="详情" action={openDialog('crmContractDetail', row)} />
   </table>
   <button text="新增合同" action={openDialog('crmContractForm')} />
 }
@@ -1265,8 +1265,8 @@ function getCrmContract(id: Integer): CrmContract {
 
 @title('合同详情')
 @menu('客户关系管理')
-page crmContractDetail {
-  <detail dataSource={useQuery('getCrmContract', $route.id)}>
+dialog crmContractDetail {
+  <detail dataSource={useQuery('getCrmContract', initial.id)}>
     <text field="no" title="合同编号" />
     <text field="name" title="合同名称" />
     <text field="orderDate" title="下单时间" />
@@ -1354,7 +1354,7 @@ page crmReceivableList {
     <column field="returnType" title="回款方式" />
     <button text="编辑" action={openDialog('crmReceivableForm', row)} />
     <button text="删除" action={useMutation('deleteCrmReceivable', row.id)} />
-    <button text="详情" action={navigate('crmReceivableDetail', row.id)} />
+    <button text="详情" action={openDialog('crmReceivableDetail', row)} />
   </table>
   <button text="新增回款" action={openDialog('crmReceivableForm')} />
 }
@@ -1384,8 +1384,8 @@ function getCrmReceivable(id: Integer): CrmReceivable {
 
 @title('回款详情')
 @menu('客户关系管理')
-page crmReceivableDetail {
-  <detail dataSource={useQuery('getCrmReceivable', $route.id)}>
+dialog crmReceivableDetail {
+  <detail dataSource={useQuery('getCrmReceivable', initial.id)}>
     <text field="no" title="回款编号" />
     <text field="price" title="回款金额" />
     <text field="returnTime" title="回款时间" />

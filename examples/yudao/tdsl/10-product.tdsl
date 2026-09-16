@@ -211,7 +211,7 @@ page erpProductList {
     <column field="status" title="启用状态" />
     <button text="编辑" action={openDialog('erpProductForm', row)} />
     <button text="删除" action={useMutation('deleteErpProduct', row.id)} />
-    <button text="详情" action={navigate('erpProductDetail', row.id)} />
+    <button text="详情" action={openDialog('erpProductDetail', row)} />
   </table>
   <button text="新增产品" action={openDialog('erpProductForm')} />
 }
@@ -243,8 +243,8 @@ function getErpProduct(id: Integer): Product {
 
 @title('产品详情')
 @menu('产品管理')
-page erpProductDetail {
-  <detail dataSource={useQuery('getErpProduct', $route.id)}>
+dialog erpProductDetail {
+  <detail dataSource={useQuery('getErpProduct', initial.id)}>
     <text field="name" title="产品名称" />
     <text field="barCode" title="条形码" />
     <text field="salePrice" title="销售价" />

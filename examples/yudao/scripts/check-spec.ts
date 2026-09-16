@@ -381,7 +381,8 @@ function main(): void {
       for (const page of fn.pages) {
         const where = `${fn.name}/${page.id}(${page.name})`;
         const view = tdslViews.get(page.id);
-        const wantKind = page.kind === 'dialog-form' ? 'dialog' : 'page';
+        // detail（详情）在 TDSL 中以右侧抽屉实现（与编辑/新建一致）→ 期望 dialog
+        const wantKind = page.kind === 'dialog-form' || page.kind === 'detail' ? 'dialog' : 'page';
         if (view === undefined) {
           gaps.push({ dim: '页面', where, expect: `${wantKind} 存在`, actual: '缺失' });
           console.log(`  ✗ ${where}: 视图缺失`);

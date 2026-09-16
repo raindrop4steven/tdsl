@@ -869,7 +869,7 @@ modules:
               - { id: add, name: 新增产品, scope: page, action: { type: openDialog, target: erpProductForm } }
               - { id: edit, name: 编辑, scope: row, action: { type: openDialog, target: erpProductForm } }
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpProduct } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpProductDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpProductDetail } }
           - id: erpProductForm
             name: 产品编辑
             kind: dialog-form
@@ -997,7 +997,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpPurchaseOrder } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpPurchaseOrder } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpPurchaseOrder } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpPurchaseOrderDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpPurchaseOrderDetail } }
           - id: erpPurchaseOrderForm
             name: 采购订单编辑
             kind: dialog-form
@@ -1034,7 +1034,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpPurchaseIn } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpPurchaseIn } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpPurchaseIn } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpPurchaseInDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpPurchaseInDetail } }
           - id: erpPurchaseInForm
             name: 采购入库编辑
             kind: dialog-form
@@ -1071,7 +1071,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpPurchaseReturn } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpPurchaseReturn } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpPurchaseReturn } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpPurchaseReturnDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpPurchaseReturnDetail } }
           - id: erpPurchaseReturnForm
             name: 采购退货编辑
             kind: dialog-form
@@ -1108,7 +1108,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpPurchasePayment } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpPurchasePayment } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpPurchasePayment } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpPurchasePaymentDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpPurchasePaymentDetail } }
           - id: erpPurchasePaymentForm
             name: 采购付款编辑
             kind: dialog-form
@@ -1149,7 +1149,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpSaleOrder } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpSaleOrder } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpSaleOrder } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpSaleOrderDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpSaleOrderDetail } }
           - id: erpSaleOrderForm
             name: 销售订单编辑
             kind: dialog-form
@@ -1186,7 +1186,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpSaleOut } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpSaleOut } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpSaleOut } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpSaleOutDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpSaleOutDetail } }
           - id: erpSaleOutForm
             name: 销售出库编辑
             kind: dialog-form
@@ -1223,7 +1223,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpSaleReturn } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpSaleReturn } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpSaleReturn } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpSaleReturnDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpSaleReturnDetail } }
           - id: erpSaleReturnForm
             name: 销售退货编辑
             kind: dialog-form
@@ -1260,7 +1260,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpSaleReceipt } }
               - { id: audit, name: 审批, scope: row, action: { type: logic, target: auditErpSaleReceipt } }
               - { id: reject, name: 反审批, scope: row, action: { type: logic, target: deauditErpSaleReceipt } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: erpSaleReceiptDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: erpSaleReceiptDetail } }
           - id: erpSaleReceiptForm
             name: 销售收款编辑
             kind: dialog-form
@@ -1325,7 +1325,7 @@ modules:
               - { id: add, name: 新增线索, scope: page, action: { type: openDialog, target: crmLeadForm } }
               - { id: edit, name: 编辑, scope: row, action: { type: openDialog, target: crmLeadForm } }
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteCrmClue } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: crmLeadDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: crmLeadDetail } }
           - id: crmLeadForm
             name: 线索编辑
             kind: dialog-form
@@ -1358,7 +1358,7 @@ modules:
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteCrmCustomer } }
               - { id: pool, name: 放入公海, scope: row, action: { type: logic, target: putCrmCustomerToPool } }
               - { id: take, name: 领取, scope: row, action: { type: logic, target: takeCrmCustomerFromPool } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: crmCustomerDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: crmCustomerDetail } }
           - id: crmCustomerForm
             name: 客户编辑
             kind: dialog-form
@@ -1497,7 +1497,7 @@ modules:
               - { id: add, name: 新增商机, scope: page, action: { type: openDialog, target: crmBusinessForm } }
               - { id: edit, name: 编辑, scope: row, action: { type: openDialog, target: crmBusinessForm } }
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteCrmBusiness } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: crmBusinessDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: crmBusinessDetail } }
           - id: crmBusinessForm
             name: 商机编辑
             kind: dialog-form
@@ -1542,7 +1542,7 @@ modules:
               - { id: add, name: 新增合同, scope: page, action: { type: openDialog, target: crmContractForm } }
               - { id: edit, name: 编辑, scope: row, action: { type: openDialog, target: crmContractForm } }
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteCrmContract } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: crmContractDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: crmContractDetail } }
           - id: crmContractForm
             name: 合同编辑
             kind: dialog-form
@@ -1620,7 +1620,7 @@ modules:
               - { id: add, name: 新增回款, scope: page, action: { type: openDialog, target: crmReceivableForm } }
               - { id: edit, name: 编辑, scope: row, action: { type: openDialog, target: crmReceivableForm } }
               - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteCrmReceivable } }
-              - { id: detail, name: 详情, scope: row, action: { type: navigate, target: crmReceivableDetail } }
+              - { id: detail, name: 详情, scope: row, action: { type: openDialog, target: crmReceivableDetail } }
           - id: crmReceivableForm
             name: 回款编辑
             kind: dialog-form

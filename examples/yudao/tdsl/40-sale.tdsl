@@ -393,7 +393,7 @@ page erpSaleOrderList {
     <button text="删除" action={useMutation('deleteErpSaleOrder', row.id)} />
     <button text="审批" action={useMutation('auditErpSaleOrder', row.id)} />
     <button text="反审批" action={useMutation('deauditErpSaleOrder', row.id)} />
-    <button text="详情" action={navigate('erpSaleOrderDetail', row.id)} />
+    <button text="详情" action={openDialog('erpSaleOrderDetail', row)} />
   </table>
   <button text="新增销售订单" action={openDialog('erpSaleOrderForm')} />
 }
@@ -431,8 +431,8 @@ function getErpSaleOrder(id: Integer): SaleOrder {
 
 @title('销售订单详情')
 @menu('销售管理')
-page erpSaleOrderDetail {
-  <detail dataSource={useQuery('getErpSaleOrder', $route.id)}>
+dialog erpSaleOrderDetail {
+  <detail dataSource={useQuery('getErpSaleOrder', initial.id)}>
     <text field="no" title="销售单号" />
     <text field="orderTime" title="下单时间" />
     <text field="totalPrice" title="优惠后金额" />
@@ -462,7 +462,7 @@ page erpSaleOutList {
     <button text="删除" action={useMutation('deleteErpSaleOut', row.id)} />
     <button text="审批" action={useMutation('auditErpSaleOut', row.id)} />
     <button text="反审批" action={useMutation('deauditErpSaleOut', row.id)} />
-    <button text="详情" action={navigate('erpSaleOutDetail', row.id)} />
+    <button text="详情" action={openDialog('erpSaleOutDetail', row)} />
   </table>
   <button text="新增出库单" action={openDialog('erpSaleOutForm')} />
 }
@@ -501,8 +501,8 @@ function getErpSaleOut(id: Integer): SaleOut {
 
 @title('销售出库详情')
 @menu('销售管理')
-page erpSaleOutDetail {
-  <detail dataSource={useQuery('getErpSaleOut', $route.id)}>
+dialog erpSaleOutDetail {
+  <detail dataSource={useQuery('getErpSaleOut', initial.id)}>
     <text field="no" title="出库单号" />
     <text field="outTime" title="出库时间" />
     <text field="orderNo" title="关联单号" />
@@ -532,7 +532,7 @@ page erpSaleReturnList {
     <button text="删除" action={useMutation('deleteErpSaleReturn', row.id)} />
     <button text="审批" action={useMutation('auditErpSaleReturn', row.id)} />
     <button text="反审批" action={useMutation('deauditErpSaleReturn', row.id)} />
-    <button text="详情" action={navigate('erpSaleReturnDetail', row.id)} />
+    <button text="详情" action={openDialog('erpSaleReturnDetail', row)} />
   </table>
   <button text="新增退货单" action={openDialog('erpSaleReturnForm')} />
 }
@@ -571,8 +571,8 @@ function getErpSaleReturn(id: Integer): SaleReturn {
 
 @title('销售退货详情')
 @menu('销售管理')
-page erpSaleReturnDetail {
-  <detail dataSource={useQuery('getErpSaleReturn', $route.id)}>
+dialog erpSaleReturnDetail {
+  <detail dataSource={useQuery('getErpSaleReturn', initial.id)}>
     <text field="no" title="退货单号" />
     <text field="returnTime" title="退货时间" />
     <text field="orderNo" title="关联单号" />
@@ -603,7 +603,7 @@ page erpSaleReceiptList {
     <button text="删除" action={useMutation('deleteErpSaleReceipt', row.id)} />
     <button text="审批" action={useMutation('auditErpSaleReceipt', row.id)} />
     <button text="反审批" action={useMutation('deauditErpSaleReceipt', row.id)} />
-    <button text="详情" action={navigate('erpSaleReceiptDetail', row.id)} />
+    <button text="详情" action={openDialog('erpSaleReceiptDetail', row)} />
   </table>
   <button text="新增收款单" action={openDialog('erpSaleReceiptForm')} />
 }
@@ -639,8 +639,8 @@ function getErpSaleReceipt(id: Integer): FinanceReceipt {
 
 @title('销售收款详情')
 @menu('销售管理')
-page erpSaleReceiptDetail {
-  <detail dataSource={useQuery('getErpSaleReceipt', $route.id)}>
+dialog erpSaleReceiptDetail {
+  <detail dataSource={useQuery('getErpSaleReceipt', initial.id)}>
     <text field="no" title="收款单号" />
     <text field="receiptTime" title="收款时间" />
     <text field="totalPrice" title="应收金额" />

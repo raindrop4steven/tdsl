@@ -149,3 +149,11 @@
 - **codegen-react 配套修**：① `rowSrc` 检测扩展——无 table 且 useQuery 实参引用 `$route.id` 时，也把主查询结果绑成 `row`（详情页编辑/动作按钮需要；此前只在参数引用 `row` 时绑定）；② `genDetail` 支持 `title` 属性作 Descriptions 中文标签（此前只输出 field 名）。
 - **行内按钮样式（用户："行上按钮不要用实心按钮，丑"）**：`genButton` 行内（table 操作列）改用 antd 链接式 `type="link" size="small"`（删除保留 danger），页面级按钮仍 `primary`。
 - 回归：302 单测全绿、yudao `dsl check` 0 问题、check-spec **1091 项 100%**、java mvn compile ✓、react tsc+vite build ✓、真机：`/api/erp/products/1`、`/api/crm/clues/1`、`/api/erp/purchase-orders/1` 均按 id 返回单条；seed 105/0。
+
+### 2026-09-16 续三（抽屉化详情 + 标题按模式 + 删除二次确认 · 用户实测驱动）
+- **详情改成右侧抽屉（用户点名）**：14 个 `*Detail` 由 route 页面改 `dialog`（不进路由/菜单），`<detail dataSource={useQuery('getXxx', initial.id)}>` 按选中行查单条；列表行「详情」按钮 `navigate`→`openDialog(xxxDetail, row)`。getter/端点保留复用。
+- **抽屉标题按模式（用户点名"新增也显示编辑"）**：`@title('产品编辑')` → `<Drawer title={initial ? '产品编辑' : '产品新增'}>`；含 `<detail>` 块或标题以「详情」结尾 → 固定「产品详情」；无后缀标题（如「商机阶段变更」）保持静态（不硬凑后缀）。
+- **删除二次确认（用户点名）**：`genButton` 删除类动作（text 含「删」）包 `Popconfirm`（okButtonProps danger + 行内 stopPropagation 防触发行跳转）；import 收集同步（含删除按钮的页面加 Popconfirm）。
+- **codegen-react 支撑改动**：① dialog 子组件改**条件挂载** `{showX && (<X .../>)}`——否则抽屉未打开时 `initial.id` 查询会以 0 触发 404 + 错误弹窗；② `rowSrc` 支持 `initial.id`（抽屉按行查单条 → `row` = 查询结果）；③ `genBindingArg` 支持 `initial.id` → `Number(initial?.id ?? 0)`；④ 已有 rowSrc 时不再重复声明 dialog 的 `row` 别名（避免重复声明）。
+- **spec/对拍同步**：spec.yaml 14 行内「详情」按钮 navigate→openDialog；check-spec `kind: detail` 期望由 `page` 改为 `dialog`（详情即抽屉，与编辑/新建同形）。
+- 回归：302 单测全绿、九包 typecheck ✓、check-spec **1091 项 100%**、java mvn compile ✓、react tsc+vite build ✓、真机 seed 105/0。

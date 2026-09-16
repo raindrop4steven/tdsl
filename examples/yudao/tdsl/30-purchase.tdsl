@@ -392,7 +392,7 @@ page erpPurchaseOrderList {
     <button text="删除" action={useMutation('deleteErpPurchaseOrder', row.id)} />
     <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)} />
     <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)} />
-    <button text="详情" action={navigate('erpPurchaseOrderDetail', row.id)} />
+    <button text="详情" action={openDialog('erpPurchaseOrderDetail', row)} />
   </table>
   <button text="新增采购订单" action={openDialog('erpPurchaseOrderForm')} />
 }
@@ -429,8 +429,8 @@ function getErpPurchaseOrder(id: Integer): PurchaseOrder {
 
 @title('采购订单详情')
 @menu('采购管理')
-page erpPurchaseOrderDetail {
-  <detail dataSource={useQuery('getErpPurchaseOrder', $route.id)}>
+dialog erpPurchaseOrderDetail {
+  <detail dataSource={useQuery('getErpPurchaseOrder', initial.id)}>
     <text field="no" title="采购单号" />
     <text field="orderTime" title="下单时间" />
     <text field="totalPrice" title="优惠后金额" />
@@ -460,7 +460,7 @@ page erpPurchaseInList {
     <button text="删除" action={useMutation('deleteErpPurchaseIn', row.id)} />
     <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)} />
     <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)} />
-    <button text="详情" action={navigate('erpPurchaseInDetail', row.id)} />
+    <button text="详情" action={openDialog('erpPurchaseInDetail', row)} />
   </table>
   <button text="新增入库单" action={openDialog('erpPurchaseInForm')} />
 }
@@ -498,8 +498,8 @@ function getErpPurchaseIn(id: Integer): PurchaseIn {
 
 @title('采购入库详情')
 @menu('采购管理')
-page erpPurchaseInDetail {
-  <detail dataSource={useQuery('getErpPurchaseIn', $route.id)}>
+dialog erpPurchaseInDetail {
+  <detail dataSource={useQuery('getErpPurchaseIn', initial.id)}>
     <text field="no" title="入库单号" />
     <text field="inTime" title="入库时间" />
     <text field="orderNo" title="关联单号" />
@@ -529,7 +529,7 @@ page erpPurchaseReturnList {
     <button text="删除" action={useMutation('deleteErpPurchaseReturn', row.id)} />
     <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)} />
     <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)} />
-    <button text="详情" action={navigate('erpPurchaseReturnDetail', row.id)} />
+    <button text="详情" action={openDialog('erpPurchaseReturnDetail', row)} />
   </table>
   <button text="新增退货单" action={openDialog('erpPurchaseReturnForm')} />
 }
@@ -567,8 +567,8 @@ function getErpPurchaseReturn(id: Integer): PurchaseReturn {
 
 @title('采购退货详情')
 @menu('采购管理')
-page erpPurchaseReturnDetail {
-  <detail dataSource={useQuery('getErpPurchaseReturn', $route.id)}>
+dialog erpPurchaseReturnDetail {
+  <detail dataSource={useQuery('getErpPurchaseReturn', initial.id)}>
     <text field="no" title="退货单号" />
     <text field="returnTime" title="退货时间" />
     <text field="orderNo" title="关联单号" />
@@ -599,7 +599,7 @@ page erpPurchasePaymentList {
     <button text="删除" action={useMutation('deleteErpPurchasePayment', row.id)} />
     <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)} />
     <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)} />
-    <button text="详情" action={navigate('erpPurchasePaymentDetail', row.id)} />
+    <button text="详情" action={openDialog('erpPurchasePaymentDetail', row)} />
   </table>
   <button text="新增付款单" action={openDialog('erpPurchasePaymentForm')} />
 }
@@ -635,8 +635,8 @@ function getErpPurchasePayment(id: Integer): FinancePayment {
 
 @title('采购付款详情')
 @menu('采购管理')
-page erpPurchasePaymentDetail {
-  <detail dataSource={useQuery('getErpPurchasePayment', $route.id)}>
+dialog erpPurchasePaymentDetail {
+  <detail dataSource={useQuery('getErpPurchasePayment', initial.id)}>
     <text field="no" title="付款单号" />
     <text field="paymentTime" title="付款时间" />
     <text field="totalPrice" title="应付款金额" />

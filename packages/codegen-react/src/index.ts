@@ -697,8 +697,10 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   const navBindings = collectNavBindings(v);
   const hasTable = viewHasTable(v);
   // detail 页模式：无 table 且 useQuery 参数引用 row，或按 $route.id 查单条 → row 别名 = 主查询结果，页面路由带 /:id
-  const rowSrc = hasTable ? undefined : queryBindings.find((b) => b.args.some((a) => exprHasIdent(a, 'row') || exprHasRoute(a)));
-  const hasRoute = hasRouteParam(v.elements) || routeParamPages(app).has(v.name) || rowSrc !== undefined;
+  // detail 页模式：无 table 且 useQuery 参数引用 row / $route.id（路由查单条）/ initial.id（抽屉查单条）→ row 别名 = 主查询结果
+  const rowSrc = hasTable ? undefined : queryBindings.find((b) => b.args.some((a) => exprHasIdent(a, 'row') || exprHasRoute(a) || exprHasIdent(a, 'initial')));
+  const isDialogView = v.viewKind === 'dialog';
+  const hasRoute = hasRouteParam(v.elements) || routeParamPages(app).has(v.name) || (rowSrc !== undefined && !isDialogView);
   const routePath = routePathOf(v) + (hasRoute ? '/:id' : '');
 
   // 查询 hooks 变量名：useQuery('listOrders') → qListOrders
@@ -823,7 +825,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     if (!hookArgs.has(b.target) || args.length > 0) hookArgs.set(b.target, args);
   }
   const rowArgsHook = new Set(
-    queryBindings.filter((b) => b !== rowSrc && b.args.some((a) => exprHasIdent(a, 'row'))).map((b) => b.target),
+    queryBindings.filter((b) => b !== rowSrc && b.args.some((a) => exprHasIdent(a, 'row') || exprHasIdent(a, 'initial'))).map((b) => b.target),
   );
   for (const target of new Set(queryBindings.map((b) => b.target))) {
     const varname = queryVars.get(target)!;
@@ -934,7 +936,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   const dialogRenders = dialogTargets
     .map(
       (t) =>
-        `    <${cap(t)} open={show${cap(t)}} onClose={() => { setShow${cap(t)}(false);${firstQueryVar ? ` ${firstQueryVar}.refetch();` : ''} }} initial={${t}Initial} />`,
+        `    {show${cap(t)} && (<${cap(t)} open={show${cap(t)}} onClose={() => { setShow${cap(t)}(false);${firstQueryVar ? ` ${firstQueryVar}.refetch();` : ''} }} initial={${t}Initial} />)}`,
     )
     .join('\n');
   const formStateLines = collectFormStateLines(app, v);
@@ -949,15 +951,27 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   // G6 编辑闭环：dialog 打开时用 initial（编辑选中行）预填表单；新增（initial=null）清空
   const syncEffect = isDialog ? collectFormSyncEffect(app, v) : undefined;
   // dialog 顶层按钮引用 row（如「提交审批」挂表单外）→ row 即 initial（编辑进入时=选中行）
-  if (isDialog && viewRowBindingUse(v.elements)) {
+  // 注意：按 initial.id 查单条的详情抽屉已有 rowSrc 别名，此处不重复声明
+  if (isDialog && rowSrc === undefined && viewRowBindingUse(v.elements)) {
     hooksInit.push(`  const row = (initial ?? {}) as Omit<Record<string, unknown>, 'id'> & { id: number };`);
   }
   if (syncEffect) {
     hooksInit.push(syncEffect);
     imports[imports.indexOf("import { useState } from 'react';")] = "import { useEffect, useState } from 'react';";
   }
+  // 抽屉标题按打开模式渲染：@title('产品编辑') → 新增时「产品新增」/ 编辑时「产品编辑」；
+  // 详情抽屉（含 <detail> 块或标题以「详情」结尾）固定「产品详情」；无新增/编辑/详情后缀的标题（如「商机阶段变更」）保持原样
+  const titleMatch = /^(.*?)(新增|编辑|详情)$/.exec(viewTitle(v));
+  const hasDetailBlock = v.elements.some((el) => el.type === 'detail');
+  const drawerTitle = !isDialog
+    ? ''
+    : hasDetailBlock || titleMatch?.[2] === '详情'
+      ? ` title="${titleMatch ? titleMatch[1] : viewTitle(v)}详情"`
+      : titleMatch
+        ? ` title={initial ? '${titleMatch[1]}编辑' : '${titleMatch[1]}新增'}`
+        : ` title="${viewTitle(v)}"`;
   const wrapperOpen = isDialog
-    ? `    <Drawer title="${viewTitle(v)}" open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.6, 760)} destroyOnClose>`
+    ? `    <Drawer${drawerTitle} open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.6, 760)} destroyOnClose>`
     : `    <Card style={{ margin: '0 auto', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,21,41,0.06)' }}>\n      <h2 style={{ marginTop: 0, marginBottom: 16, fontSize: 18, fontWeight: 600, color: '#1f1f1f' }}>${viewTitle(v)}</h2>`;
   const wrapperClose = isDialog ? `    </Drawer>` : `    </Card>`;
 
@@ -1078,6 +1092,8 @@ function genBindingArg(e: Expr, hasRoute: boolean): string {
     case 'Member':
       // $route.id → Number(id)；其余 → obj.prop
       if (e.obj.kind === 'Ident' && e.obj.name === '$route') return 'Number(id)';
+      // 抽屉内 initial.id（详情抽屉按选中行查单条）
+      if (e.obj.kind === 'Ident' && e.obj.name === 'initial' && e.prop === 'id') return 'Number(initial?.id ?? 0)';
       return exprToTs(e);
     case 'Numeric':
       return String(e.value);
@@ -1359,6 +1375,19 @@ function collectAntdComponents(app: AppNode, v: ViewNode): string[] {
       if (foldRowButtonPlan(rowButtons).folded.length > 0) found.add('Dropdown');
     }
   }
+  // 删除类按钮 → Popconfirm 二次确认（genButton 隐含产物必须计入 import）
+  const hasDelete = (() => {
+    let hit = false;
+    const walk = (els: ViewElementNode[]): void => {
+      for (const el of els) {
+        if (el.type === 'button' && String(el.props['text'] ?? '').includes('删')) hit = true;
+        walk(el.children);
+      }
+    };
+    walk(v.elements);
+    return hit;
+  })();
+  if (hasDelete) found.add('Popconfirm');
   // Set 遍历顺序 = 插入序，稳定
   return [...found];
 }
@@ -1968,9 +1997,13 @@ function genButton(
     const callArgs = logic
       ? logic.params.map((p, i) => coerceArg(app, mutB.args[i], p, states, opts?.inDialog ?? false)).join(', ')
       : mutB.args.map((a) => genBindingArg(a, false)).join(', ');
-    const danger = label.includes('删') ? ' danger' : '';
     const ref = opts?.refetch ? `.then(() => ${opts.refetch})` : '';
-    return `<Button${danger}${rowLink} onClick={${onClick(`${varname}.mutate(${callArgs})${ref}`)}}>${label}</Button>`;
+    // 删除类动作 → Popconfirm 二次确认（防误删；行内按钮点击不下沉触发行跳转）
+    if (label.includes('删')) {
+      const btnAttrs = isRow ? ' danger type="link" size="small" onClick={(e) => e.stopPropagation()}' : ' danger type="primary"';
+      return `<Popconfirm title="确认删除？" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => { ${varname}.mutate(${callArgs})${ref}; }}><Button${btnAttrs}>${label}</Button></Popconfirm>`;
+    }
+    return `<Button${rowLink} onClick={${onClick(`${varname}.mutate(${callArgs})${ref}`)}}>${label}</Button>`;
   }
   // onClick={useQuery('x', args)} → 点击触发查询刷新（fn 闭包捕获最新 state，refetch 即用新值重查）
   const qB = el.bindings.find((b) => b.name === 'useQuery');
