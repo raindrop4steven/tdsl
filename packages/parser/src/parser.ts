@@ -191,7 +191,7 @@ class Parser {
           }
         } else if (ann === 'service') {
           pendingServiceConfig = this.parseServiceConfig();
-        } else if (ann === 'title' || ann === 'menu') {
+        } else if (ann === 'title' || ann === 'menu' || ann === 'role') {
           this.expect('(');
           pendingViewAnnos.set(ann, this.expectString());
           this.expect(')');

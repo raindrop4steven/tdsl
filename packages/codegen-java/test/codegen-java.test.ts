@@ -714,4 +714,24 @@ function markDone(id: Integer): Boolean {
     expect(svc).toContain('t.setCompleted(1L);');
     expect(svc).toContain('t.setStatus(0L);');
   });
+
+  it('dev/48：条件聚合 where(...).aggregate(count()) → JPQL WHERE + named 参数', () => {
+    const src = parse(`
+@datasource('defaultDS')
+entity Order { id: Integer @pk; status: String; total: Decimal; }
+@export
+function countPending(): Integer { return Order.where(status = 'X').aggregate(count()); }
+@export
+function sumAll(): Decimal { return Order.aggregate(sum(total)); }
+`);
+    const repo = generateJava(src).find((f) => f.path.endsWith('OrderRepository.java'))!.content;
+    expect(repo).toContain(
+      '@org.springframework.data.jpa.repository.Query("SELECT COUNT(o) FROM Order o WHERE (:status IS NULL OR o.status = :status)")',
+    );
+    expect(repo).toContain('Long countAllByStatus(@org.springframework.data.repository.query.Param("status") String status);');
+    expect(repo).toContain('@org.springframework.data.jpa.repository.Query("SELECT SUM(o.total) FROM Order o")');
+    expect(repo).toContain('java.math.BigDecimal sumTotal();');
+    const svc = generateJava(src).find((f) => f.path.endsWith('CountPendingService.java'))!.content;
+    expect(svc).toContain('return orderRepository.countAllByStatus("X");');
+  });
 });

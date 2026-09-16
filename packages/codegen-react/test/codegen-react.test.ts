@@ -149,7 +149,9 @@ page OrderDetail {
     const files = generateReact(parse(PAGE_DSL));
     const app = files.find((f) => f.path === 'src/App.tsx')!.content;
     expect(app).toMatch(/import \{[^}]*Navigate[^}]*\} from 'react-router-dom'/);
-    expect(app).toContain('<Route path="/" element={<Navigate to="/order-list" replace />} />');
+    // 首页动态指向当前角色第一个可见页（dev/48）
+    expect(app).toContain('<Route path="/" element={<Navigate to={HOME_ROUTE} replace />} />');
+    expect(app).toMatch(/const FIRST_ROUTES: string\[\] = \[[^\]]*'\/order-list'/);
   });
 
   it('generates api.ts with fetch wrappers and type imports', () => {

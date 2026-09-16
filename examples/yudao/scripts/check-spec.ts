@@ -67,7 +67,7 @@ interface SpecSubform {
 interface SpecPage {
   id: string;
   name: string;
-  kind: 'list' | 'dialog-form' | 'detail';
+  kind: 'list' | 'dialog-form' | 'detail' | 'dashboard';
   entity?: string;
   query?: string;
   columns?: string[];
@@ -154,7 +154,7 @@ function readButton(v: unknown, what: string): SpecButton {
 function readPage(v: unknown, what: string): SpecPage {
   const o = asObj(v, what);
   const kind = asStr(o.kind, `${what}.kind`);
-  if (kind !== 'list' && kind !== 'dialog-form' && kind !== 'detail') {
+  if (kind !== 'list' && kind !== 'dialog-form' && kind !== 'detail' && kind !== 'dashboard') {
     throw new Error(`spec.yaml 格式错误：${what}.kind 非法 '${kind}'`);
   }
   let subform: SpecSubform | undefined;
@@ -382,6 +382,7 @@ function main(): void {
         const where = `${fn.name}/${page.id}(${page.name})`;
         const view = tdslViews.get(page.id);
         // detail（详情）在 TDSL 中以右侧抽屉实现（与编辑/新建一致）→ 期望 dialog
+        // dashboard（门户看板）在 TDSL 中同样是 page（只展示统计/轮播/列表）
         const wantKind = page.kind === 'dialog-form' || page.kind === 'detail' ? 'dialog' : 'page';
         if (view === undefined) {
           gaps.push({ dim: '页面', where, expect: `${wantKind} 存在`, actual: '缺失' });

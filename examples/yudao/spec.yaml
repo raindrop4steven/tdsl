@@ -1719,3 +1719,25 @@ modules:
             fields: [name, wakeUpTime, bizType, bizId]
             buttons:
               - { id: save, name: 保存, scope: page, action: { type: logic, target: saveCrmTodo } }
+  # ══════════ 门户看板（dev/46-48：统计 + 轮播 + 列表；角色视角） ══════════
+  - id: portal
+    name: 门户看板
+    functions:
+      - id: dashboard
+        name: 门户
+        pages:
+          - id: bossDashboard
+            name: 经营总览
+            kind: dashboard
+          - id: purchasePortal
+            name: 采购门户
+            kind: dashboard
+          - id: salePortal
+            name: 销售门户
+            kind: dashboard
+          - id: stockPortal
+            name: 库存门户
+            kind: dashboard
+          - id: crmPortal
+            name: CRM 门户
+            kind: dashboard

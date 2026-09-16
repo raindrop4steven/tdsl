@@ -172,3 +172,13 @@
 - **用户报缺陷（真机）**：①列表无分页（genTable 硬编码 pagination=false）→ 改客户端分页（10/20/50 + 总数）②**翻页后条数虚增（第一页显示 14 条）根因 = rowKey 取首列字段**（库存变动明细首列 productId 重复 → React key 冲突残留旧行）→ rowKey 改实体主键。教训：**表格 rowKey 必须唯一，宁可取实体主键也不取首列**。
 - 交付：310 单测全绿（codegen-react +5 action-state、typecheck +3 summary）、九包 typecheck ✓、yudao dsl check 0 / spec 1091 项 100% / java compile ✓ / react tsc+build ✓；文档 dev/43-45 + 语法手册 §4 + index.html + QA 19-25 行 + 本段。
 - **交付形态适配记录**：本项目是"编译器+生成器"无常驻 REST 服务，skill 模板的 `docs/api/接口文档 + Postman 集合`降级为**语言面文档（语法手册）+ interface 契约（生成物 Controller 即 REST 端点）**；如需 OpenAPI 可另立切面从生成物导出。
+
+## 2026-09-16 续五（dev/46-48：ERP 门户看板 · 六阶段交付 + 用户实测三轮收敛）
+- **切面**：给 yudao 补门户层（统计 + 轮播 + 列表 + 进度），六阶段走完（dev/46 需求 → 47 系统设计 → 48 详细设计 → 编码 → 测试 → 交付），Gate 全通过。
+- **C1 缺口补齐（连带必做）**：`Order.where(...).aggregate(count())` 此前不支持（dev/21 历史缺口）→ QuerySpec 结构本就容纳 conditions+aggregate，改动收敛为：codegen-java 聚合分支拼 WHERE（named 参数 + null 宽松）、typecheck `CHAIN_METHODS += aggregate`（仅允许紧跟 where）、aggregate 方法名集中命名（无字段 → `countAll`，避开 JpaRepository 内置 `count()` 撞名）、react 零改动（标量 number）。
+- **语言/生成器新增**：门户组件 `row/col(span)`、`carousel(autoplay)+item`、`list+item(primary/extra)`、`progress(percent,color,status)`、`alert(type,message)`；`statistic` 支持 `dataSource` 绑聚合查询 + `color`/`suffix`。全部挂在既有通用元素/属性上（零新增 AST 节点）。
+- **样式（用户三轮反馈）**：指标卡 = 左色条 + 渐变底 + 26px 彩色数字；轮播 = 渐变 Banner（160px 白字 + 装饰圆）；列表 = Card + `List.Item.Meta`（主标题/次要行/右侧强调值）+ 每页 5 条分页；栅格 `gutter=[16,16]` + Col 纵向 flex + 卡 flex:1 等高对齐。
+- **实测缺陷修复**：①列表枚举显示裸名（`UNFOLLOWED`）→ `listItemValueJsx` 命中枚举渲染中文 Tag；②文案含 `<`（"目标 <5%"）截断 JSX → 新增 `jsxText()` 转义 `< > { } &` 并应用到 title/label/提示等文案位；③门户菜单排最后 → 门户文件改 `05-portal.tdsl`（菜单按声明序）+ 首页动态为第一个列表页。
+- **角色视角去掉（用户拍板）**：`@role` 语法解析保留（语言面），但外壳不再生成角色表/过滤/切换器；yudao 门户去掉 `@role`，全员可见。
+- **排查记录**：门户接口首轮 404 —— 根因是**运行中的后端未重启**（java 已重新生成但进程是旧的）；重启后 16 个 `/api/portal/stats/*` 全部 200（purchase-orders 3 / in-pending 1 / return-pending 1 / purchase-amount 395730 / stock-count 4700 / sale-amount 147425 / sale-out-pending 1 / receipt 48920 / product 7 / warehouse 2 / clues 2 / customers 4 / locked 0 / business 2 / contract 1 / receivable-pending 0）。**教训：generate 之后必须重启后端**。
+- 交付：全仓 318 单测全绿、九包 typecheck ✓、check-spec 1091 项 100%、java mvn compile ✓、react tsc+vite build ✓、seed 104/0。

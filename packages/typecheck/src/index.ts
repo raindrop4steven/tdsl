@@ -401,6 +401,8 @@ function fileOfPath(map: Map<string, string>, path: string): string | undefined 
 /** 已知 ViewElement 组件类型（管理系统常用集） */
 const KNOWN_VIEW_TYPES = new Set([
   'table', 'column', 'button', 'form', 'input', 'repeat', 'text', 'detail', 'summary',
+  // dev/48 门户看板
+  'row', 'col', 'carousel', 'list', 'item', 'progress', 'alert',
   // 管理端常用：标签/统计/标签页/布尔与选项控件/头像/徽标/分格
   'tag', 'statistic', 'tabs', 'pane', 'checkbox', 'radio', 'switch', 'avatar', 'badge', 'card',
 ]);
@@ -646,7 +648,8 @@ function checkEntityCalls(
             // 实体查询链：Order.where(...).orderBy(...).page(...) / .limit(n) / .groupBy(...)
             const chainEntity = entityQueryChainOf(app, callee.obj);
             if (chainEntity) {
-              checkChainMethod(chainEntity, receiverOfChain(app, callee.obj), method, e.args, owner, diagnostics, ownerPath);
+              const prevMethod = callee.obj.callee.kind === 'Member' ? callee.obj.callee.prop : null;
+              checkChainMethod(chainEntity, receiverOfChain(app, callee.obj), method, e.args, owner, diagnostics, ownerPath, prevMethod);
             }
           }
         }
@@ -817,7 +820,7 @@ function isListExpr(app: AppNode, e: Expr): boolean {
 const WHERE_BINARY_OPS = new Set(['=', '>=', '<=', '>', '<', 'like', 'in']);
 
 /** 链式查询方法白名单 */
-const CHAIN_METHODS = new Set(['orderBy', 'page', 'limit', 'groupBy']);
+const CHAIN_METHODS = new Set(['orderBy', 'page', 'limit', 'groupBy', 'aggregate']);
 
 /** 聚合函数白名单 */
 const AGG_FNS = new Set(['sum', 'avg', 'max', 'min', 'count']);
@@ -993,6 +996,7 @@ function checkChainMethod(
   owner: BaseNode,
   diagnostics: Diagnostic[],
   ownerPath: (n: BaseNode) => string,
+  prevMethod: string | null = null,
 ): void {
   const name = recvName ?? '实体';
   const fieldOf = (e: Expr): string | null => (e.kind === 'Ident' ? e.name : null);
@@ -1068,13 +1072,36 @@ function checkChainMethod(
         });
       }
     }
+  } else if (method === 'aggregate') {
+    // dev/48 F2b：条件聚合 Order.where(...).aggregate(count()) —— 仅允许紧跟 where(...)
+    if (prevMethod !== 'where') {
+      diagnostics.push({
+        path: ownerPath(owner),
+        message: `${name}.aggregate() 仅可用于 where(...) 之后（条件聚合）`,
+        severity: 'error',
+        code: 'ENTITY-CHAIN',
+        suggestion: `${name}.where(...).aggregate(count()) 或 ${name}.aggregate(count())`,
+      });
+    }
+    if (args.length === 0) {
+      diagnostics.push({
+        path: ownerPath(owner),
+        message: `${name}.aggregate() 至少需要一个聚合函数（sum/avg/max/min/count）`,
+        severity: 'error',
+        code: 'ENTITY-CHAIN',
+        suggestion: `${name}.where(...).aggregate(sum(field))`,
+      });
+    }
+    for (const a of args) {
+      checkAggregateArg(entity, name, a, owner, diagnostics, ownerPath);
+    }
   } else {
     diagnostics.push({
       path: ownerPath(owner),
       message: `实体 ${name} 查询链无方法 ${method}`,
       severity: 'error',
       code: 'ENTITY-CHAIN',
-      suggestion: `链式方法仅: orderBy / page / limit / groupBy`,
+      suggestion: `链式方法仅: orderBy / page / limit / groupBy / aggregate`,
     });
   }
 }

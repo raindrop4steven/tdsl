@@ -945,4 +945,35 @@ dialog orderForm {
 `));
     expect(r.diagnostics.some((d) => d.code.startsWith('SUMMARY'))).toBe(false);
   });
+
+  it('dev/48：where(...).aggregate(...) 条件聚合通过；aggregate 出现在 orderBy 后报错', () => {
+    const ok = check(parse(`
+entity Order { id: Integer @pk; status: String; total: Decimal; }
+@export
+function countPending(): Integer { return Order.where(status = 'X').aggregate(count()); }
+`));
+    expect(ok.diagnostics.filter((d) => d.code === 'ENTITY-CHAIN')).toHaveLength(0);
+
+    const bad = check(parse(`
+entity Order { id: Integer @pk; status: String; total: Decimal; }
+@export
+function bad(): Integer { return Order.where(status = 'X').orderBy(id asc).aggregate(count()); }
+`));
+    expect(bad.diagnostics.some((d) => d.code === 'ENTITY-CHAIN' && d.message.includes('仅可用于 where(...) 之后'))).toBe(true);
+  });
+
+  it('dev/48：门户组件 row/col/carousel/list/item 为内置类型（非三方组件误报）', () => {
+    const r = check(parse(`
+entity E { id: Integer @pk; name: String; }
+@export
+function queryE(): List<E> { return E.all; }
+interface A { GET '/api/e' -> queryE }
+page dash {
+  <row><col span={12}><statistic title="X" dataSource={useQuery('queryE')} /></col></row>
+  <carousel autoplay={true}><item title="a" text="b" /></carousel>
+  <list dataSource={useQuery('queryE')}><item field="name" title="名称" /></list>
+}
+`));
+    expect(r.diagnostics.some((d) => d.message.includes('未匹配到 dependency npm'))).toBe(false);
+  });
 });

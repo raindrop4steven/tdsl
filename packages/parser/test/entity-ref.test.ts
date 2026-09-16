@@ -45,4 +45,15 @@ entity Other {
 `;
     expect(() => parse(src)).toThrow(/cannot resolve/);
   });
+
+  it('dev/48：@role 注解进 view.annotations；无 @role 不产该注解', () => {
+    const app = parse(`
+@role('老板,采购员') @title('经营总览') page bossDashboard { <row /> }
+@title('普通页') page plainPage { <row /> }
+`);
+    const boss = app.views.find((v) => v.name === 'bossDashboard')!;
+    expect(boss.annotations?.find((a) => a.name === 'role')?.args?.['value']).toBe('老板,采购员');
+    const plain = app.views.find((v) => v.name === 'plainPage')!;
+    expect(plain.annotations?.some((a) => a.name === 'role')).toBe(false);
+  });
 });

@@ -775,8 +775,8 @@ function querySpecOf(app: AppNode, e: Expr): QuerySpec | null {
     if (!agg) return null;
     return { entity: ent.name, conditions: [], orderBy: [], pageable: false, aggregate: agg };
   }
-  // 链式方法：.orderBy / .page / .limit / .groupBy（接收者是查询调用或 X.all）
-  if (m.prop === 'orderBy' || m.prop === 'page' || m.prop === 'limit' || m.prop === 'groupBy') {
+  // 链式方法：.orderBy / .page / .limit / .groupBy / .aggregate（接收者是查询调用或 X.all）
+  if (m.prop === 'orderBy' || m.prop === 'page' || m.prop === 'limit' || m.prop === 'groupBy' || m.prop === 'aggregate') {
     let base = querySpecOf(app, m.obj);
     if (!base && m.obj.kind === 'Member' && m.obj.prop === 'all') {
       // X.all.orderBy(...)/.page(...)：无条件的全量查询基座
@@ -795,6 +795,12 @@ function querySpecOf(app: AppNode, e: Expr): QuerySpec | null {
       spec.limit = e.args[0]?.kind === 'Numeric' ? e.args[0].value : undefined;
     } else if (m.prop === 'groupBy') {
       spec.groupBy = e.args.filter((a) => a.kind === 'Ident').map((a) => (a as { name: string }).name);
+    } else if (m.prop === 'aggregate') {
+      // dev/48 F2b：条件聚合 —— where(...).aggregate(count())
+      const bent = findEntityByName(app, base.entity);
+      const agg = bent ? extractAggregate(app, bent, e.args) : null;
+      if (!agg) return null;
+      spec.aggregate = agg;
     }
     return spec;
   }
@@ -938,19 +944,41 @@ function aggJpql(fn: 'sum' | 'avg' | 'max' | 'min' | 'count', field: string | un
 }
 
 /** 单条 QuerySpec → Repository 方法声明 */
+/** 聚合方法名（dev/48 起集中命名）：无字段 → ${fn}All（避开 JpaRepository 内置 count()）；有条件/分组 → ...ByXxx */
+function aggregateMethodName(spec: QuerySpec): string {
+  const agg = spec.aggregate!;
+  const base = `${agg.fn}${agg.field ? cap(agg.field) : 'All'}`;
+  const grp = (spec.groupBy ?? []).map((f) => cap(f)).join('And');
+  if (grp) return `${base}By${grp}`;
+  const conds = spec.conditions.map((c) => cap(c.field)).join('And');
+  return conds ? `${base}By${conds}` : base;
+}
+
 function repoMethod(ent: EntityNode, spec: QuerySpec): string {
   const alias = ent.name.charAt(0).toLowerCase();
   // 聚合（@Query JPQL）
   if (spec.aggregate) {
     const agg = aggJpql(spec.aggregate.fn, spec.aggregate.field, alias);
+    // dev/48 F2b：条件聚合（where(...).aggregate(...)）→ 拼接 WHERE（命名参数 + null 宽松，与列表查询同口径）
+    const condPreds = spec.conditions
+      .map((c) => {
+        const col = `${alias}.${c.field}`;
+        const inner = c.op === 'like' ? `${col} LIKE CONCAT('%', :${c.field}, '%')` : `${col} ${c.op} :${c.field}`;
+        return `(:${c.field} IS NULL OR ${inner})`;
+      })
+      .join(' AND ');
+    const condParams = spec.conditions.map(
+      (c) => `@org.springframework.data.repository.query.Param("${c.field}") ${condParamJavaType(ent, c)} ${c.field}`,
+    );
+    const where = condPreds ? ` WHERE ${condPreds}` : '';
     if (spec.groupBy && spec.groupBy.length > 0) {
       const sel = [...spec.groupBy.map((f) => `${alias}.${f}`), agg.expr].join(', ');
       const grp = spec.groupBy.map((f) => `${alias}.${f}`).join(', ');
-      const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}By${spec.groupBy.map((f) => cap(f)).join('And')}`;
-      return `  @org.springframework.data.jpa.repository.Query("SELECT ${sel} FROM ${ent.name} ${alias} GROUP BY ${grp}")\n  java.util.List<Object[]> ${methodName}();`;
+      const methodName = aggregateMethodName(spec);
+      return `  @org.springframework.data.jpa.repository.Query("SELECT ${sel} FROM ${ent.name} ${alias}${where} GROUP BY ${grp}")\n  java.util.List<Object[]> ${methodName}(${condParams.join(', ')});`;
     }
-    const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}`;
-    return `  @org.springframework.data.jpa.repository.Query("SELECT ${agg.expr} FROM ${ent.name} ${alias}")\n  ${agg.ret} ${methodName}();`;
+    const methodName = aggregateMethodName(spec);
+    return `  @org.springframework.data.jpa.repository.Query("SELECT ${agg.expr} FROM ${ent.name} ${alias}${where}")\n  ${agg.ret} ${methodName}(${condParams.join(', ')});`;
   }
   // 派生查询
   const name = derivedMethodName(ent, spec);
@@ -1391,7 +1419,7 @@ function genStatement(
         const ent = findEntityByName(app, spec.entity);
         if (ent) {
           const repo = repoVar(ent);
-          const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}By${spec.groupBy.map((f) => cap(f)).join('And')}`;
+          const methodName = aggregateMethodName(spec);
           const keys = [...spec.groupBy, spec.aggregate.field ? `${spec.aggregate.fn}(${spec.aggregate.field})` : `count`];
           const puts = keys
             .map((k, i) => `      m.put("${k}", row[${i}]);`)
@@ -1656,11 +1684,12 @@ function genQueryCall(
   // 聚合
   if (spec.aggregate) {
     if (spec.groupBy && spec.groupBy.length > 0) {
-      const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}By${spec.groupBy.map((f) => cap(f)).join('And')}`;
+      const methodName = aggregateMethodName(spec);
       return `${repo}.${methodName}()`;
     }
-    const methodName = `${spec.aggregate.fn}${cap(spec.aggregate.field ?? '')}`;
-    return `${repo}.${methodName}()`;
+    const methodName = aggregateMethodName(spec);
+    const condArgs = spec.conditions.map((c) => genExpr(app, c.value, entities, vars));
+    return condArgs.length > 0 ? `${repo}.${methodName}(${condArgs.join(', ')})` : `${repo}.${methodName}()`;
   }
   // 派生查询
   const methodName = derivedMethodName(ent, spec);

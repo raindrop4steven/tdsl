@@ -1285,6 +1285,84 @@ function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, st
       return genText(el);
     case 'detail':
       return genDetail(app, el, queryVars);
+    case 'item':
+      // item 由父元素（carousel/list）渲染，独立出现时无意义
+      return `{/* item */}`;
+    // dev/48 门户看板：栅格 / 轮播 / 只读列表
+    case 'row':
+      return `<Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+${el.children.map((c) => genElement(app, c, queryVars, states, onCloseExpr, refetchExpr, formId)).join('\n')}
+</Row>`;
+    case 'col': {
+      const sp = el.props.span;
+      const raw =
+        typeof sp === 'string'
+          ? Number(sp)
+          : sp !== undefined && sp !== null && typeof sp === 'object' && 'value' in sp
+            ? Number((sp as { value?: unknown }).value)
+            : 12;
+      const spanNum = Number.isFinite(raw) && raw > 0 ? raw : 12;
+      return `<Col span={${spanNum}} style={{ display: 'flex', flexDirection: 'column' }}>
+${el.children.map((c) => genElement(app, c, queryVars, states, onCloseExpr, refetchExpr, formId)).join('\n')}
+</Col>`;
+    }
+    case 'carousel': {
+      // 门户 Banner：按序取品牌渐变色 + 白色大标题/副文案（左对齐 + 右侧装饰圆）
+      const palette = ['#1677ff', '#52c41a', '#fa8c16', '#722ed1'];
+      const slides = el.children
+        .filter((c) => c.type === 'item')
+        .map((it, i) => {
+          const c = accentColorOf(it.props['color'] ?? palette[i % palette.length]);
+          const title = jsxText(String(it.props.title ?? ''));
+          const text = jsxText(String(it.props.text ?? ''));
+          return `  <div>
+    <div style={{ height: 160, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 40px', borderRadius: 8, color: '#fff', background: 'linear-gradient(135deg, ${c} 0%, ${c}bb 100%)', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', right: -40, top: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(255,255,255,0.14)' }} />
+      <h3 style={{ margin: 0, marginBottom: 10, fontSize: 22, fontWeight: 600, color: '#fff' }}>${title}</h3>
+      <div style={{ fontSize: 14, opacity: 0.9 }}>${text}</div>
+    </div>
+  </div>`;
+        })
+        .join('\n');
+      const auto = el.props['autoplay'];
+      const autoOn = typeof auto === 'string' ? auto === 'true' : typeof auto === 'object' && auto !== null && (auto as { value?: unknown }).value !== false;
+      const autoplay = auto !== undefined && autoOn ? ' autoplay' : '';
+      return `<Carousel${autoplay} style={{ marginBottom: 16 }}>
+${slides}
+</Carousel>`;
+    }
+    case 'list': {
+      // 门户列表卡片：首个 item = 主标题，extra={true} 项 = 右侧强调值，其余 = 次要信息行
+      const qB = el.bindings.find((b) => b.name === 'useQuery');
+      const dataVar = qB ? queryVars.get(qB.target) ?? `q${cap(logicNameOf(qB.target))}` : 'data';
+      const ownerName = qB ? ownerEntityNameOfQuery(app, qB.target) : undefined;
+      const owner = ownerName ? app.datasources.flatMap((d) => d.entities).find((e) => e.name === ownerName) : undefined;
+      const items = el.children.filter((c) => c.type === 'item');
+      const isTrue = (v: unknown): boolean =>
+        v === true || v === 'true' || (typeof v === 'object' && v !== null && (v as { value?: unknown }).value === true);
+      const primaryItem = items.find((it) => isTrue(it.props['primary'])) ?? items[0];
+      const extraItem = items.find((it) => it !== primaryItem && isTrue(it.props['extra']));
+      const descItems = items.filter((it) => it !== primaryItem && it !== extraItem);
+      const valOf = (it: ViewElementNode): string => listItemValueJsx(app, owner, String(it.props.field ?? ''), 'it');
+      const titleJsx = primaryItem ? `<span style={{ fontWeight: 600 }}>${valOf(primaryItem)}</span>` : `''`;
+      const descJsx = descItems
+        .map((it) => {
+          const label = jsxText(String(it.props.title ?? it.props.field ?? ''));
+          return `<span style={{ marginRight: 12 }}>${label}：${valOf(it)}</span>`;
+        })
+        .join('');
+      const extraJsx = extraItem
+        ? `\n      <span style={{ color: '${accentColorOf(extraItem.props['color'])}', fontWeight: 600 }}>${valOf(extraItem)}</span>`
+        : '';
+      const titleAttr = el.props.title !== undefined ? ` title="${jsxText(String(el.props.title))}"` : '';
+      const meta = descJsx
+        ? `<List.Item.Meta title={${titleJsx}} description={<span style={{ color: '#8c8c8c', fontSize: 13 }}>${descJsx}</span>} />`
+        : `<List.Item.Meta title={${titleJsx}} />`;
+      return `<Card size="small"${titleAttr} style={{ flex: 1, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+  <List size="small" split pagination={{ pageSize: 5, size: 'small' }} dataSource={${dataVar}.data ?? []} renderItem={(it: Record<string, unknown>) => (<List.Item>
+      ${meta}${extraJsx}</List.Item>)} />
+</Card>`;
+    }
     default: {
       // 管理端常用组件（tag/statistic/tabs/checkbox/switch/radio/avatar/badge/card）
       const common = genCommonElement(app, el, queryVars, states);
@@ -1361,6 +1439,8 @@ function npmImportOfComponent(app: AppNode, typeName: string): { pkg: string; ki
 const KNOWN_VIEW_TYPES_LOCAL = new Set<string>(Object.keys({
   table: '', button: '', input: '', detail: '', text: '', form: '', repeat: '', column: '',
   tag: '', statistic: '', tabs: '', pane: '', checkbox: '', radio: '', switch: '', avatar: '', badge: '', card: '',
+  // dev/48 门户看板：栅格 / 轮播 / 只读列表（item 由父元素渲染，不单独映射组件）
+  row: '', col: '', carousel: '', list: '', item: '', progress: '', alert: '',
 }));
 
 const ANTD_OF: Record<string, string> = {
@@ -1379,6 +1459,13 @@ const ANTD_OF: Record<string, string> = {
   avatar: 'Avatar',
   badge: 'Badge',
   card: 'Card',
+  // dev/48 门户看板
+  row: 'Row',
+  col: 'Col',
+  carousel: 'Carousel',
+  list: 'List',
+  progress: 'Progress',
+  alert: 'Alert',
 };
 
 /** 页面里是否有表格列会渲染枚举彩色 Tag（genTable 枚举列的隐含产物必须进 import） */
@@ -1443,6 +1530,40 @@ function collectAntdComponents(app: AppNode, v: ViewNode): string[] {
     return hit;
   })();
   if (hasDelete) found.add('Popconfirm');
+  // 门户看板：statistic/list/carousel 生成物统一包 Card（隐含产物须计入 import）
+  const hasDashboardWidget = (() => {
+    let hit = false;
+    const walk = (els: ViewElementNode[]): void => {
+      for (const el of els) {
+        if (el.type === 'statistic' || el.type === 'list' || el.type === 'carousel' || el.type === 'progress') hit = true;
+        walk(el.children);
+      }
+    };
+    walk(v.elements);
+    return hit;
+  })();
+  if (hasDashboardWidget) found.add('Card');
+  // 门户列表 item 命中枚举字段 → Tag（渲染中文标签，避免裸枚举名）
+  const listHasEnumItem = (() => {
+    let hit = false;
+    const walk = (els: ViewElementNode[]): void => {
+      for (const el of els) {
+        if (el.type === 'list') {
+          const qb = el.bindings.find((b) => b.name === 'useQuery');
+          const ownerName = qb ? ownerEntityNameOfQuery(app, qb.target) : undefined;
+          const owner = ownerName ? app.datasources.flatMap((d) => d.entities).find((e) => e.name === ownerName) : undefined;
+          for (const it of el.children.filter((c) => c.type === 'item')) {
+            const t = owner?.properties.find((p) => p.name === String(it.props.field ?? ''))?.type;
+            if (t?.kind === 'reference' && app.enums.some((e) => e.name === nameFromPath(t.path))) hit = true;
+          }
+        }
+        walk(el.children);
+      }
+    };
+    walk(v.elements);
+    return hit;
+  })();
+  if (listHasEnumItem) found.add('Tag');
   // 顶部右上角动作区：页面级按钮/表单提交按钮 → Space；动作数超出折叠阈值 → Dropdown「更多」
   const topButtons = v.elements.filter((el) => el.type === 'button');
   if (topButtons.length > 0 || collectFormStateLines(app, v).length > 0) found.add('Space');
@@ -1924,6 +2045,14 @@ function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
           }
         }
       }
+      // 门户只读列表：item 字段的引用值也要 options 数据源；枚举项渲染中文 Tag（收集器另判）
+      if (el.type === 'list') {
+        const qb = el.bindings.find((b) => b.name === 'useQuery');
+        const ownerName = qb ? ownerEntityNameOfQuery(app, qb.target) : undefined;
+        for (const it of el.children.filter((c) => c.type === 'item')) {
+          push(ownerName ?? null, String(it.props.field ?? ''));
+        }
+      }
       visit(el.children, el.type === 'form' ? el : parentForm, pageOwner);
     }
   };
@@ -1985,7 +2114,7 @@ function searchEnumSelect(app: AppNode, enumName: string, el: ViewElementNode): 
 function columnDefsOf(app: AppNode, ent: EntityNode | undefined, columns: ViewElementNode[]): string[] {
   return columns.map((c) => {
     const field = String(c.props.field ?? '');
-    const title = String(c.props.title ?? field);
+    const title = jsxText(String(c.props.title ?? field));
     const enumType = ent?.properties.find((p) => p.name === field)?.type;
     const en = enumType?.kind === 'reference' ? app.enums.find((e) => e.name === nameFromPath(enumType.path)) : undefined;
     if (en) {
@@ -2062,7 +2191,7 @@ function genButton(
   queryVars: Map<string, string>,
   opts?: { row?: boolean; states?: string[]; refetch?: string; inDialog?: boolean },
 ): string {
-  const label = el.props['text'] ? String(el.props['text']) : '确定';
+  const label = el.props['text'] ? jsxText(String(el.props['text'])) : '确定';
   const isRow = opts?.row ?? false;
   const states = opts?.states ?? [];
   // 动作可用性（dev/45 §1.2）：visible → 条件渲染；disabled → 置灰。条件在行上下文编译（row.<字段> 比较 + 枚举成员 + 逻辑组合）
@@ -2654,8 +2783,41 @@ function genCommonElement(
       return `<Tag color="${color}">{${v}}</Tag>`;
     }
     case 'statistic': {
-      const v = el.props.value !== undefined ? genBindingArg(el.props.value as Expr, false) : 'null';
-      return `<Statistic title="${String(el.props.title ?? '')}" value={${v}} />`;
+      // dev/48：dataSource 绑聚合查询（标量）；指标卡：左侧色条 + 浅色渐变底 + 大号彩色数字
+      const qB = el.bindings.find((b) => b.name === 'useQuery');
+      const title = jsxText(String(el.props.title ?? ''));
+      const valueJsx = qB
+        ? `Number(${queryVars.get(qB.target) ?? `q${cap(logicNameOf(qB.target))}`}.data ?? 0)`
+        : `${el.props.value !== undefined ? genBindingArg(el.props.value as Expr, false) : 'null'}`;
+      const accent = accentColorOf(el.props['color']);
+      const suffix = el.props['suffix'] !== undefined ? ` suffix="${String(el.props['suffix'])}"` : '';
+      return `<Card size="small" bordered={false} style={{ flex: 1, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.06)', background: 'linear-gradient(135deg, ${accent}14 0%, #ffffff 72%)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 4, height: 38, borderRadius: 2, background: '${accent}' }} />
+      <Statistic title="${title}" value={${valueJsx}}${suffix} valueStyle={{ fontSize: 26, fontWeight: 600, color: '${accent}' }} />
+    </div>
+  </Card>`;
+    }
+    case 'progress': {
+      // 进度/完成率（门户目标达成）
+      const pct = el.props['percent'] !== undefined ? genBindingArg(el.props['percent'] as Expr, false) : '0';
+      const label = el.props['title'] !== undefined ? jsxText(String(el.props['title'])) : '';
+      const stroke = accentColorOf(el.props['color']);
+      const status = el.props['status'] !== undefined ? ` status="${String(el.props['status'])}"` : '';
+      const bar = `<Progress percent={${pct}} strokeColor="${stroke}"${status} />`;
+      return label
+        ? `<Card size="small" style={{ flex: 1, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+    <div style={{ marginBottom: 8, color: '#595959', fontSize: 13 }}>${label}</div>
+    ${bar}
+  </Card>`
+        : bar;
+    }
+    case 'alert': {
+      // 公告/提示条（门户通知）
+      const msg = jsxText(String(el.props['title'] ?? ''));
+      const desc = el.props['text'] !== undefined ? ` description="${jsxText(String(el.props['text']))}"` : '';
+      const type = el.props['type'] !== undefined ? String(el.props['type']) : 'info';
+      return `<Alert style={{ marginBottom: 16, borderRadius: 8 }} type="${type}" message="${msg}"${desc} showIcon />`;
     }
     case 'tabs': {
       const panes = el.children.filter((c) => c.type === 'pane');
@@ -2738,6 +2900,54 @@ ${itemEls}
   return repEls ? `${detailBlock}\n${repEls}` : detailBlock;
 }
 
+/** JSX 文本安全化：< > { } & 转义（用户文案可能含「<5%」这类字符，否则截断标签） */
+function jsxText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
+}
+
+/** 门户强调色（statistic/list/carousel 的 color 属性）：颜色名 → 品牌色；#hex 原样；缺省蓝 */
+function accentColorOf(v: unknown): string {
+  const raw = typeof v === 'string' ? v : typeof v === 'object' && v !== null && 'value' in v ? String((v as { value?: unknown }).value ?? '') : '';
+  if (raw === '') return '#1677ff';
+  if (raw.startsWith('#')) return raw;
+  const map: Record<string, string> = {
+    blue: '#1677ff',
+    green: '#52c41a',
+    orange: '#fa8c16',
+    red: '#f5222d',
+    purple: '#722ed1',
+    cyan: '#13c2c2',
+    magenta: '#eb2f96',
+    gold: '#faad14',
+  };
+  return map[raw] ?? '#1677ff';
+}
+
+/** 查询逻辑返回的实体名（list 行渲染的外键判定用；结构体/标量返回 null） */
+function ownerEntityNameOfQuery(app: AppNode, target: string): string | undefined {
+  const rtRaw = logicOf(app, target)?.returns[0]?.type;
+  const rt = rtRaw?.kind === 'generic' && (rtRaw.name === 'List' || rtRaw.name === 'Page') ? rtRaw.args[0] : rtRaw;
+  return rt?.kind === 'reference' ? nameFromPath(rt.path) : undefined;
+}
+
+/** list 行字段取值 JSX：外键 → 引用名（options 已就绪时）；枚举/其余 → 原值字符串 */
+function listItemValueJsx(app: AppNode, owner: EntityNode | undefined, field: string, rowVar: string): string {
+  // 枚举 → 中文 Tag（与列表列同款，避免门户里出现 UNFOLLOWED 这类裸枚举名）
+  const enumType = owner?.properties.find((p) => p.name === field)?.type;
+  const en = enumType?.kind === 'reference' ? app.enums.find((e) => e.name === nameFromPath(enumType.path)) : undefined;
+  if (en) {
+    const colorMap = `{ ${en.items.map((i) => `'${i.name}': '${tagColorFor(i.name)}'`).join(', ')} }`;
+    const labelMap = `{ ${en.items.map((i) => `'${i.name}': '${i.label ?? i.name}'`).join(', ')} }`;
+    const v = `String(${rowVar}.${field} ?? '')`;
+    return `{(() => { const colors: Record<string, string> = ${colorMap}; const labels: Record<string, string> = ${labelMap}; const v = ${v}; return <Tag color={colors[v] ?? 'blue'}>{labels[v] ?? v}</Tag>; })()}`;
+  }
+  const fk = explicitFkRefOf(app, owner?.name ?? null, field) ?? fkRefOf(app, owner?.name ?? null, field);
+  if (fk) {
+    return `{String((${fk.qvar}.data ?? []).find((o) => o.id === ${rowVar}.${field})?.${fk.labelField} ?? ${rowVar}.${field})}`;
+  }
+  return `{String(${rowVar}.${field} ?? '')}`;
+}
+
 /** 详情只读子表的行实体：详情查询返回结构体 → 字段 `List<Xxx>` 的实参类型（须为实体） */
 function detailItemEntityOf(app: AppNode, detailLogicTarget: string | undefined, field: string): EntityNode | undefined {
   if (!detailLogicTarget) return undefined;
@@ -2762,13 +2972,20 @@ function routerFile(app: AppNode): GeneratedFile {
     .map((v) => {
       const hasRoute = isDetail(v);
       const path = routePathOf(v) + (hasRoute ? '/:id' : '');
-      return `  <Route path="${path}" element={<${cap(v.name)} />} />`;
+      // dev/48：@role 保护（有注解的页面按角色渲染路由；无注解页面照旧）
+      const roleAnn = v.annotations?.find((a) => a.name === 'role');
+      const raw = roleAnn?.args?.['value'];
+      const roles = typeof raw === 'string' ? raw.split(',').map((x) => x.trim()).filter((x) => x !== '') : [];
+      if (roles.length === 0) return `  <Route path="${path}" element={<${cap(v.name)} />} />`;
+      return `  {(${JSON.stringify(roles)} as string[]).includes(role) && <Route path="${path}" element={<${cap(v.name)} />} />}`;
     })
     .join('\n');
   // 根路径重定向到第一个列表页（dialog/详情不作为首页）
   const firstView = listViews[0];
   const firstRoute = firstView ? routePathOf(firstView) : null;
-  const redirect = firstRoute ? `  <Route path="/" element={<Navigate to="${firstRoute}" replace />} />\n` : '';
+  const redirect = firstRoute ? `  <Route path="/" element={<Navigate to={HOME_ROUTE} replace />} />\n` : '';
+  // 首页候选顺序（列表页声明序）：/ 重定向到当前角色第一个可见页
+  const firstRoutes = listViews.map((v) => `'${routePathOf(v)}'`).join(', ');
   const imports = routed.map((v) => `import ${cap(v.name)} from './pages/${v.name}';`).join('\n');
   const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
   // 管理端布局：顶部 Header（应用名）+ 左侧 Sider 菜单 + 右侧内容区（路由出口）；dialog 不进菜单
@@ -2802,6 +3019,10 @@ const { Header, Sider, Content } = Layout;
 const MENU_ITEMS = [
 ${menuItems}
 ];
+
+// 首页：第一个列表页（门户文件声明在前 → 默认落门户）
+const FIRST_ROUTES: string[] = [${firstRoutes}];
+const HOME_ROUTE = FIRST_ROUTES[0] ?? '/';
 
 export default function App() {
   const nav = useNavigate();
