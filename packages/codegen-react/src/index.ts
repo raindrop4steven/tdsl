@@ -1197,7 +1197,9 @@ function exprToJs(app: AppNode, e: Expr, bodyStruct: StructureNode | undefined):
     case 'Member': {
       const lit = enumMemberLiteralOf(app, e);
       if (lit !== null) return lit;
-      return `${exprToJs(app, e.obj, bodyStruct)}.${e.prop}`;
+      // 嵌套路径用可选链（详情抽屉 row.in.status：查询返回前 row.in 尚不存在，否则运行期崩）
+      const sep = e.obj.kind === 'Member' || e.obj.kind === 'Call' ? '?.' : '.';
+      return `${exprToJs(app, e.obj, bodyStruct)}${sep}${e.prop}`;
     }
     case 'Call':
     case 'Binary': {
@@ -2156,9 +2158,12 @@ function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, stri
       const inlineJsx = inlineBtns.map((b) => genButton(app, b, queryVars, { row: true, states, refetch: mainRefetch })).join('\n ');
       let dropdownJsx = '';
       if (foldedBtns.length > 0) {
-        const items = foldedBtns.map((b, i) => `{ key: 'fold${i + 1}', label: '${String(b.props.text ?? '')}' }`).join(', ');
-        const handlers = foldedBtns.map((b, i) => `  fold${i + 1}: () => { ${foldButtonHandler(app, b, mainRefetch)} }`).join(', ');
-        dropdownJsx = ` <Dropdown menu={{ items: [${items}], onClick: ({ key }) => { const map: Record<string, () => void> = {\n${handlers}\n }; map[key]?.(); } }}><Button type="link" size="small">更多</Button></Dropdown>`;
+        // 折叠项也遵守 visible（已审批的行不应在「更多」里还能看到「审批」）；当前行全部不可见时不渲染「更多」
+        const defs = foldedBtns
+          .map((b, i) => `{ key: 'fold${i + 1}', label: '${String(b.props.text ?? '')}', show: ${visibleCondOf(app, b) ?? 'true'} }`)
+          .join(', ');
+        const handlers = foldedBtns.map((b, i) => `      fold${i + 1}: () => { ${foldButtonHandler(app, b, mainRefetch)} }`).join(',\n');
+        dropdownJsx = `{(() => { const folds = [${defs}]; const shown = folds.filter((f) => f.show); const run: Record<string, () => void> = {\n${handlers}\n    }; return shown.length > 0 ? (<Dropdown menu={{ items: shown.map((f) => ({ key: f.key, label: f.label })), onClick: ({ key }) => run[String(key)]?.() }}><Button type="link" size="small">更多</Button></Dropdown>) : null; })()}`;
       }
       const opParams = /\brow\b/.test(inlineJsx + dropdownJsx) ? '(_, row)' : '(_, _row)';
       opCol = `,\n    { title: '操作', key: 'op', render: ${opParams} => (<Space size={2}>${inlineJsx}${dropdownJsx}</Space>) }`;
@@ -2198,9 +2203,8 @@ function genButton(
   const isRow = opts?.row ?? false;
   const states = opts?.states ?? [];
   // 动作可用性（dev/45 §1.2）：visible → 条件渲染；disabled → 置灰。条件在行上下文编译（row.<字段> 比较 + 枚举成员 + 逻辑组合）
-  const visProp = el.props['visible'];
+  const visCond = visibleCondOf(app, el);
   const disProp = el.props['disabled'];
-  const visCond = typeof visProp === 'object' && visProp !== null ? exprToJs(app, visProp as Expr, undefined) : null;
   const disAttr = typeof disProp === 'object' && disProp !== null ? ` disabled={${exprToJs(app, disProp as Expr, undefined)}}` : '';
   const wrap = (jsx: string): string => (visCond ? `{${visCond} && (${jsx})}` : jsx);
   // 行内操作列用链接式按钮（管理端观感，实心按钮在每行太扎眼）；页面级按钮保持 primary
@@ -2909,6 +2913,12 @@ function mutationToastOf(app: AppNode, logicName: string): string {
   const logic = app.logics.find((l) => l.name === logicName);
   const raw = logic?.annotations?.find((a) => a.name === 'ok')?.args?.['value'];
   return typeof raw === 'string' && raw !== '' ? raw : '操作成功';
+}
+
+/** 按钮 visible 条件（行上下文表达式）；未声明 → null */
+function visibleCondOf(app: AppNode, el: ViewElementNode): string | null {
+  const v = el.props['visible'];
+  return typeof v === 'object' && v !== null ? exprToJs(app, v as Expr, undefined) : null;
 }
 
 /** JSX 文本安全化：< > { } & 转义（用户文案可能含「<5%」这类字符，否则截断标签） */function jsxText(s: string): string {

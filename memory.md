@@ -196,3 +196,8 @@
 - 无 `@menu` 的页面归入「其他」模块；若全无分组则以应用名作模块名（jxc/todo 等简单应用观感自然）。
 - 顺带清掉 routes 里残留的 `@role` 守卫代码（此前已决定角色不驱动外壳）。
 - 测试同步：折叠菜单用例改为断言 `MODULES/PAGE_MODULE`（顶部横向 + 左侧当前模块），断言不含旧 `group-`/`defaultOpenKeys`。全仓 321 单测全绿、react tsc+build ✓。
+
+## 2026-09-16 续八（详情抽屉运行期崩溃 + 「更多」折叠漏 visible）
+- **用户报崩溃**：采购入库详情报 `Cannot read properties of undefined (reading 'status')`（erpPurchaseInDetail.tsx:21）。根因：详情抽屉的聚合结构体 `row.in` 在查询返回前是 undefined，而条件表达式生成 `row.in.status`。修：`exprToJs` 的 Member 分支对**嵌套路径**（obj 也是 Member/Call）改用可选链 → `row.in?.status`（单层 `row.status` 不变，避免大面积改测试）。
+- **用户报漏显**：列表上已审批的行「更多」里仍能看到「审批」。根因：行按钮 >4 会折叠进 Dropdown，而折叠项的 `items`/handlers 是**静态生成、未带 visible 条件**。修：折叠项改为运行期过滤——`const folds = [{key,label,show:(条件)}]; const shown = folds.filter(f=>f.show);` 全部不可见时不渲染「更多」；抽 `visibleCondOf()` 给 genButton 与折叠项共用。
+- 回归：321 单测 / react tsc+build ✓ / vite 200。
