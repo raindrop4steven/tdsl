@@ -592,12 +592,43 @@ dialog erpSaleOutForm {
   </form>
 }
 
-struct SaleOutDetail { out: SaleOut; items: List<SaleOutItem>; }
+// 详情 DTO 扁平化（主表字段 + items）：详情抽屉可直接把 row 传给编辑表单做预填
+struct SaleOutDetail {
+  id: Integer;
+  no: String;
+  status: DocStatus;
+  outTime: DateTime;
+  customerId: Integer;
+  accountId: Integer;
+  saleUserId: Integer;
+  orderId: Integer;
+  orderNo: String;
+  otherPrice: Decimal;
+  fileUrl: String;
+  totalPrice: Decimal;
+  receiptPrice: Decimal;
+  remark: String;
+  items: List<SaleOutItem>;
+}
 
 @export
 function getErpSaleOutDetail(id: Integer): SaleOutDetail {
+  const b = SaleOut.get(id);
   const d = new SaleOutDetail();
-  d.out = SaleOut.get(id);
+  d.id = b.id;
+  d.no = b.no;
+  d.status = b.status;
+  d.outTime = b.outTime;
+  d.customerId = b.customerId;
+  d.accountId = b.accountId;
+  d.saleUserId = b.saleUserId;
+  d.orderId = b.orderId;
+  d.orderNo = b.orderNo;
+  d.otherPrice = b.otherPrice;
+  d.fileUrl = b.fileUrl;
+  d.totalPrice = b.totalPrice;
+  d.receiptPrice = b.receiptPrice;
+  d.remark = b.remark;
   d.items = SaleOutItem.where(outId = id);
   return d;
 }
@@ -606,12 +637,12 @@ function getErpSaleOutDetail(id: Integer): SaleOutDetail {
 @menu('销售管理')
 dialog erpSaleOutDetail {
   <detail dataSource={useQuery('getErpSaleOutDetail', initial.id)}>
-    <text field="out.no" title="出库单号" />
-    <text field="out.outTime" title="出库时间" />
-    <text field="out.orderNo" title="关联单号" />
-    <text field="out.totalPrice" title="优惠后金额" />
-    <text field="out.receiptPrice" title="已收金额" />
-    <text field="out.remark" title="备注" />
+    <text field="no" title="出库单号" />
+    <text field="outTime" title="出库时间" />
+    <text field="orderNo" title="关联单号" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="receiptPrice" title="已收金额" />
+    <text field="remark" title="备注" />
     <repeat field="items" title="出库明细">
       <column field="productId" title="产品" />
       <column field="warehouseId" title="仓库" />
@@ -621,12 +652,12 @@ dialog erpSaleOutDetail {
       <column field="taxPercent" title="税率" />
     </repeat>
   </detail>
-  <button text="编辑" action={openDialog('erpSaleOutForm', row.out)}
-          disabled={row.out.status === DocStatus.AUDITED} />
-  <button text="审批" action={useMutation('auditErpSaleOut', row.out.id)}
-          visible={row.out.status === DocStatus.UNAUDIT} />
-  <button text="反审批" action={useMutation('deauditErpSaleOut', row.out.id)}
-          visible={row.out.status === DocStatus.AUDITED} />
+  <button text="编辑" action={openDialog('erpSaleOutForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpSaleOut', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpSaleOut', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
 }
 
 @title('销售退货列表')

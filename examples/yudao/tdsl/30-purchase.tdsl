@@ -591,12 +591,41 @@ dialog erpPurchaseInForm {
   </form>
 }
 
-struct PurchaseInDetail { in: PurchaseIn; items: List<PurchaseInItem>; }
+// 详情 DTO 扁平化（主表字段 + items）：详情抽屉可直接把 row 传给编辑表单做预填（字段与明细都能带到）
+struct PurchaseInDetail {
+  id: Integer;
+  no: String;
+  status: DocStatus;
+  inTime: DateTime;
+  supplierId: Integer;
+  accountId: Integer;
+  orderId: Integer;
+  orderNo: String;
+  otherPrice: Decimal;
+  fileUrl: String;
+  totalPrice: Decimal;
+  paymentPrice: Decimal;
+  remark: String;
+  items: List<PurchaseInItem>;
+}
 
 @export
 function getErpPurchaseInDetail(id: Integer): PurchaseInDetail {
+  const b = PurchaseIn.get(id);
   const d = new PurchaseInDetail();
-  d.in = PurchaseIn.get(id);
+  d.id = b.id;
+  d.no = b.no;
+  d.status = b.status;
+  d.inTime = b.inTime;
+  d.supplierId = b.supplierId;
+  d.accountId = b.accountId;
+  d.orderId = b.orderId;
+  d.orderNo = b.orderNo;
+  d.otherPrice = b.otherPrice;
+  d.fileUrl = b.fileUrl;
+  d.totalPrice = b.totalPrice;
+  d.paymentPrice = b.paymentPrice;
+  d.remark = b.remark;
   d.items = PurchaseInItem.where(inId = id);
   return d;
 }
@@ -605,12 +634,12 @@ function getErpPurchaseInDetail(id: Integer): PurchaseInDetail {
 @menu('采购管理')
 dialog erpPurchaseInDetail {
   <detail dataSource={useQuery('getErpPurchaseInDetail', initial.id)}>
-    <text field="in.no" title="入库单号" />
-    <text field="in.inTime" title="入库时间" />
-    <text field="in.orderNo" title="关联单号" />
-    <text field="in.totalPrice" title="优惠后金额" />
-    <text field="in.paymentPrice" title="已付金额" />
-    <text field="in.remark" title="备注" />
+    <text field="no" title="入库单号" />
+    <text field="inTime" title="入库时间" />
+    <text field="orderNo" title="关联单号" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="paymentPrice" title="已付金额" />
+    <text field="remark" title="备注" />
     <repeat field="items" title="入库明细">
       <column field="productId" title="产品" />
       <column field="warehouseId" title="仓库" />
@@ -620,12 +649,12 @@ dialog erpPurchaseInDetail {
       <column field="taxPercent" title="税率" />
     </repeat>
   </detail>
-  <button text="编辑" action={openDialog('erpPurchaseInForm', row.in)}
-          disabled={row.in.status === DocStatus.AUDITED} />
-  <button text="审批" action={useMutation('auditErpPurchaseIn', row.in.id)}
-          visible={row.in.status === DocStatus.UNAUDIT} />
-  <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.in.id)}
-          visible={row.in.status === DocStatus.AUDITED} />
+  <button text="编辑" action={openDialog('erpPurchaseInForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
 }
 
 @title('采购退货列表')

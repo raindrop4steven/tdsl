@@ -201,3 +201,10 @@
 - **用户报崩溃**：采购入库详情报 `Cannot read properties of undefined (reading 'status')`（erpPurchaseInDetail.tsx:21）。根因：详情抽屉的聚合结构体 `row.in` 在查询返回前是 undefined，而条件表达式生成 `row.in.status`。修：`exprToJs` 的 Member 分支对**嵌套路径**（obj 也是 Member/Call）改用可选链 → `row.in?.status`（单层 `row.status` 不变，避免大面积改测试）。
 - **用户报漏显**：列表上已审批的行「更多」里仍能看到「审批」。根因：行按钮 >4 会折叠进 Dropdown，而折叠项的 `items`/handlers 是**静态生成、未带 visible 条件**。修：折叠项改为运行期过滤——`const folds = [{key,label,show:(条件)}]; const shown = folds.filter(f=>f.show);` 全部不可见时不渲染「更多」；抽 `visibleCondOf()` 给 genButton 与折叠项共用。
 - 回归：321 单测 / react tsc+build ✓ / vite 200。
+
+## 2026-09-16 续九（详情→编辑预填明细丢失 + antd rowKey 废弃告警）
+- **用户报**："采购入库详情有明细，编辑时明细没了"，控制台 antd 告警 `rowKey` 函数式（带 index）已废弃。
+- **根因1（明细丢失）**：详情聚合结构体是 `{ in: PurchaseIn; items }`，编辑按钮把 `row.in` 传给表单 → 表单只认顶层字段与 `initial.items`（`in` 包了一层、且 `items` 不在 `in` 上）→ 明细与部分字段丢失。
+  修：**详情 DTO 扁平化**——`PurchaseInDetail`/`SaleOutDetail` 改为主表字段（id/no/status/…）+ `items` 平铺；getter 逐字段拷贝；详情页 `<text field="no">`、按钮用 `row.status`/`row.id`；编辑按钮直接传 `row` → 表头字段与明细行都能预填（真机验证 `/detail` 返回扁平 DTO + items）。
+- **根因2（告警）**：表单明细表用 `rowKey={(_, index) => String(index)}`（antd 已废弃）。修：`dataSource={items.map((it, i) => ({ ...it, key: String(i) }))}` + `rowKey="key"`（行对象多出渲染用 key，不进提交体）。
+- 回归：321 单测 / java clean compile / react tsc+build / seed 105-0。

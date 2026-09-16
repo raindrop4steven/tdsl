@@ -2566,9 +2566,9 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
     size="small"
     bordered
     pagination={false}
-    rowKey={(_, index) => String(index)}
+    rowKey="key"
     scroll={{ x: 'max-content' }}
-    dataSource={${field}}
+    dataSource={${field}.map((it, i) => ({ ...it, key: String(i) }))}
     columns={[
 ${cellDefs},
       { title: '操作', key: 'op', width: 60, render: (_, _row, i) => (<Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => set${cap(field)}(${field}.filter((_, j) => j !== i))} />) }
