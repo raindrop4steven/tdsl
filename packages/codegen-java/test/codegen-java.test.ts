@@ -229,7 +229,7 @@ interface OrderApi {
   it('generates where-derived findBy in repository', () => {
     const files = generateJava(parse(ORDER_DSL));
     const repo = files.find((f) => f.path.endsWith('repository/OrderItemRepository.java'))!;
-    expect(repo.content).toContain('java.util.List<OrderItem> findByOrderId(Long orderId);');
+    expect(repo.content).toContain('findByOrderId(@org.springframework.data.repository.query.Param("orderId") Long orderId);');
   });
 
   it('generates Decimal arithmetic (add/multiply) not Java operators', () => {
@@ -408,7 +408,7 @@ interface OrderApi {
   it('derives multi-condition AND method name with op suffixes', () => {
     const files = generateJava(parse(M2_DSL));
     const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
-    expect(repo).toContain('java.util.List<Order> findByCustomerLikeAndTotalGreaterThanEqual(String customer, java.math.BigDecimal total);');
+    expect(repo).toContain('findByCustomerLikeAndTotalGreaterThanEqual(@org.springframework.data.repository.query.Param("customer") String customer, @org.springframework.data.repository.query.Param("total") java.math.BigDecimal total);');
   });
 
   it('generates limit() with Pageable returning List', () => {
@@ -422,7 +422,7 @@ interface OrderApi {
   it('generates page() returning Page<T> with Pageable', () => {
     const files = generateJava(parse(M2_DSL));
     const repo = files.find((f) => f.path.endsWith('repository/OrderRepository.java'))!.content;
-    expect(repo).toContain('org.springframework.data.domain.Page<Order> findByTotalGreaterThanOrderByTotalDesc(java.math.BigDecimal total, org.springframework.data.domain.Pageable pageable);');
+    expect(repo).toContain('org.springframework.data.domain.Page<Order> findByTotalGreaterThanOrderByTotalDesc(@org.springframework.data.repository.query.Param("total") java.math.BigDecimal total, org.springframework.data.domain.Pageable pageable);');
     const svc = files.find((f) => f.path.endsWith('service/PageOrdersService.java'))!.content;
     expect(svc).toContain('PageRequest.of(n.intValue(), size.intValue())');
     expect(svc).toContain('org.springframework.data.domain.Page<Order> pageOrders(');
@@ -543,7 +543,7 @@ interface Api {
     expect(svc).not.toContain('import com.todo.enums.*;');
   });
 
-  it('where 查询 null 宽松：eq/like 条件 → JPQL（?n IS NULL OR 谓词），方法名不变（jxc F9：可选参数缺省默认全量而非空集）', () => {
+  it('where 查询 null 宽松：eq/like 条件 → JPQL（:field IS NULL OR 谓词 + @Param），方法名不变（jxc F9：可选参数缺省默认全量而非空集）', () => {
     const repo = generateJava(SRC).find((f) => f.path.endsWith('ItemRepository.java'))!.content;
     expect(repo).toContain('IS NULL OR');
     expect(repo).toContain('findByOrderId');

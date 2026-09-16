@@ -290,8 +290,8 @@ export function generateJava(app: AppNode, opts: GenerateJavaOptions = {}): Gene
     files.push(enumFile(pkg, en));
   }
   for (const ent of entities) {
-    files.push(entityFile(pkg, ent, app.enums.length > 0));
-    files.push(repositoryFile(pkg, ent, querySpecs.get(ent.name) ?? [], app.enums.length > 0));
+    files.push(entityFile(pkg, ent, app.enums.map((e) => e.name)));
+    files.push(repositoryFile(pkg, ent, querySpecs.get(ent.name) ?? [], app.enums.map((e) => e.name)));
   }
   for (const s of app.structures) {
     files.push(structureFile(app, s));
@@ -584,7 +584,7 @@ function tableNameOf(ent: EntityNode): string {
   return SQL_RESERVED.has(base) ? `\\"${base}\\"` : base;
 }
 
-function entityFile(pkg: string, ent: EntityNode, hasEnums: boolean): GeneratedFile {
+function entityFile(pkg: string, ent: EntityNode, enumNames: string[]): GeneratedFile {
   const className = ent.name;
   const table = tableNameOf(ent);
   const fields = ent.properties
@@ -596,6 +596,10 @@ function entityFile(pkg: string, ent: EntityNode, hasEnums: boolean): GeneratedF
       } else {
         // F11 修复（原判定反向）：@nullable → 列可空；未标记（必填语义）默认 Hibernate 可空列（写入约束由前端/服务校验兜底，避免存量 demo 插入崩）
         if (p.nullable === true) lines.push('  @Column(nullable = true)');
+      }
+      if (isEnumField(ent, p.name, enumNames)) {
+        // 枚举按名字存（varchar）：默认 ORDINAL(int) 下绑定枚举参数在 H2 端推断为 varbinary，与 INTEGER 列不可比（yudao status 查询翻车实证）
+        lines.push('  @Enumerated(EnumType.STRING)');
       }
       lines.push(`  private ${javaType(p.type)} ${p.name};`);
       return lines.join('\n');
@@ -615,7 +619,7 @@ function entityFile(pkg: string, ent: EntityNode, hasEnums: boolean): GeneratedF
   const content = `package ${pkg}.entity;
 
 import javax.persistence.*;
-${enumsImport(pkg, hasEnums)}@Entity
+${enumsImport(pkg, enumNames.length > 0)}@Entity
 @Table(name = "${table}")
 public class ${className} {
 
@@ -913,6 +917,12 @@ function condParamJavaType(ent: EntityNode, c: QuerySpec['conditions'][number]):
   return base;
 }
 
+/** 枚举条件判定：枚举列与 H2 INTEGER（ordinal 存储）比较时，`?n IS NULL OR` 双位参数推断不出枚举型（报 BINARY VARYING 不比较）*/
+function isEnumField(ent: EntityNode | undefined, field: string, enumNames: string[]): boolean {
+  const t = ent?.properties.find((p) => p.name === field)?.type;
+  return t?.kind === 'reference' && enumNames.includes(typeNameFromPath(t.path));
+}
+
 /** 聚合函数 → JPQL 函数 + Java 返回类型 */
 function aggJpql(fn: 'sum' | 'avg' | 'max' | 'min' | 'count', field: string | undefined, alias: string): { expr: string; ret: string } {
   switch (fn) {
@@ -950,23 +960,28 @@ function repoMethod(ent: EntityNode, spec: QuerySpec): string {
   const hasIn = spec.conditions.some((c) => c.op === 'in');
   const hasOr = spec.conditions.some((c) => c.connector === 'or');
   if (!hasIn && !hasOr && spec.limit === undefined && spec.conditions.length > 0) {
+    // named 参数（:field）：Hibernate 解析期可从 `col = :field` 反推参数类型。
+    // 位置参数 ?n 会退化为 Serializable（枚举 → varbinary），与列类型不可比（yudao 状态查询实证）。
     const preds = spec.conditions
-      .map((c, i) => {
+      .map((c) => {
         const col = `${alias}.${c.field}`;
         const inner =
           c.op === 'like'
-            ? `${col} LIKE CONCAT('%', ?${i + 1}, '%')`
-            : `${col} ${c.op} ?${i + 1}`;
-        return `(?${i + 1} IS NULL OR ${inner})`;
+            ? `${col} LIKE CONCAT('%', :${c.field}, '%')`
+            : `${col} ${c.op} :${c.field}`;
+        return `(:${c.field} IS NULL OR ${inner})`;
       })
       .join(' AND ');
+    const namedParams = spec.conditions.map(
+      (c) => `@org.springframework.data.repository.query.Param("${c.field}") ${condParamJavaType(ent, c)} ${c.field}`,
+    );
     const order = spec.orderBy.map((o) => ` ${alias}.${o.field} ${o.dir.toUpperCase()}`).join(', ');
     const orderClause = order ? ` ORDER BY${order}` : '';
     if (spec.pageable) {
-      params.push('org.springframework.data.domain.Pageable pageable');
-      return `  @org.springframework.data.jpa.repository.Query("SELECT ${alias} FROM ${ent.name} ${alias} WHERE ${preds}${orderClause}")\n  org.springframework.data.domain.Page<${ent.name}> ${name}(${params.join(', ')});`;
+      namedParams.push('org.springframework.data.domain.Pageable pageable');
+      return `  @org.springframework.data.jpa.repository.Query("SELECT ${alias} FROM ${ent.name} ${alias} WHERE ${preds}${orderClause}")\n  org.springframework.data.domain.Page<${ent.name}> ${name}(${namedParams.join(', ')});`;
     }
-    return `  @org.springframework.data.jpa.repository.Query("SELECT ${alias} FROM ${ent.name} ${alias} WHERE ${preds}${orderClause}")\n  java.util.List<${ent.name}> ${name}(${params.join(', ')});`;
+    return `  @org.springframework.data.jpa.repository.Query("SELECT ${alias} FROM ${ent.name} ${alias} WHERE ${preds}${orderClause}")\n  java.util.List<${ent.name}> ${name}(${namedParams.join(', ')});`;
   }
   // limit 返回 List；page 返回 Page
   const ret = spec.pageable && spec.limit === undefined ? `org.springframework.data.domain.Page<${ent.name}>` : `java.util.List<${ent.name}>`;
@@ -974,7 +989,7 @@ function repoMethod(ent: EntityNode, spec: QuerySpec): string {
   return `  ${ret} ${name}(${params.join(', ')});`;
 }
 
-function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[], hasEnums: boolean): GeneratedFile {
+function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[], enumNames: string[]): GeneratedFile {
   const idProp = ent.properties.find((p) => p.primary);
   const idType = idProp ? javaType(idProp.type) : 'Long';
   const methods = specs.map((s) => repoMethod(ent, s)).join('\n');
@@ -983,7 +998,7 @@ function repositoryFile(pkg: string, ent: EntityNode, specs: QuerySpec[], hasEnu
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import ${pkg}.entity.${ent.name};
-${enumsImport(pkg, hasEnums)}public interface ${ent.name}Repository extends JpaRepository<${ent.name}, ${idType}> {
+${enumsImport(pkg, enumNames.length > 0)}public interface ${ent.name}Repository extends JpaRepository<${ent.name}, ${idType}> {
 ${methodBlock}}
 `;
   return {

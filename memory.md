@@ -132,3 +132,12 @@
 - **yudao 混包教训**：CLI app 名取目录名 → `examples/yudao/tdsl` 生成进 com.tdsl、旧手产物 com.yudao 并存，双主类 EPERM 连环；正解 `--name yudao` + 清空重刷。
 - **验证链**：yudao 双端 build ✓（java mvn compile、react tsc+vite build 全绿）；seed.ts 灌数 **105/105 0 失败**（users→字典→产品/仓库/供应商/账户→库存→采购/销售/财务→CRM 全链）；全仓 302 单测全绿（+2：cli 孤儿清理 ×1、react 补齐后口径）。
 - 余项：yudao 详情页查询不带 id 过滤（queryXxx 无 id 参数，spec 简化遗留）；react vite 警告 chunk>500KB（非阻断）。
+
+### 2026-09-16 续（@ref 前端交互三连修 · 用户实测驱动）
+- **搜索条 @ref/enum 渲染**：产品列表"启用状态"这类搜索条件原来还是纯文本 Input（用户点名）→ 新增 `collectSearchEnumFields`/`collectSearchFkFields` + `searchEnumSelect`/`searchFkSelect`：搜索条 FK 字段走引用下拉（复用 `qFkXxx` hook，不额外请求）、枚举字段走选项下拉（label 取自 `KEY('中文')`）；antd import 收集同步排除被升级字段的 Input。
+- **错误可见化（用户点名"接口报错前端没反应"）**：① api.ts 生成的 fetch 统一 `r.ok` 校验，非 2xx 抛错 → 错误体不再灌进 Table 导致 `rawData.some is not a function` 白屏；② hooks.ts useQuery/useMutation 的 catch 加 `message.error(...)` 弹窗提示；③ 数值搜索参数空串/NaN → `undefined`（防 `?customerId=NaN` 打后端 500）。
+- **枚举查询 SQL 报错根治（Hibernate 参数绑定）**：现象 `status=DISABLE` → `SQLGrammarException`/`Values of types "CHARACTER VARYING(255)" and "BINARY VARYING(255)" are not comparable`。根因：Spring Data JPA **位置参数** `?n` 在 `?n IS NULL OR c.x = ?n` 结构里 Hibernate 推断不出枚举类型，退化为 Serializable(varbinary)。**否决了两个错方向**：用户明拒"内存过滤"；也没换 MyBatis（大动作不必要）。
+  - 修法（生成器级）：repository 生成由 `?n` 改 **named 参数 `:field` + `@Param("field")`**（Hibernate 解析期可从 `c.x = :field` 反推列类型）；枚举存储 `@Enumerated(EnumType.STRING)`（varchar，库内可读）；去掉试错用的 COALESCE 特判。
+  - 实证（真机 + 105 条数据）：`status=ENABLE`=7、`DISABLE`=[]、不带状态=7（null 宽松）、`name=联想&status=ENABLE` 命中、`purchase-orders?status=AUDITED/UNAUDIT` 正确分组 2/1、`categoryId+status` 组合 2。
+  - 教训沉淀：**JPA 枚举/参数查询一律 named 参数**；`?n IS NULL OR` 位置参数 + 枚举是 Hibernate 5 的坑。
+- 回归：302 单测全绿、九包 typecheck ✓、yudao 双端 build ✓、真机筛选全对。

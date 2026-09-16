@@ -615,6 +615,7 @@ function buildUrlExpr(path: string, pathVars: string[]): string {
 function hooksFile(): GeneratedFile {
   const content = `// 自动生成：数据绑定 hooks（TDSL useQuery/useMutation）
 import { useEffect, useRef, useState } from 'react';
+import { message } from 'antd';
 
 export interface QueryState<T> {
   data: T | null;
@@ -644,6 +645,8 @@ export function useQuery<T>(fn: () => Promise<T>, deps: unknown[] = []): QuerySt
       })
       .catch((e) => {
         if (alive.current) setError(e);
+        // 接口失败必须可见：弹窗提示（静默吞错会让"查不到=没反应"）
+        message.error(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
         if (alive.current) setLoading(false);
@@ -673,6 +676,7 @@ export function useMutation<T extends unknown[], R>(fn: (...args: T) => Promise<
       return r;
     } catch (e) {
       if (alive.current) setError(e);
+      message.error(e instanceof Error ? e.message : String(e));
       return undefined;
     } finally {
       if (alive.current) setLoading(false);
@@ -769,7 +773,8 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
       ...collectFormAntd(app, v),
       ...(formHasRequired(app, v) ? ['message'] : []),
       // 搜索条外键字段 → 引用下拉（数据源 hook 与列共享，控件本身需要 Select）
-      ...(collectSearchFkFields(app, v).size > 0 ? ['Select'] : []),
+      // 搜索条枚举字段 → 选项 Select（后缀同 form 的枚举升级）
+      ...(collectSearchFkFields(app, v).size > 0 || collectSearchEnumFields(app, v).size > 0 ? ['Select'] : []),
       // 外键渲染点（表单下拉/明细下拉）→ antd Select 已由 collectFormAntd 逐字段精确收取；表格列 fk 显示名不产生 Select
       // 表格枚举列的彩色 Tag（genTable 隐含产物必须计入 import，否则 ReferenceError）
       ...(hasEnumTableColumn(app, v) ? ['Tag'] : []),
@@ -896,12 +901,17 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
       ? `        <Button type="primary" style={{ width: 88 }} onClick={() => ${firstQueryVar}.refetch()}>查询</Button>`
       : '';
   const searchFks = collectSearchFkFields(app, v);
+  const searchEnums = collectSearchEnumFields(app, v);
   const searchRow =
     toolbarInputs.length > 0
       ? `      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>\n${toolbarInputs
             .map((el) => {
-              const ref = searchFks.get(String(el.props.field ?? ''));
-              return `        ${ref ? searchFkSelect(ref, el) : genInput(el)}`;
+              const f = String(el.props.field ?? '');
+              const fkRef = searchFks.get(f);
+              if (fkRef) return `        ${searchFkSelect(fkRef, el)}`;
+              const enumName = searchEnums.get(f);
+              if (enumName) return `        ${searchEnumSelect(app, enumName, el)}`;
+              return `        ${genInput(el)}`;
             })
             .join('\n')}\n${queryButton}\n      </div>`
       : '';
@@ -1328,11 +1338,11 @@ function hasEnumTableColumn(app: AppNode, v: ViewNode): boolean {
 /** 页面用到哪些 antd 组件（去重、保持稳定顺序） */
 function collectAntdComponents(app: AppNode, v: ViewNode): string[] {
   const found = new Set<string>();
-  // 搜索条 input：外键字段升级为 Select（searchFkSelect）→ 不再收 Input
-  const searchFkFields = new Set(collectSearchFkFields(app, v).keys());
+  // 搜索条 input：外键/枚举字段升级为 Select（searchFkSelect/searchEnumSelect）→ 不再收 Input
+  const searchUpgradeFields = new Set([...collectSearchFkFields(app, v).keys(), ...collectSearchEnumFields(app, v).keys()]);
   const visit = (els: ViewElementNode[], inForm: boolean): void => {
     for (const el of els) {
-      if (el.type === 'input' && !inForm && !searchFkFields.has(String(el.props.field ?? ''))) found.add(ANTD_OF[el.type]);
+      if (el.type === 'input' && !inForm && !searchUpgradeFields.has(String(el.props.field ?? ''))) found.add(ANTD_OF[el.type]);
       else if (el.type !== 'input') {
         const name = ANTD_OF[el.type];
         if (name) found.add(name);
@@ -1832,6 +1842,29 @@ function collectSearchFkFields(app: AppNode, v: ViewNode): Map<string, FkRef> {
     if (ref) out.set(f, ref);
   }
   return out;
+}
+
+/** 搜索条枚举字段：field → 枚举名（页面顶层 input，属主实体的枚举属性） */
+function collectSearchEnumFields(app: AppNode, v: ViewNode): Map<string, string> {
+  const ownerName = pageMainEntityOf(app, v);
+  const owner = ownerName ? app.datasources.flatMap((d) => d.entities).find((e) => e.name === ownerName) : undefined;
+  if (!owner) return new Map();
+  const out = new Map<string, string>();
+  for (const f of collectInputFields(v)) {
+    const t = owner.properties.find((p) => p.name === f)?.type;
+    const en = t?.kind === 'reference' ? app.enums.find((e) => e.name === nameFromPath(t.path)) : undefined;
+    if (en) out.set(f, en.name);
+  }
+  return out;
+}
+
+/** 搜索条枚举字段 → 选项 Select（选项来自 TDSL enum 的 key('中文') label；值存枚举名，后端空串→null 不过滤） */
+function searchEnumSelect(app: AppNode, enumName: string, el: ViewElementNode): string {
+  const field = String(el.props.field ?? '');
+  const label = String(el.props.label ?? field);
+  const en = app.enums.find((e) => e.name === enumName);
+  const opts = (en?.items ?? []).map((i) => `{ value: '${i.name}', label: '${i.label ?? i.name}' }`).join(', ');
+  return `<Select allowClear placeholder="${label}" style={{ width: 240 }} options={[${opts}]} value={${field} === '' ? null : ${field}} onChange={(v) => set${cap(field)}(v == null ? '' : String(v))} />`;
 }
 
 /** table dataSource={useQuery('x')} → antd Table + 数据驱动 columns（Page<T> 返回自动取 .content；column navigate → onRow 跳转） */
