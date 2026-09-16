@@ -936,7 +936,7 @@ interface CrmApi {
 // ---- 页面 ----
 
 @title('线索列表')
-@menu('客户关系管理')
+@menu('客户关系管理/客户管理')
 page crmLeadList {
   <input field="name" label="线索名称" />
   <input field="mobile" label="手机" />
@@ -1002,7 +1002,7 @@ dialog crmLeadDetail {
 }
 
 @title('客户列表')
-@menu('客户关系管理')
+@menu('客户关系管理/客户管理')
 page crmCustomerList {
   <input field="name" label="客户名称" />
   <input field="mobile" label="手机" />
@@ -1089,7 +1089,7 @@ dialog crmCustomerDetail {
 }
 
 @title('联系人列表')
-@menu('客户关系管理')
+@menu('客户关系管理/客户管理')
 page crmContactList {
   <input field="name" label="联系人名称" />
   <input field="customerId" label="客户" />
@@ -1131,7 +1131,7 @@ dialog crmContactForm {
 }
 
 @title('公海配置')
-@menu('客户关系管理')
+@menu('客户关系管理/客户管理')
 page crmCustomerPoolList {
   <table dataSource={useQuery('queryCrmCustomerPoolConfig')}>
     <column field="enabled" title="是否开启" />
@@ -1157,7 +1157,7 @@ dialog crmCustomerPoolForm {
 }
 
 @title('客户限制配置')
-@menu('客户关系管理')
+@menu('客户关系管理/客户管理')
 page crmCustomerLimitList {
   <table dataSource={useQuery('queryCrmCustomerLimitConfig')}>
     <column field="type" title="限制类型" />
@@ -1185,7 +1185,7 @@ dialog crmCustomerLimitForm {
 }
 
 @title('商机状态组列表')
-@menu('客户关系管理')
+@menu('客户关系管理/商机管理')
 page crmBusinessStatusTypeList {
   <input field="name" label="状态组名称" />
   <table dataSource={useQuery('queryCrmBusinessStatusType')}>
@@ -1207,7 +1207,7 @@ dialog crmBusinessStatusTypeForm {
 }
 
 @title('商机状态列表')
-@menu('客户关系管理')
+@menu('客户关系管理/商机管理')
 page crmBusinessStatusList {
   <input field="name" label="状态名称" />
   <table dataSource={useQuery('queryCrmBusinessStatus')}>
@@ -1234,7 +1234,7 @@ dialog crmBusinessStatusForm {
 }
 
 @title('商机列表')
-@menu('客户关系管理')
+@menu('客户关系管理/商机管理')
 page crmBusinessList {
   <input field="name" label="商机名称" />
   <input field="customerId" label="客户" />
@@ -1310,7 +1310,7 @@ dialog crmBusinessStageForm {
 }
 
 @title('合同列表')
-@menu('客户关系管理')
+@menu('客户关系管理/合同与回款')
 page crmContractList {
   <input field="no" label="合同编号" />
   <input field="customerId" label="客户" />
@@ -1383,7 +1383,7 @@ dialog crmContractDetail {
 }
 
 @title('合同提醒配置')
-@menu('客户关系管理')
+@menu('客户关系管理/合同与回款')
 page crmContractConfigList {
   <table dataSource={useQuery('queryCrmContractConfig')}>
     <column field="notifyEnabled" title="是否提醒" />
@@ -1403,7 +1403,7 @@ dialog crmContractConfigForm {
 }
 
 @title('回款计划列表')
-@menu('客户关系管理')
+@menu('客户关系管理/合同与回款')
 page crmPlanList {
   <input field="customerId" label="客户" />
   <input field="contractId" label="合同" />
@@ -1439,7 +1439,7 @@ dialog crmPlanForm {
 }
 
 @title('回款列表')
-@menu('客户关系管理')
+@menu('客户关系管理/合同与回款')
 page crmReceivableList {
   <input field="no" label="回款编号" />
   <input field="customerId" label="客户" />
@@ -1502,7 +1502,7 @@ dialog crmReceivableDetail {
 }
 
 @title('CRM 产品分类')
-@menu('客户关系管理')
+@menu('客户关系管理/产品与价格')
 page crmProductCategoryList {
   <input field="name" label="分类名称" />
   <table dataSource={useQuery('queryCrmProductCategory')}>
@@ -1530,7 +1530,7 @@ dialog crmProductCategoryForm {
 }
 
 @title('CRM 产品列表')
-@menu('客户关系管理')
+@menu('客户关系管理/产品与价格')
 page crmProductList {
   <input field="name" label="产品名称" />
   <input field="categoryId" label="产品分类" />
@@ -1565,7 +1565,7 @@ dialog crmProductForm {
 }
 
 @title('跟进记录列表')
-@menu('客户关系管理')
+@menu('客户关系管理/跟进与待办')
 page crmFollowUpList {
   <input field="bizType" label="业务类型" />
   <table dataSource={useQuery('queryCrmFollowUpRecord')}>
@@ -1590,7 +1590,7 @@ dialog crmFollowUpForm {
 }
 
 @title('待办事项列表')
-@menu('客户关系管理')
+@menu('客户关系管理/跟进与待办')
 page crmTodoList {
   <input field="completed" label="是否完成" />
   <table dataSource={useQuery('queryCrmTodo')}>

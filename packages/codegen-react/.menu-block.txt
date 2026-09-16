@@ -1,0 +1,52 @@
+  // 布局：顶部 = 模块导航（@menu 一级）；左侧 = 当前模块菜单，@menu('模块/分组') 的第二级渲染为子菜单
+  interface ModuleEntry { pages: ViewNode[]; groups: Map<string, ViewNode[]> }
+  const modules = new Map<string, ModuleEntry>();
+  const ungrouped: ViewNode[] = [];
+  const ensureModule = (mod: string): ModuleEntry => {
+    const found = modules.get(mod);
+    if (found) return found;
+    const created: ModuleEntry = { pages: [], groups: new Map() };
+    modules.set(mod, created);
+    return created;
+  };
+  for (const v of listViews) {
+    const ann = v.annotations?.find((a) => a.name === 'menu');
+    const raw = ann?.args?.['value'];
+    if (typeof raw !== 'string' || raw === '') {
+      ungrouped.push(v);
+      continue;
+    }
+    const slash = raw.indexOf('/');
+    const mod = slash >= 0 ? raw.slice(0, slash) : raw;
+    const group = slash >= 0 ? raw.slice(slash + 1) : '';
+    const entry = ensureModule(mod);
+    if (group === '') entry.pages.push(v);
+    else {
+      if (!entry.groups.has(group)) entry.groups.set(group, []);
+      entry.groups.get(group)!.push(v);
+    }
+  }
+  if (ungrouped.length > 0) {
+    // 无 @menu 的页面归入「其他」模块（若全无分组则用应用名，观感更自然）
+    const key = modules.size > 0 ? '其他' : app.name;
+    ensureModule(key).pages.push(...ungrouped);
+  }
+  const moduleEntries = [...modules.entries()];
+  const pageItemJs = (v: ViewNode, indent: string): string => `${indent}{ key: '${routePathOf(v)}', label: '${viewTitle(v)}' },`;
+  const modulesJs = moduleEntries
+    .map(([mod, entry]) => {
+      const groupsJs = [...entry.groups.entries()]
+        .map(
+          ([grp, vs]) =>
+            `    { key: '${grp}', label: '${grp}', pages: [\n${vs.map((v) => pageItemJs(v, '      ')).join('\n')}\n    ] },`,
+        )
+        .join('\n');
+      return `  { key: '${mod}', label: '${mod}', pages: [\n${entry.pages.map((v) => pageItemJs(v, '    ')).join('\n')}\n  ], groups: [\n${groupsJs}\n  ] },`;
+    })
+    .join('\n');
+  const pageModuleJs = moduleEntries
+    .flatMap(([mod, entry]) => [
+      ...entry.pages.map((v) => `  '${routePathOf(v)}': '${mod}',`),
+      ...[...entry.groups.values()].flatMap((vs) => vs.map((v) => `  '${routePathOf(v)}': '${mod}',`)),
+    ])
+    .join('\n');

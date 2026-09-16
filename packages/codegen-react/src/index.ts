@@ -2927,34 +2927,57 @@ function routerFile(app: AppNode): GeneratedFile {
   const firstView = listViews[0];
   const firstRoute = firstView ? routePathOf(firstView) : null;
   const firstRoutes = listViews.map((v) => `'${routePathOf(v)}'`).join(', ');
-  const modules = new Map<string, ViewNode[]>();
+  // 布局：顶部 = 模块导航（@menu 一级）；左侧 = 当前模块菜单，@menu('模块/分组') 的第二级渲染为子菜单
+  interface ModuleEntry { pages: ViewNode[]; groups: Map<string, ViewNode[]> }
+  const modules = new Map<string, ModuleEntry>();
   const ungrouped: ViewNode[] = [];
+  const ensureModule = (mod: string): ModuleEntry => {
+    const found = modules.get(mod);
+    if (found) return found;
+    const created: ModuleEntry = { pages: [], groups: new Map() };
+    modules.set(mod, created);
+    return created;
+  };
   for (const v of listViews) {
     const ann = v.annotations?.find((a) => a.name === 'menu');
-    const g = ann?.args?.['value'];
-    if (typeof g === 'string' && g !== '') {
-      if (!modules.has(g)) modules.set(g, []);
-      modules.get(g)!.push(v);
-    } else {
+    const raw = ann?.args?.['value'];
+    if (typeof raw !== 'string' || raw === '') {
       ungrouped.push(v);
+      continue;
+    }
+    const slash = raw.indexOf('/');
+    const mod = slash >= 0 ? raw.slice(0, slash) : raw;
+    const group = slash >= 0 ? raw.slice(slash + 1) : '';
+    const entry = ensureModule(mod);
+    if (group === '') entry.pages.push(v);
+    else {
+      if (!entry.groups.has(group)) entry.groups.set(group, []);
+      entry.groups.get(group)!.push(v);
     }
   }
   if (ungrouped.length > 0) {
     // 无 @menu 的页面归入「其他」模块（若全无分组则用应用名，观感更自然）
     const key = modules.size > 0 ? '其他' : app.name;
-    modules.set(key, ungrouped);
+    ensureModule(key).pages.push(...ungrouped);
   }
   const moduleEntries = [...modules.entries()];
+  const pageItemJs = (v: ViewNode, indent: string): string => `${indent}{ key: '${routePathOf(v)}', label: '${viewTitle(v)}' },`;
   const modulesJs = moduleEntries
-    .map(
-      ([g, vs]) =>
-        `  { key: '${g}', label: '${g}', pages: [\n${vs
-          .map((v) => `    { key: '${routePathOf(v)}', label: '${viewTitle(v)}' },`)
-          .join('\n')}\n  ] },`,
-    )
+    .map(([mod, entry]) => {
+      const groupsJs = [...entry.groups.entries()]
+        .map(
+          ([grp, vs]) =>
+            `    { key: '${grp}', label: '${grp}', children: [\n${vs.map((v) => pageItemJs(v, '      ')).join('\n')}\n    ] },`,
+        )
+        .join('\n');
+      return `  { key: '${mod}', label: '${mod}', pages: [\n${entry.pages.map((v) => pageItemJs(v, '    ')).join('\n')}\n  ], groups: [\n${groupsJs}\n  ] },`;
+    })
     .join('\n');
   const pageModuleJs = moduleEntries
-    .flatMap(([g, vs]) => vs.map((v) => `  '${routePathOf(v)}': '${g}',`))
+    .flatMap(([mod, entry]) => [
+      ...entry.pages.map((v) => `  '${routePathOf(v)}': '${mod}',`),
+      ...[...entry.groups.values()].flatMap((vs) => vs.map((v) => `  '${routePathOf(v)}': '${mod}',`)),
+    ])
     .join('\n');
   const imports = routed.map((v) => `import ${cap(v.name)} from './pages/${v.name}';`).join('\n');
   const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
@@ -2967,7 +2990,8 @@ ${imports}
 const { Header, Sider, Content } = Layout;
 
 // 模块（@menu 分组）→ 顶部导航；模块内页面 → 左侧菜单
-const MODULES: Array<{ key: string; label: string; pages: Array<{ key: string; label: string }> }> = [
+type MenuItem = { key: string; label: string; children?: Array<{ key: string; label: string }> };
+const MODULES: Array<{ key: string; label: string; pages: Array<{ key: string; label: string }>; groups: MenuItem[] }> = [
 ${modulesJs}
 ];
 const PAGE_MODULE: Record<string, string> = {
@@ -2981,7 +3005,10 @@ export default function App() {
   const nav = useNavigate();
   const base = '/' + (useLocation().pathname.split('/')[1] ?? '');
   const current = PAGE_MODULE[base] ?? MODULES[0]?.key ?? '';
-  const pages = MODULES.find((m) => m.key === current)?.pages ?? [];
+  const mod = MODULES.find((m) => m.key === current);
+  // 左侧菜单 = 模块直属页面 + 分组子菜单（@menu('模块/分组')）
+  const pages: MenuItem[] = [...(mod?.pages ?? []), ...(mod?.groups ?? [])];
+  const openKeys = pages.filter((p) => p.children && p.children.length > 0).map((p) => p.key);
   return (
     <Layout style={{ height: '100vh' }}>
       <Header style={{ background: '#001529', display: 'flex', alignItems: 'center', paddingInline: 24, gap: 32 }}>
@@ -2991,7 +3018,7 @@ export default function App() {
           mode="horizontal"
           selectedKeys={[current]}
           items={MODULES.map((m) => ({ key: m.key, label: m.label }))}
-          onClick={({ key }) => { const m = MODULES.find((x) => x.key === String(key)); if (m && m.pages[0]) nav(m.pages[0].key); }}
+          onClick={({ key }) => { const m = MODULES.find((x) => x.key === String(key)); const first = m?.pages[0]?.key ?? m?.groups[0]?.children?.[0]?.key; if (first) nav(first); }}
           style={{ flex: 1, minWidth: 0, background: 'transparent', borderBottom: 'none' }}
         />
       </Header>
@@ -3001,8 +3028,9 @@ export default function App() {
             theme="dark"
             mode="inline"
             selectedKeys={[base]}
+            defaultOpenKeys={openKeys}
             items={pages}
-            onClick={({ key }) => nav(String(key))}
+            onClick={({ key, keyPath }) => { if (keyPath.length === 1) nav(String(key)); }}
             style={{ height: '100%', overflow: 'auto', borderInlineEnd: 'none' }}
           />
         </Sider>
