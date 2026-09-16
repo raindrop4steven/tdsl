@@ -4,6 +4,7 @@ import {
   isAmbiguousEntity,
   resolveQualified,
   resolveShort,
+  type Annotation,
   type AppNode,
   type BindingNode,
   type BaseNode,
@@ -173,6 +174,7 @@ class Parser {
     // @title('中文') / @menu('模块') → 紧随其后的 page/dialog 显示名与菜单分组（中文化 + 折叠菜单）
     let pendingServiceConfig: Record<string, string> | null = null;
     const pendingViewAnnos = new Map<string, string>();
+    let pendingLogicAnno: Annotation | null = null;
 
     while (this.peek().type !== 'eof') {
       // 顶层注解：@datasource('name') 声明/切换当前数据源；@service(...) 暂存配置；@title('x') 暂存视图标题；其余（@export 等）跳过
@@ -195,6 +197,15 @@ class Parser {
           this.expect('(');
           pendingViewAnnos.set(ann, this.expectString());
           this.expect(')');
+        } else if (ann === 'ok') {
+          // dev/48：操作成功提示文案（业务声明，生成器只搬运）→ 暂存给下一个 function
+          this.expect('(');
+          const okText = this.expectString();
+          this.expect(')');
+          pendingLogicAnno = { kind: 'Annotation', name: 'ok', args: { value: okText } };
+        } else if (this.peek().value === '(') {
+          // 其余带参注解：跳过括号内容（@export 等无参注解直接忽略）
+          this.skipParen();
         }
         continue;
       }
@@ -212,7 +223,12 @@ class Parser {
       } else if (kw === 'enum') {
         app.enums.push(this.parseEnum());
       } else if (kw === 'function') {
-        app.logics.push(this.parseLogic());
+        const logic = this.parseLogic();
+        if (pendingLogicAnno) {
+          logic.annotations = [...(logic.annotations ?? []), pendingLogicAnno];
+          pendingLogicAnno = null;
+        }
+        app.logics.push(logic);
       } else if (kw === 'interface') {
         app.interfaces.push(this.parseInterface());
       } else if (kw === 'page' || kw === 'dialog') {
@@ -452,11 +468,36 @@ class Parser {
     return { ...createNode('Enum'), name, items };
   }
 
+  /** 跳过括号内容（未知注解的形参） */
+  private skipParen(): void {
+    let depth = 0;
+    do {
+      const t = this.peek().value;
+      if (t === '(') depth++;
+      else if (t === ')') depth--;
+      else if (t === '<eof>') this.fail('unexpected eof in annotation');
+      this.next();
+    } while (depth > 0);
+  }
+
   private parseLogic(): LogicNode {
-    // 可选注解 @export 等
+    // 可选注解：@export（跳过）/ @ok('文案')（操作成功提示，dev/48 反馈）
+    const annotations: Annotation[] = [];
     while (this.peek().value === '@') {
       this.next();
-      this.expectIdent();
+      const annName = this.expectIdent();
+      if (annName === 'export') continue;
+      if (annName === 'ok') {
+        this.expect('(');
+        const value = this.expectString();
+        this.expect(')');
+        annotations.push({ kind: 'Annotation', name: 'ok', args: { value } });
+        continue;
+      }
+      // 其余注解：带参则跳过括号内容，否则忽略
+      if (this.peek().value === '(') {
+        this.skipParen();
+      }
     }
     this.expect('function');
     const name = this.expectIdent();
@@ -475,7 +516,7 @@ class Parser {
     this.expect('{');
     const body = this.parseStatements();
     this.expect('}');
-    return { ...createNode('Logic'), name, params, returns, body };
+    return { ...createNode('Logic'), name, params, returns, body, ...(annotations.length > 0 ? { annotations } : {}) };
   }
 
   /** interface Name { METHOD 'path' -> logicName } */

@@ -6,6 +6,7 @@ function queryErpFinanceAccount(name: String): List<FinanceAccount> {
 }
 
 @export
+@ok('保存成功')
 function saveErpFinanceAccount(input: FinanceAccountInput): FinanceAccount {
   const a = new FinanceAccount();
   if (input.id !== null && input.id > 0) {
@@ -22,6 +23,7 @@ function saveErpFinanceAccount(input: FinanceAccountInput): FinanceAccount {
 }
 
 @export
+@ok('删除成功')
 function deleteErpFinanceAccount(id: Integer): Boolean {
   const a = FinanceAccount.get(id);
   a.delete();

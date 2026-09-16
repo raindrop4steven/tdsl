@@ -301,18 +301,23 @@ async function main(): Promise<void> {
 
   const crmCustomerIds: Record<string, number> = {};
   await t('CRM 客户', async () => {
-    const rows: Array<[string, string]> = [
-      ['深圳市前海智联科技有限公司', '13700001111'],
-      ['南京星河网络科技', '13700002222'],
-      ['武汉东湖大数据有限公司', '13700003333'],
-      ['重庆山城智能制造', '13700004444'],
+    // 覆盖三态：正常归属 / 公海（ownerUserId=0，可领取）/ 锁定（不可编辑与领取）
+    const rows: Array<[string, string, number, string]> = [
+      ['深圳市前海智联科技有限公司', '13700001111', 1, 'UNLOCKED'],
+      ['南京星河网络科技', '13700002222', 1, 'LOCKED'],
+      ['武汉东湖大数据有限公司', '13700003333', 0, 'UNLOCKED'],
+      ['重庆山城智能制造', '13700004444', 0, 'UNLOCKED'],
     ];
-    for (const [name, mobile] of rows) {
+    for (const [name, mobile, ownerUserId, lockStatus] of rows) {
       const c = await post('/api/crm/customers', {
-        name, mobile, ownerUserId: 1, lockStatus: 'UNLOCKED', dealStatus: 'UNDEALED', followUpStatus: 'FOLLOWED',
+        name, mobile, ownerUserId, dealStatus: 'UNDEALED', followUpStatus: 'FOLLOWED',
         source: 1, level: 2, areaId: 110000, detailAddress: '深圳市南山区科苑路 1 号',
       });
-      if (c?.id) crmCustomerIds[name] = c.id;
+      if (c?.id) {
+        crmCustomerIds[name] = c.id;
+        // 锁定状态不在创建入参里 → 建完再锁（演示「锁定客户不可编辑/领取」）
+        if (lockStatus === 'LOCKED') await post(`/api/crm/customers/${c.id}/lock`, {});
+      }
     }
   });
 

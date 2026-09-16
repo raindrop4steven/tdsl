@@ -8,6 +8,7 @@ function queryErpSaleOrder(no: String, status: DocStatus, customerId: Integer): 
 }
 
 @export
+@ok('保存成功')
 function saveErpSaleOrder(input: SaleOrderInput): SaleOrder {
   const b = new SaleOrder();
   if (input.id !== null && input.id > 0) {
@@ -53,6 +54,7 @@ function saveErpSaleOrder(input: SaleOrderInput): SaleOrder {
 }
 
 @export
+@ok('删除成功')
 function deleteErpSaleOrder(id: Integer): Boolean {
   const b = SaleOrder.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -66,6 +68,7 @@ function deleteErpSaleOrder(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpSaleOrder(id: Integer): Boolean {
   const b = SaleOrder.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -77,6 +80,7 @@ function auditErpSaleOrder(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpSaleOrder(id: Integer): Boolean {
   const b = SaleOrder.get(id);
   if (b.status !== DocStatus.AUDITED) {
@@ -95,6 +99,7 @@ function queryErpSaleOut(no: String, status: DocStatus, customerId: Integer): Li
 }
 
 @export
+@ok('保存成功')
 function saveErpSaleOut(input: SaleOutInput): SaleOut {
   const b = new SaleOut();
   if (input.id !== null && input.id > 0) {
@@ -142,6 +147,7 @@ function saveErpSaleOut(input: SaleOutInput): SaleOut {
 }
 
 @export
+@ok('删除成功')
 function deleteErpSaleOut(id: Integer): Boolean {
   const b = SaleOut.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -155,6 +161,7 @@ function deleteErpSaleOut(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpSaleOut(id: Integer): Boolean {
   const b = SaleOut.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -194,6 +201,7 @@ function auditErpSaleOut(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpSaleOut(id: Integer): Boolean {
   const b = SaleOut.get(id);
   if (b.status !== DocStatus.AUDITED) {
@@ -231,6 +239,7 @@ function queryErpSaleReturn(no: String, status: DocStatus, customerId: Integer):
 }
 
 @export
+@ok('保存成功')
 function saveErpSaleReturn(input: SaleReturnInput): SaleReturn {
   const b = new SaleReturn();
   if (input.id !== null && input.id > 0) {
@@ -278,6 +287,7 @@ function saveErpSaleReturn(input: SaleReturnInput): SaleReturn {
 }
 
 @export
+@ok('删除成功')
 function deleteErpSaleReturn(id: Integer): Boolean {
   const b = SaleReturn.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -291,6 +301,7 @@ function deleteErpSaleReturn(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpSaleReturn(id: Integer): Boolean {
   const b = SaleReturn.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -306,6 +317,7 @@ function auditErpSaleReturn(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpSaleReturn(id: Integer): Boolean {
   const b = SaleReturn.get(id);
   if (b.status !== DocStatus.AUDITED) {
@@ -327,6 +339,7 @@ function queryErpSaleReceipt(no: String, status: DocStatus, customerId: Integer)
 }
 
 @export
+@ok('保存成功')
 function saveErpSaleReceipt(input: FinanceReceiptInput): FinanceReceipt {
   const b = new FinanceReceipt();
   if (input.id !== null && input.id > 0) {
@@ -367,6 +380,7 @@ function saveErpSaleReceipt(input: FinanceReceiptInput): FinanceReceipt {
 }
 
 @export
+@ok('删除成功')
 function deleteErpSaleReceipt(id: Integer): Boolean {
   const b = FinanceReceipt.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -380,6 +394,7 @@ function deleteErpSaleReceipt(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpSaleReceipt(id: Integer): Boolean {
   const b = FinanceReceipt.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -402,6 +417,7 @@ function auditErpSaleReceipt(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpSaleReceipt(id: Integer): Boolean {
   const b = FinanceReceipt.get(id);
   if (b.status !== DocStatus.AUDITED) {

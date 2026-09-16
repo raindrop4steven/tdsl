@@ -43,6 +43,7 @@ function queryErpWarehouse(name: String, status: ProductStatus): List<Warehouse>
 }
 
 @export
+@ok('保存成功')
 function saveErpWarehouse(input: WarehouseInput): Warehouse {
   const w = new Warehouse();
   if (input.id !== null && input.id > 0) {
@@ -62,6 +63,7 @@ function saveErpWarehouse(input: WarehouseInput): Warehouse {
 }
 
 @export
+@ok('删除成功')
 function deleteErpWarehouse(id: Integer): Boolean {
   const w = Warehouse.get(id);
   w.delete();
@@ -84,6 +86,7 @@ function queryErpStockRecord(productId: Integer, warehouseId: Integer, bizType: 
 
 // 其它入库：写库存明细 + 联动产品库存（链式写，库存不存在则建档）
 @export
+@ok('保存成功')
 function saveErpStockIn(input: StockRecordInput): StockRecord {
   const rec = new StockRecord();
   rec.productId = input.productId;
@@ -114,6 +117,7 @@ function saveErpStockIn(input: StockRecordInput): StockRecord {
 
 // 其它出库：数量记负，联动扣减产品库存（不足报错）
 @export
+@ok('保存成功')
 function saveErpStockOut(input: StockRecordInput): StockRecord {
   const stocks = Stock.where(productId = input.productId, warehouseId = input.warehouseId);
   for (const s of stocks) {
@@ -145,6 +149,7 @@ function queryErpStockCheck(no: String, status: DocStatus): List<StockCheck> {
 }
 
 @export
+@ok('保存成功')
 function saveErpStockCheck(input: StockCheckInput): StockCheck {
   const c = new StockCheck();
   if (input.id !== null && input.id > 0) {
@@ -176,6 +181,7 @@ function saveErpStockCheck(input: StockCheckInput): StockCheck {
 }
 
 @export
+@ok('删除成功')
 function deleteErpStockCheck(id: Integer): Boolean {
   const c = StockCheck.get(id);
   for (const it of StockCheckItem.where(checkId = id)) {
@@ -186,6 +192,7 @@ function deleteErpStockCheck(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpStockCheck(id: Integer): Boolean {
   const c = StockCheck.get(id);
   if (c.status !== DocStatus.UNAUDIT) {

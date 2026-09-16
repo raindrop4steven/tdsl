@@ -8,6 +8,7 @@ function queryCrmClue(name: String, mobile: String, followUpStatus: FollowUpStat
 }
 
 @export
+@ok('保存成功')
 function saveCrmClue(input: CrmClueInput): CrmClue {
   const c = new CrmClue();
   if (input.id !== null && input.id > 0) {
@@ -33,6 +34,7 @@ function saveCrmClue(input: CrmClueInput): CrmClue {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmClue(id: Integer): Boolean {
   const c = CrmClue.get(id);
   c.delete();
@@ -41,6 +43,7 @@ function deleteCrmClue(id: Integer): Boolean {
 
 // 转化为客户：建客户 + 线索置已转化（链式写）
 @export
+@ok('已转化')
 function transformCrmClue(id: Integer): CrmCustomer {
   const clue = CrmClue.get(id);
   if (clue.transformStatus === TransformStatus.TRANSFORMED) {
@@ -78,6 +81,7 @@ function queryCrmCustomer(name: String, mobile: String, level: Integer, source: 
 }
 
 @export
+@ok('保存成功')
 function saveCrmCustomer(input: CrmCustomerInput): CrmCustomer {
   const c = new CrmCustomer();
   if (input.id !== null && input.id > 0) {
@@ -108,6 +112,7 @@ function saveCrmCustomer(input: CrmCustomerInput): CrmCustomer {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmCustomer(id: Integer): Boolean {
   const c = CrmCustomer.get(id);
   c.delete();
@@ -116,32 +121,54 @@ function deleteCrmCustomer(id: Integer): Boolean {
 
 // 放入公海：清空负责人并解锁
 @export
+@ok('已放入公海')
 function putCrmCustomerToPool(id: Integer): Boolean {
   const c = CrmCustomer.get(id);
+  if (c.ownerUserId === 0) {
+    throw '该客户已在公海';
+  }
+  if (c.lockStatus === LockStatus.LOCKED) {
+    throw '客户已锁定，请先解锁';
+  }
   c.ownerUserId = 0;
+  c.ownerTime = null;
   c.lockStatus = LockStatus.UNLOCKED;
+  c.dealStatus = DealStatus.UNDEALED;
   c.save();
   return true;
 }
 
 @export
+@ok('已领取')
 function takeCrmCustomerFromPool(id: Integer): Boolean {
   const c = CrmCustomer.get(id);
+  if (c.ownerUserId !== 0) {
+    throw '该客户已有负责人，不能领取';
+  }
+  if (c.lockStatus === LockStatus.LOCKED) {
+    throw '客户已锁定，不能领取';
+  }
   c.ownerUserId = 1;
+  c.ownerTime = DateTime.now();
   c.lockStatus = LockStatus.UNLOCKED;
   c.save();
   return true;
 }
 
 @export
+@ok('已锁定')
 function lockCrmCustomer(id: Integer): Boolean {
   const c = CrmCustomer.get(id);
+  if (c.ownerUserId === 0) {
+    throw '公海客户不能锁定，请先领取';
+  }
   c.lockStatus = LockStatus.LOCKED;
   c.save();
   return true;
 }
 
 @export
+@ok('已解锁')
 function unlockCrmCustomer(id: Integer): Boolean {
   const c = CrmCustomer.get(id);
   c.lockStatus = LockStatus.UNLOCKED;
@@ -150,10 +177,14 @@ function unlockCrmCustomer(id: Integer): Boolean {
 }
 
 @export
+@ok('已分配')
 function assignCrmCustomer(id: Integer): Boolean {
   const c = CrmCustomer.get(id);
+  if (c.lockStatus === LockStatus.LOCKED) {
+    throw '客户已锁定，请先解锁再分配';
+  }
   c.ownerUserId = 1;
-  c.ownerTime = c.ownerTime;
+  c.ownerTime = DateTime.now();
   c.save();
   return true;
 }
@@ -166,6 +197,7 @@ function queryCrmContact(name: String, customerId: Integer, mobile: String): Lis
 }
 
 @export
+@ok('保存成功')
 function saveCrmContact(input: CrmContactInput): CrmContact {
   const c = new CrmContact();
   if (input.id !== null && input.id > 0) {
@@ -191,6 +223,7 @@ function saveCrmContact(input: CrmContactInput): CrmContact {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmContact(id: Integer): Boolean {
   const c = CrmContact.get(id);
   c.delete();
@@ -205,6 +238,7 @@ function queryCrmCustomerPoolConfig(): List<CrmCustomerPoolConfig> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmCustomerPoolConfig(input: CrmCustomerPoolConfigInput): CrmCustomerPoolConfig {
   const c = new CrmCustomerPoolConfig();
   if (input.id !== null && input.id > 0) {
@@ -227,6 +261,7 @@ function queryCrmCustomerLimitConfig(): List<CrmCustomerLimitConfig> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmCustomerLimitConfig(input: CrmCustomerLimitConfigInput): CrmCustomerLimitConfig {
   const c = new CrmCustomerLimitConfig();
   if (input.id !== null && input.id > 0) {
@@ -242,6 +277,7 @@ function saveCrmCustomerLimitConfig(input: CrmCustomerLimitConfigInput): CrmCust
 }
 
 @export
+@ok('删除成功')
 function deleteCrmCustomerLimitConfig(id: Integer): Boolean {
   const c = CrmCustomerLimitConfig.get(id);
   c.delete();
@@ -256,6 +292,7 @@ function queryCrmBusinessStatusType(name: String): List<CrmBusinessStatusType> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmBusinessStatusType(input: CrmBusinessStatusTypeInput): CrmBusinessStatusType {
   const c = new CrmBusinessStatusType();
   if (input.id !== null && input.id > 0) {
@@ -268,6 +305,7 @@ function saveCrmBusinessStatusType(input: CrmBusinessStatusTypeInput): CrmBusine
 }
 
 @export
+@ok('删除成功')
 function deleteCrmBusinessStatusType(id: Integer): Boolean {
   const c = CrmBusinessStatusType.get(id);
   c.delete();
@@ -280,6 +318,7 @@ function queryCrmBusinessStatus(name: String): List<CrmBusinessStatus> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmBusinessStatus(input: CrmBusinessStatusInput): CrmBusinessStatus {
   const c = new CrmBusinessStatus();
   if (input.id !== null && input.id > 0) {
@@ -294,6 +333,7 @@ function saveCrmBusinessStatus(input: CrmBusinessStatusInput): CrmBusinessStatus
 }
 
 @export
+@ok('删除成功')
 function deleteCrmBusinessStatus(id: Integer): Boolean {
   const c = CrmBusinessStatus.get(id);
   c.delete();
@@ -308,6 +348,7 @@ function queryCrmBusiness(name: String, customerId: Integer, statusId: Integer, 
 }
 
 @export
+@ok('保存成功')
 function saveCrmBusiness(input: CrmBusinessInput): CrmBusiness {
   const b = new CrmBusiness();
   if (input.id !== null && input.id > 0) {
@@ -346,6 +387,7 @@ function saveCrmBusiness(input: CrmBusinessInput): CrmBusiness {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmBusiness(id: Integer): Boolean {
   const b = CrmBusiness.get(id);
   for (const it of CrmBusinessProduct.where(businessId = id)) {
@@ -357,6 +399,7 @@ function deleteCrmBusiness(id: Integer): Boolean {
 
 // 赢单：商机置赢 + 联动客户成交（链式写）
 @export
+@ok('已标记赢单')
 function winCrmBusiness(id: Integer): Boolean {
   const b = CrmBusiness.get(id);
   b.endStatus = BusinessEndStatus.WIN;
@@ -368,6 +411,7 @@ function winCrmBusiness(id: Integer): Boolean {
 }
 
 @export
+@ok('已标记输单')
 function loseCrmBusiness(id: Integer): Boolean {
   const b = CrmBusiness.get(id);
   b.endStatus = BusinessEndStatus.LOSE;
@@ -376,6 +420,7 @@ function loseCrmBusiness(id: Integer): Boolean {
 }
 
 @export
+@ok('已标记无效')
 function invalidateCrmBusiness(id: Integer): Boolean {
   const b = CrmBusiness.get(id);
   b.endStatus = BusinessEndStatus.INVALID;
@@ -400,6 +445,7 @@ function queryCrmContract(no: String, customerId: Integer, auditStatus: CrmAudit
 }
 
 @export
+@ok('保存成功')
 function saveCrmContract(input: CrmContractInput): CrmContract {
   const c = new CrmContract();
   if (input.id !== null && input.id > 0) {
@@ -443,6 +489,7 @@ function saveCrmContract(input: CrmContractInput): CrmContract {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmContract(id: Integer): Boolean {
   const c = CrmContract.get(id);
   for (const it of CrmContractProduct.where(contractId = id)) {
@@ -453,6 +500,7 @@ function deleteCrmContract(id: Integer): Boolean {
 }
 
 @export
+@ok('已提交')
 function submitCrmContract(id: Integer): Boolean {
   const c = CrmContract.get(id);
   c.auditStatus = CrmAuditStatus.UNDER_REVIEW;
@@ -461,6 +509,7 @@ function submitCrmContract(id: Integer): Boolean {
 }
 
 @export
+@ok('审批通过')
 function approveCrmContract(id: Integer): Boolean {
   const c = CrmContract.get(id);
   c.auditStatus = CrmAuditStatus.APPROVED;
@@ -469,6 +518,7 @@ function approveCrmContract(id: Integer): Boolean {
 }
 
 @export
+@ok('已驳回')
 function rejectCrmContract(id: Integer): Boolean {
   const c = CrmContract.get(id);
   c.auditStatus = CrmAuditStatus.REJECTED;
@@ -484,6 +534,7 @@ function queryCrmContractConfig(): List<CrmContractConfig> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmContractConfig(input: CrmContractConfigInput): CrmContractConfig {
   const c = new CrmContractConfig();
   if (input.id !== null && input.id > 0) {
@@ -503,6 +554,7 @@ function queryCrmReceivablePlan(customerId: Integer, contractId: Integer): List<
 }
 
 @export
+@ok('保存成功')
 function saveCrmReceivablePlan(input: CrmReceivablePlanInput): CrmReceivablePlan {
   const c = new CrmReceivablePlan();
   if (input.id !== null && input.id > 0) {
@@ -522,6 +574,7 @@ function saveCrmReceivablePlan(input: CrmReceivablePlanInput): CrmReceivablePlan
 }
 
 @export
+@ok('删除成功')
 function deleteCrmReceivablePlan(id: Integer): Boolean {
   const c = CrmReceivablePlan.get(id);
   c.delete();
@@ -536,6 +589,7 @@ function queryCrmReceivable(no: String, customerId: Integer, auditStatus: CrmAud
 }
 
 @export
+@ok('保存成功')
 function saveCrmReceivable(input: CrmReceivableInput): CrmReceivable {
   const c = new CrmReceivable();
   if (input.id !== null && input.id > 0) {
@@ -556,6 +610,7 @@ function saveCrmReceivable(input: CrmReceivableInput): CrmReceivable {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmReceivable(id: Integer): Boolean {
   const c = CrmReceivable.get(id);
   c.delete();
@@ -563,6 +618,7 @@ function deleteCrmReceivable(id: Integer): Boolean {
 }
 
 @export
+@ok('已提交')
 function submitCrmReceivable(id: Integer): Boolean {
   const c = CrmReceivable.get(id);
   c.auditStatus = CrmAuditStatus.UNDER_REVIEW;
@@ -571,6 +627,7 @@ function submitCrmReceivable(id: Integer): Boolean {
 }
 
 @export
+@ok('审批通过')
 function approveCrmReceivable(id: Integer): Boolean {
   const c = CrmReceivable.get(id);
   c.auditStatus = CrmAuditStatus.APPROVED;
@@ -579,6 +636,7 @@ function approveCrmReceivable(id: Integer): Boolean {
 }
 
 @export
+@ok('已驳回')
 function rejectCrmReceivable(id: Integer): Boolean {
   const c = CrmReceivable.get(id);
   c.auditStatus = CrmAuditStatus.REJECTED;
@@ -594,6 +652,7 @@ function queryCrmProductCategory(name: String): List<CrmProductCategory> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmProductCategory(input: CrmProductCategoryInput): CrmProductCategory {
   const c = new CrmProductCategory();
   if (input.id !== null && input.id > 0) {
@@ -609,6 +668,7 @@ function saveCrmProductCategory(input: CrmProductCategoryInput): CrmProductCateg
 }
 
 @export
+@ok('删除成功')
 function deleteCrmProductCategory(id: Integer): Boolean {
   const c = CrmProductCategory.get(id);
   c.delete();
@@ -621,6 +681,7 @@ function queryCrmProduct(name: String, categoryId: Integer, status: ProductStatu
 }
 
 @export
+@ok('保存成功')
 function saveCrmProduct(input: CrmProductInput): CrmProduct {
   const p = new CrmProduct();
   if (input.id !== null && input.id > 0) {
@@ -639,6 +700,7 @@ function saveCrmProduct(input: CrmProductInput): CrmProduct {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmProduct(id: Integer): Boolean {
   const p = CrmProduct.get(id);
   p.delete();
@@ -653,6 +715,7 @@ function queryCrmFollowUpRecord(bizType: Integer): List<CrmFollowUpRecord> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmFollowUpRecord(input: CrmFollowUpRecordInput): CrmFollowUpRecord {
   const r = new CrmFollowUpRecord();
   r.content = input.content;
@@ -672,6 +735,7 @@ function queryCrmTodo(completed: Integer): List<CrmTodo> {
 }
 
 @export
+@ok('保存成功')
 function saveCrmTodo(input: CrmTodoInput): CrmTodo {
   const t = new CrmTodo();
   if (input.id !== null && input.id > 0) {
@@ -687,6 +751,7 @@ function saveCrmTodo(input: CrmTodoInput): CrmTodo {
 }
 
 @export
+@ok('删除成功')
 function deleteCrmTodo(id: Integer): Boolean {
   const t = CrmTodo.get(id);
   t.delete();
@@ -694,6 +759,7 @@ function deleteCrmTodo(id: Integer): Boolean {
 }
 
 @export
+@ok('已完成')
 function completeCrmTodo(id: Integer): Boolean {
   const t = CrmTodo.get(id);
   t.completed = 1;
@@ -720,6 +786,7 @@ function queryAreaDict(): List<AreaDict> {
 }
 
 @export
+@ok('保存成功')
 function saveSourceDict(input: SourceDictInput): SourceDict {
   const s = new SourceDict();
   if (input.id !== null && input.id > 0) {
@@ -731,6 +798,7 @@ function saveSourceDict(input: SourceDictInput): SourceDict {
 }
 
 @export
+@ok('保存成功')
 function saveIndustryDict(input: IndustryDictInput): IndustryDict {
   const s = new IndustryDict();
   if (input.id !== null && input.id > 0) {
@@ -742,6 +810,7 @@ function saveIndustryDict(input: IndustryDictInput): IndustryDict {
 }
 
 @export
+@ok('保存成功')
 function saveAreaDict(input: AreaDictInput): AreaDict {
   const s = new AreaDict();
   if (input.id !== null && input.id > 0) {
@@ -760,6 +829,7 @@ function querySystemUser(): List<SystemUser> {
 }
 
 @export
+@ok('保存成功')
 function saveSystemUser(input: SystemUserInput): SystemUser {
   const u = new SystemUser();
   if (input.id !== null && input.id > 0) {
@@ -934,10 +1004,17 @@ page crmCustomerList {
     <column field="mobile" title="手机" />
     <column field="source" title="客户来源" />
     <column field="contactLastTime" title="最后跟进时间" />
-    <button text="编辑" action={openDialog('crmCustomerForm', row)} />
+    <button text="编辑" action={openDialog('crmCustomerForm', row)}
+            disabled={row.lockStatus === LockStatus.LOCKED} />
     <button text="删除" action={useMutation('deleteCrmCustomer', row.id)} />
-    <button text="放入公海" action={useMutation('putCrmCustomerToPool', row.id)} />
-    <button text="领取" action={useMutation('takeCrmCustomerFromPool', row.id)} />
+    <button text="放入公海" action={useMutation('putCrmCustomerToPool', row.id)}
+            visible={row.ownerUserId !== 0} />
+    <button text="领取" action={useMutation('takeCrmCustomerFromPool', row.id)}
+            visible={row.ownerUserId === 0} />
+    <button text="锁定" action={useMutation('lockCrmCustomer', row.id)}
+            visible={row.ownerUserId !== 0 && row.lockStatus === LockStatus.UNLOCKED} />
+    <button text="解锁" action={useMutation('unlockCrmCustomer', row.id)}
+            visible={row.lockStatus === LockStatus.LOCKED} />
     <button text="详情" action={openDialog('crmCustomerDetail', row)} />
   </table>
   <button text="新增客户" action={openDialog('crmCustomerForm')} />
@@ -981,11 +1058,18 @@ dialog crmCustomerDetail {
     <text field="contactLastContent" title="最后跟进内容" />
     <text field="remark" title="备注" />
   </detail>
-  <button text="编辑" action={openDialog('crmCustomerForm', row)} />
-  <button text="锁定" action={useMutation('lockCrmCustomer', row.id)} />
-  <button text="解锁" action={useMutation('unlockCrmCustomer', row.id)} />
-  <button text="分配" action={useMutation('assignCrmCustomer', row.id)} />
-  <button text="放入公海" action={useMutation('putCrmCustomerToPool', row.id)} />
+  <button text="编辑" action={openDialog('crmCustomerForm', row)}
+          disabled={row.lockStatus === LockStatus.LOCKED} />
+  <button text="锁定" action={useMutation('lockCrmCustomer', row.id)}
+          visible={row.ownerUserId !== 0 && row.lockStatus === LockStatus.UNLOCKED} />
+  <button text="解锁" action={useMutation('unlockCrmCustomer', row.id)}
+          visible={row.lockStatus === LockStatus.LOCKED} />
+  <button text="分配" action={useMutation('assignCrmCustomer', row.id)}
+          visible={row.ownerUserId !== 0} disabled={row.lockStatus === LockStatus.LOCKED} />
+  <button text="放入公海" action={useMutation('putCrmCustomerToPool', row.id)}
+          visible={row.ownerUserId !== 0} />
+  <button text="领取" action={useMutation('takeCrmCustomerFromPool', row.id)}
+          visible={row.ownerUserId === 0} />
   <button text="新增跟进" action={openDialog('crmFollowUpForm')} />
   <button text="新增联系人" action={openDialog('crmContactForm')} />
 }

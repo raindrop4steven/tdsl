@@ -1,6 +1,7 @@
 import {
   createCatalog,
   createVarScope,
+  FFI_CORE,
   depMatches,
   lookupVar,
   type AppNode,
@@ -1763,6 +1764,17 @@ function genExpr(
     }
     case 'Call': {
       const callee = e.callee;
+      // 内核类型静态调用（Date.now() / DateTime.now() 等）：FFI 内核目录模板 → FQN（语言语义核，非业务）
+      if (callee.kind === 'Member') {
+        const krecv = callee.obj;
+        const kcls = krecv.kind === 'Ident' ? FFI_CORE.find((c) => c.alias === krecv.name) : undefined;
+        const km = kcls?.members?.find((mm) => mm.name === callee.prop && mm.static);
+        if (km?.java) {
+          let out = km.java;
+          e.args.forEach((a, i) => { out = out.replaceAll(`{${i}}`, genExpr(app, a, entities, vars)); });
+          return out.replaceAll('{recv}', '');
+        }
+      }
       // logic 间调用：genContractNo() → genContractNoService.genContractNo(...)（服务字段由 collectUsedLogics 注入）
       if (callee.kind === 'Ident' && app.logics.some((l) => l.name === callee.name)) {
         const args = e.args.map((a) => genExpr(app, a, entities, vars)).join(', ');

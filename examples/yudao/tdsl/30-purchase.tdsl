@@ -8,6 +8,7 @@ function queryErpPurchaseOrder(no: String, status: DocStatus, supplierId: Intege
 }
 
 @export
+@ok('保存成功')
 function saveErpPurchaseOrder(input: PurchaseOrderInput): PurchaseOrder {
   const b = new PurchaseOrder();
   if (input.id !== null && input.id > 0) {
@@ -52,6 +53,7 @@ function saveErpPurchaseOrder(input: PurchaseOrderInput): PurchaseOrder {
 }
 
 @export
+@ok('删除成功')
 function deleteErpPurchaseOrder(id: Integer): Boolean {
   const b = PurchaseOrder.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -65,6 +67,7 @@ function deleteErpPurchaseOrder(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpPurchaseOrder(id: Integer): Boolean {
   const b = PurchaseOrder.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -76,6 +79,7 @@ function auditErpPurchaseOrder(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpPurchaseOrder(id: Integer): Boolean {
   const b = PurchaseOrder.get(id);
   if (b.status !== DocStatus.AUDITED) {
@@ -94,6 +98,7 @@ function queryErpPurchaseIn(no: String, status: DocStatus, supplierId: Integer):
 }
 
 @export
+@ok('保存成功')
 function saveErpPurchaseIn(input: PurchaseInInput): PurchaseIn {
   const b = new PurchaseIn();
   if (input.id !== null && input.id > 0) {
@@ -141,6 +146,7 @@ function saveErpPurchaseIn(input: PurchaseInInput): PurchaseIn {
 }
 
 @export
+@ok('删除成功')
 function deleteErpPurchaseIn(id: Integer): Boolean {
   const b = PurchaseIn.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -154,6 +160,7 @@ function deleteErpPurchaseIn(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpPurchaseIn(id: Integer): Boolean {
   const b = PurchaseIn.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -193,6 +200,7 @@ function auditErpPurchaseIn(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpPurchaseIn(id: Integer): Boolean {
   const b = PurchaseIn.get(id);
   if (b.status !== DocStatus.AUDITED) {
@@ -232,6 +240,7 @@ function queryErpPurchaseReturn(no: String, status: DocStatus, supplierId: Integ
 }
 
 @export
+@ok('保存成功')
 function saveErpPurchaseReturn(input: PurchaseReturnInput): PurchaseReturn {
   const b = new PurchaseReturn();
   if (input.id !== null && input.id > 0) {
@@ -279,6 +288,7 @@ function saveErpPurchaseReturn(input: PurchaseReturnInput): PurchaseReturn {
 }
 
 @export
+@ok('删除成功')
 function deleteErpPurchaseReturn(id: Integer): Boolean {
   const b = PurchaseReturn.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -292,6 +302,7 @@ function deleteErpPurchaseReturn(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpPurchaseReturn(id: Integer): Boolean {
   const b = PurchaseReturn.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -307,6 +318,7 @@ function auditErpPurchaseReturn(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpPurchaseReturn(id: Integer): Boolean {
   const b = PurchaseReturn.get(id);
   if (b.status !== DocStatus.AUDITED) {
@@ -328,6 +340,7 @@ function queryErpPurchasePayment(no: String, status: DocStatus, supplierId: Inte
 }
 
 @export
+@ok('保存成功')
 function saveErpPurchasePayment(input: FinancePaymentInput): FinancePayment {
   const b = new FinancePayment();
   if (input.id !== null && input.id > 0) {
@@ -368,6 +381,7 @@ function saveErpPurchasePayment(input: FinancePaymentInput): FinancePayment {
 }
 
 @export
+@ok('删除成功')
 function deleteErpPurchasePayment(id: Integer): Boolean {
   const b = FinancePayment.get(id);
   if (b.status === DocStatus.AUDITED) {
@@ -381,6 +395,7 @@ function deleteErpPurchasePayment(id: Integer): Boolean {
 }
 
 @export
+@ok('审批完成')
 function auditErpPurchasePayment(id: Integer): Boolean {
   const b = FinancePayment.get(id);
   if (b.status !== DocStatus.UNAUDIT) {
@@ -403,6 +418,7 @@ function auditErpPurchasePayment(id: Integer): Boolean {
 }
 
 @export
+@ok('已反审批')
 function deauditErpPurchasePayment(id: Integer): Boolean {
   const b = FinancePayment.get(id);
   if (b.status !== DocStatus.AUDITED) {

@@ -145,4 +145,42 @@ page eList {
     expect(simple).not.toContain('disabled={');
     expect(simple).not.toContain('&& (');
   });
+
+describe('codegen-react dev/48 操作反馈（@ok 文案搬运）', () => {
+  const files = gen(`
+@datasource('d')
+entity E { id: Integer @pk; name: String; }
+@export
+function queryE(): List<E> { return E.all; }
+@export
+@ok('已领取')
+function takeE(id: Integer): Boolean { return true; }
+@export
+function doOther(id: Integer): Boolean { return true; }
+interface A {
+  GET  '/api/e'      -> queryE
+  POST '/api/e/take' -> takeE
+  POST '/api/e/other' -> doOther
+}
+page eList {
+  <table dataSource={useQuery('queryE')}>
+    <column field="name" title="名称" />
+    <button text="领取" action={useMutation('takeE', row.id)} />
+    <button text="其它" action={useMutation('doOther', row.id)} />
+  </table>
+}
+`);
+
+  it('@ok 文案透传到 useMutation（业务文案不进生成器）', () => {
+    const list = files.get('src/pages/eList.tsx')!;
+    expect(list).toContain("api.takeE(id), '已领取')");
+    expect(list).toContain("api.doOther(id), '操作成功')");
+  });
+
+  it('hooks 成功回调弹提示（message.success）', () => {
+    const hooks = files.get('src/hooks.ts')!;
+    expect(hooks).toContain("okMessage: string = '操作成功'");
+    expect(hooks).toContain('message.success(okMessage)');
+  });
+});
 });

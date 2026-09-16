@@ -69,7 +69,7 @@ const DATE_MEMBERS: FfiMethod[] = [
 ];
 
 const DATETIME_MEMBERS: FfiMethod[] = [
-  { name: 'now', static: true, params: [], ret: 'DateTime', java: 'java.time.LocalDateTime.now()' },
+  { name: 'now', static: true, params: [], ret: 'DateTime', java: 'java.time.ZonedDateTime.now()' },
   { name: 'plusDays', params: ['Integer'], ret: 'DateTime' },
   { name: 'minusDays', params: ['Integer'], ret: 'DateTime' },
   { name: 'plusHours', params: ['Integer'], ret: 'DateTime' },

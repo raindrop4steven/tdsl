@@ -8,6 +8,7 @@ function queryErpProductCategory(name: String, status: ProductStatus): List<Prod
 }
 
 @export
+@ok('保存成功')
 function saveErpProductCategory(input: ProductCategoryInput): ProductCategory {
   const c = new ProductCategory();
   if (input.id !== null && input.id > 0) {
@@ -23,6 +24,7 @@ function saveErpProductCategory(input: ProductCategoryInput): ProductCategory {
 }
 
 @export
+@ok('删除成功')
 function deleteErpProductCategory(id: Integer): Boolean {
   const c = ProductCategory.get(id);
   c.delete();
@@ -37,6 +39,7 @@ function queryErpProductUnit(name: String): List<ProductUnit> {
 }
 
 @export
+@ok('保存成功')
 function saveErpProductUnit(input: ProductUnitInput): ProductUnit {
   const u = new ProductUnit();
   if (input.id !== null && input.id > 0) {
@@ -49,6 +52,7 @@ function saveErpProductUnit(input: ProductUnitInput): ProductUnit {
 }
 
 @export
+@ok('删除成功')
 function deleteErpProductUnit(id: Integer): Boolean {
   const u = ProductUnit.get(id);
   u.delete();
@@ -63,6 +67,7 @@ function queryErpProduct(name: String, categoryId: Integer, status: ProductStatu
 }
 
 @export
+@ok('保存成功')
 function saveErpProduct(input: ProductInput): Product {
   const p = new Product();
   if (input.id !== null && input.id > 0) {
@@ -85,6 +90,7 @@ function saveErpProduct(input: ProductInput): Product {
 }
 
 @export
+@ok('删除成功')
 function deleteErpProduct(id: Integer): Boolean {
   const p = Product.get(id);
   p.delete();
@@ -115,6 +121,7 @@ function queryErpSupplier(name: String, status: ProductStatus): List<Supplier> {
 }
 
 @export
+@ok('保存成功')
 function saveErpSupplier(input: SupplierInput): Supplier {
   const s = new Supplier();
   if (input.id !== null && input.id > 0) {
@@ -134,6 +141,7 @@ function saveErpSupplier(input: SupplierInput): Supplier {
 }
 
 @export
+@ok('删除成功')
 function deleteErpSupplier(id: Integer): Boolean {
   const s = Supplier.get(id);
   s.delete();

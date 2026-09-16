@@ -56,4 +56,19 @@ entity Other {
     const plain = app.views.find((v) => v.name === 'plainPage')!;
     expect(plain.annotations?.some((a) => a.name === 'role')).toBe(false);
   });
+
+  it('dev/48：@ok 文案进 logic.annotations（生成器只搬运，不含业务知识）', () => {
+    const app = parse(`
+@export
+@ok('已领取')
+function takeCustomer(id: Integer): Boolean { return true; }
+
+@export
+function plain(id: Integer): Boolean { return true; }
+`);
+    const take = app.logics.find((l) => l.name === 'takeCustomer')!;
+    expect(take.annotations?.find((a) => a.name === 'ok')?.args?.['value']).toBe('已领取');
+    const plain = app.logics.find((l) => l.name === 'plain')!;
+    expect(plain.annotations?.some((a) => a.name === 'ok') ?? false).toBe(false);
+  });
 });

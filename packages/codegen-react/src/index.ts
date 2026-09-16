@@ -660,7 +660,7 @@ export function useQuery<T>(fn: () => Promise<T>, deps: unknown[] = []): QuerySt
   return { data, loading, error, refetch };
 }
 
-export function useMutation<T extends unknown[], R>(fn: (...args: T) => Promise<R>) {
+export function useMutation<T extends unknown[], R>(fn: (...args: T) => Promise<R>, okMessage: string = '操作成功') {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const alive = useRef(true);
@@ -673,6 +673,8 @@ export function useMutation<T extends unknown[], R>(fn: (...args: T) => Promise<
       setLoading(true);
       setError(null);
       const r = await fn(...args);
+      // 操作成功反馈（静默成功会让用户不知点了有没有生效）
+      message.success(okMessage);
       return r;
     } catch (e) {
       if (alive.current) setError(e);
@@ -862,7 +864,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     const argSig = args.map((p) => `${p.name}: ${tsType(p.type)}`).join(', ');
     const varname = `m${cap(logicNameOf(b.target))}`;
     hooksInit.push(
-      `  const ${varname} = useMutation(async (${argSig}): Promise<${ret}> => api.${logicNameOf(b.target)}(${args.map((p) => p.name).join(', ')}));`,
+      `  const ${varname} = useMutation(async (${argSig}): Promise<${ret}> => api.${logicNameOf(b.target)}(${args.map((p) => p.name).join(', ')}), '${mutationToastOf(app, logicNameOf(b.target))}');`,
     );
   }
   // 详情页 row 上下文：页面顶栏按钮引用 row（含 table 的详情页，rowSrc 不存在）→ 取首个 List 查询首行为 row
@@ -2126,7 +2128,7 @@ function columnDefsOf(app: AppNode, ent: EntityNode | undefined, columns: ViewEl
     // 外键列：显式 @ref 优先，其次推断；引用实体 options 就位 → 显示引用名，不再是裸 id
     const fk = explicitFkRefOf(app, ent?.name ?? null, field) ?? fkRefOf(app, ent?.name ?? null, field);
     if (fk) {
-      return `    { title: '${title}', dataIndex: '${field}', render: (_, row) => { const opt = (${fk.qvar}.data ?? []).find((o) => o.id === row.${field}); return opt == null ? String(row.${field}) : String(opt.${fk.labelField}); } }`;
+      return `    { title: '${title}', dataIndex: '${field}', render: (_, row) => { const opt = (${fk.qvar}.data ?? []).find((o) => o.id === row.${field}); return opt == null ? (Number(row.${field}) === 0 ? '-' : String(row.${field})) : String(opt.${fk.labelField}); } }`;
     }
     return `    { title: '${title}', dataIndex: '${field}' }`;
   });
@@ -2902,8 +2904,14 @@ ${itemEls}
   return repEls ? `${detailBlock}\n${repEls}` : detailBlock;
 }
 
-/** JSX 文本安全化：< > { } & 转义（用户文案可能含「<5%」这类字符，否则截断标签） */
-function jsxText(s: string): string {
+/** 操作成功提示：文案由 DSL 声明（logic 上 `@ok('已领取')`），生成器只搬运；未声明 → 通用文案 */
+function mutationToastOf(app: AppNode, logicName: string): string {
+  const logic = app.logics.find((l) => l.name === logicName);
+  const raw = logic?.annotations?.find((a) => a.name === 'ok')?.args?.['value'];
+  return typeof raw === 'string' && raw !== '' ? raw : '操作成功';
+}
+
+/** JSX 文本安全化：< > { } & 转义（用户文案可能含「<5%」这类字符，否则截断标签） */function jsxText(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
 }
 
@@ -2945,7 +2953,7 @@ function listItemValueJsx(app: AppNode, owner: EntityNode | undefined, field: st
   }
   const fk = explicitFkRefOf(app, owner?.name ?? null, field) ?? fkRefOf(app, owner?.name ?? null, field);
   if (fk) {
-    return `{String((${fk.qvar}.data ?? []).find((o) => o.id === ${rowVar}.${field})?.${fk.labelField} ?? ${rowVar}.${field})}`;
+    return `{String((${fk.qvar}.data ?? []).find((o) => o.id === ${rowVar}.${field})?.${fk.labelField} ?? (Number(${rowVar}.${field}) === 0 ? '-' : ${rowVar}.${field}))}`;
   }
   return `{String(${rowVar}.${field} ?? '')}`;
 }

@@ -182,3 +182,11 @@
 - **角色视角去掉（用户拍板）**：`@role` 语法解析保留（语言面），但外壳不再生成角色表/过滤/切换器；yudao 门户去掉 `@role`，全员可见。
 - **排查记录**：门户接口首轮 404 —— 根因是**运行中的后端未重启**（java 已重新生成但进程是旧的）；重启后 16 个 `/api/portal/stats/*` 全部 200（purchase-orders 3 / in-pending 1 / return-pending 1 / purchase-amount 395730 / stock-count 4700 / sale-amount 147425 / sale-out-pending 1 / receipt 48920 / product 7 / warehouse 2 / clues 2 / customers 4 / locked 0 / business 2 / contract 1 / receivable-pending 0）。**教训：generate 之后必须重启后端**。
 - 交付：全仓 318 单测全绿、九包 typecheck ✓、check-spec 1091 项 100%、java mvn compile ✓、react tsc+vite build ✓、seed 104/0。
+
+## 2026-09-16 续六（操作反馈全局化 + 分层纠偏 + CRM 公海语义）
+- **用户报缺陷**："很多按钮（领取、待办完成…）点了没任何提示，用户不知道干了啥" → 全局修：`useMutation` 成功后 `message.success(okMessage)`（此前只有失败提示与静默 refetch）。
+- **分层纠偏（用户批评）**：我第一版把业务前缀表（`topool → 已放入公海`）写进 codegen-react——用户指出"业务文案不能写进生成器"。改为**DSL 声明、生成器搬运**：新增 logic 注解 `@ok('已领取')`（parser 捕获进 `logic.annotations`；顶层注解分支补 `skipParen` 防未知带参注解报错），codegen 取注解，未声明 → 通用「操作成功」；yudao 样例按动作批量标注 98 处（业务数据留在样本里）。
+- **内核静态调用修复**：`DateTime.now()` 生成 `DateTime.now()`（Java 无此类）→ 在 codegen-java 接入共享内核目录 `FFI_CORE` 解析静态成员模板；同时修正 core/stdlib：`DateTime.now()` → `java.time.ZonedDateTime.now()`（与 javaType 的 DateTime→ZonedDateTime 对齐，原为 LocalDateTime 会类型不匹配）。
+- **CRM 公海语义修正（用户问"领取后效果是啥"）**：原 `takeCrmCustomerFromPool` 硬编码 ownerUserId=1 且无校验，seed 客户本就 owner=1 → 点了等于没点；`assignCrmCustomer` 还有 `ownerTime = ownerTime` 自赋值 stub。修：放入公海（校验已在公海/锁定、清 owner+ownerTime、重置 dealStatus）、领取（校验必须在公海且未锁定、写 owner=1+ownerTime=now）、锁定（公海不可锁）、分配（锁定不可分配）；页面按钮按状态显隐/置灰（领取/放入公海互斥、锁定↔解锁互斥、锁定后编辑置灰）；seed 造三态客户（正常/公海×2/锁定）。
+- **空外键占位**：外键列/列表项值为 0 → 显示 `-`（公海客户负责人不再显示 0）。
+- 真机实证：领取 id=3 → owner=1 + ownerTime 时间戳；重复领取/锁定客户领取/重复放入公海/公海锁定 均返回业务错误文案；待办完成 → completed=1。全仓 321 单测全绿、java `mvn clean compile` ✓、react tsc+build ✓、seed 105/0。
