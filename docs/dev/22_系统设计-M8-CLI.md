@@ -1,7 +1,7 @@
 # 22 系统设计：M8 —— CLI（`dsl` 命令行工具）
 
-> 关联：`10_设计/设计总览.md` §模块规划（`dsl parse/check/generate/build`）、`dev/21`（M7 多文件工程，`parseProject` 直接复用）、`dev/14`（P2 工程化）
-> 状态：**已实现（编码/测试完成，2026-09）** —— `packages/cli`（bin `dsl`，14 单测；`dsl build examples/todo-multi/tdsl` 双端 build 通过）
+> 关联：`10_设计/设计总览.md` §模块规划（`ttdsl parse/check/generate/build`）、`dev/21`（M7 多文件工程，`parseProject` 直接复用）、`dev/14`（P2 工程化）
+> 状态：**已实现（编码/测试完成，2026-09）** —— `packages/cli`（bin `dsl`，14 单测；`tdsl build examples/todo-multi/tdsl` 双端 build 通过）
 > 定位：命令行编译入口——多 AI 产出的 `.tdsl` 目录 → parse/check/generate/build 四步落地；**编译服务的地基**（命令逻辑薄封装可复用 API 层，未来常驻服务直接调用同一层）。
 
 ---
@@ -12,7 +12,7 @@
 
 - M7 落地了 `parseProject(files)` 多文件编译 API，但其消费方目前只有 `slice.ts` / `slice-multi.ts` 两个一次性脚本。
 - **缺口**：没有统一入口。想"编译一个 TDSL 工程"需要复制脚本；LLM 协作产出多文件后需要一条命令验证可编译性；评测基准（可编译率/build 通过率）也需要稳定入口。
-- 设计总览既有规划：`dsl parse/check/generate/build`。
+- 设计总览既有规划：`ttdsl parse/check/generate/build`。
 
 ### 1.2 达成什么
 
@@ -20,11 +20,11 @@
 
 | 命令 | 行为 | 退出码 |
 |------|------|--------|
-| `dsl parse <dir\|file>` | 编译（parse+link）并打印摘要（各段数量）；`--json` 输出完整 AST JSON | 失败 1 |
-| `dsl check <dir\|file>` | parse + typecheck，打印诊断（file + path + message），无诊断打印 `✓ N 段，0 问题` | 有 error 1 |
-| `dsl generate <dir> [-o out] [--java\|--react]` | 生成并写盘（默认 `generated/`，即 `generated/java` + `generated/react`） | 失败 1 |
-| `dsl build <dir> [-o out]` | generate + `mvn -q -DskipTests compile` + `npm install && vite build`（与 slice 同路径） | 任一步失败 1 |
-| `dsl help` / 无参 | 命令帮助 | 0 |
+| `tdsl parse <dir\|file>` | 编译（parse+link）并打印摘要（各段数量）；`--json` 输出完整 AST JSON | 失败 1 |
+| `tdsl check <dir\|file>` | parse + typecheck，打印诊断（file + path + message），无诊断打印 `✓ N 段，0 问题` | 有 error 1 |
+| `tdsl generate <dir> [-o out] [--java\|--react]` | 生成并写盘（默认 `generated/`，即 `generated/java` + `generated/react`） | 失败 1 |
+| `tdsl build <dir> [-o out]` | generate + `mvn -q -DskipTests compile` + `npm install && vite build`（与 slice 同路径） | 任一步失败 1 |
+| `tdsl help` / 无参 | 命令帮助 | 0 |
 
 约定：
 
@@ -37,9 +37,9 @@
 ### 1.3 验收标准（全部达成）
 
 - [x] `packages/cli` 单测（14 个，vitest 逻辑层）：命令分派、目录扫描排序、app 名清洗规则、诊断人话格式、退出码。
-- [x] 端到端：`dsl check examples/todo-multi/tdsl` 退出 0；加坏分片 `99_bad.tdsl` → `[error] 99_bad.tdsl app.logics.bad: 实体 Order 无字段 nofield` 且退出码 1。
-- [x] `dsl build examples/todo-multi/tdsl`：mvn compile + vite build 通过（java 20 files + react 12 files）。
-- [x] bin 可执行：`npm run dsl -- help`（tsx ESM register 加载 TS 源，零新增构建链）。
+- [x] 端到端：`tdsl check examples/todo-multi/tdsl` 退出 0；加坏分片 `99_bad.tdsl` → `[error] 99_bad.tdsl app.logics.bad: 实体 Order 无字段 nofield` 且退出码 1。
+- [x] `tdsl build examples/todo-multi/tdsl`：mvn compile + vite build 通过（java 20 files + react 12 files）。
+- [x] bin 可执行：`npm run tdsl -- help`（tsx ESM register 加载 TS 源，零新增构建链）。
 - [x] 不回归：`npm test`（169）与 `npm run typecheck`（含 cli 八包）全绿。
 
 ### 1.4 范围外
@@ -57,7 +57,7 @@
 |---|------|------|
 | D-M8-1 | 命令逻辑做成**薄命令层 + 可复用 lib 函数**（`runParse/runCheck/runGenerate/runBuild` 返回结构化结果，`bin` 只做 argv 分派与打印） | 编译服务（P3 常驻）直接复用 lib 层；vitest 可测逻辑层不打 shell |
 | D-M8-2 | **零新增依赖**：argv 解析手写（命令只有 4 个，参数≤3 个）；tsx 复用现有 devDep | CLI 是胶水层，依赖越少越稳；不引 commander/yargs |
-| D-M8-3 | 运行时形态：`bin/dsl.mjs` 用 tsx 的 ESM register API 加载 TS 源码（`import { register } from 'tsx/esm/api'`），**不新增 tsc 构建链** | 全仓 packages 均以 TS 源为 main（已确认），不单独为 CLI 开构建产物，避免双份构建配置漂移 |
+| D-M8-3 | 运行时形态：`bin/tdsl.mjs` 用 tsx 的 ESM register API 加载 TS 源码（`import { register } from 'tsx/esm/api'`），**不新增 tsc 构建链** | 全仓 packages 均以 TS 源为 main（已确认），不单独为 CLI 开构建产物，避免双份构建配置漂移 |
 | D-M8-4 | 目录扫描**只扫顶层** `*.tdsl`（文件名排序），不递归 | 与 M7 示例形态一致；递归策略留给未来真实需求（避免子目录产物/备份文件误入） |
 | D-M8-5 | app 名缺省=目录名清洗；`generate` 输出默认 `<cwd 或 -o>/generated/{java,react}` | 与 `examples/todo-app/generated` 既有形态一致 |
 | D-M8-6 | 诊断人话化在 CLI 打印层统一处理（`<stdin>` 隐藏、file 缺省不显示），不改 typecheck | 展示策略归展示层 |
@@ -68,8 +68,8 @@
 
 ```
 packages/cli/
-  package.json        # name @tdsl/cli, bin: { dsl: bin/dsl.mjs }, deps: 五包 + tsx(dev)
-  bin/dsl.mjs         # shebang + tsx register + import('../src/index.ts')
+  package.json        # name @tdsl/cli, bin: { tdsl: bin/tdsl.mjs }, deps: 五包 + tsx(dev)
+  bin/tdsl.mjs         # shebang + tsx register + import('../src/index.ts')
   src/
     index.ts          # run(argv): 命令分派 → lib 函数 → 打印 → exit code
     commands.ts       # runParse/runCheck/runGenerate/runBuild（可复用 lib，返回结果对象）
@@ -90,7 +90,7 @@ packages/cli/
 | input | 目录扫描（排序/只认 .tdsl/忽略其他扩展）；单文件；不存在路径报错；app 名清洗（todo-multi→todomulti、中文/数字开头→app 前缀、空→app） | ~5 |
 | commands | runParse 摘要 + --json；runCheck 无诊断/有诊断退出码与格式（含 file 列）；runGenerate 写盘文件数与路径 | ~5 |
 | bin | --help / 无参 / 未知命令退出码 | ~2 |
-| 端到端 | `dsl check examples/todo-multi/tdsl` 退出 0；改坏分片 → 退出 1（单测临时副本目录驱动） | 脚本级 |
+| 端到端 | `tdsl check examples/todo-multi/tdsl` 退出 0；改坏分片 → 退出 1（单测临时副本目录驱动） | 脚本级 |
 
 预计新增 ~12 单测（155 → ~167）。
 

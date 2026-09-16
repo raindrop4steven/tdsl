@@ -3,7 +3,7 @@
  * 边界（dev/32）：本文件只收语言自有五域（String/Decimal/Date/DateTime/List）；
  * 一切带 Maven/npm 坐标的第三方类一律外置到工程 libs/ 产物，经 createCatalog 合并装载。
  * 规则：成员模板"有 java 才能后端调、有 js 才能前端调"；双模板成员两端各译。
- * 目录缺失时的诊断必须附带补录口径（dsl bundle-jar）。
+ * 目录缺失时的诊断必须附带补录口径（tdsl bundle-jar）。
  * 消费者：typecheck 成员存在性解析（M3 resolver v1——能解则解、不解放行）。
  */
 export type FfiParamType =

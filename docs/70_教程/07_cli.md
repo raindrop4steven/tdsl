@@ -1,16 +1,16 @@
 # 07 cli：命令行工具（M8 + dev/32）
 
-> 配套代码：`packages/cli/src/`（commands 248 行 / index 122 行 / input 103 行）+ `bin/dsl.mjs`
+> 配套代码：`packages/cli/src/`（commands 248 行 / index 122 行 / input 103 行）+ `bin/tdsl.mjs`
 > 定位：编译器的**人机入口**。五个命令覆盖"看 AST / 验语义 / 出代码 / 真构建 / 接第三方 jar"。
 
 ## 1. 命令全景
 
 ```
-dsl parse   <dir|file> [--json]              # 编译 + 摘要（--json 出完整 AST）
-dsl check   <dir|file>                       # parse + typecheck，诊断人话化（error 退出码 1）
-dsl generate <dir|file> -o <dir> [--java|--react]   # 双端 codegen 并写盘
-dsl build   <dir|file> -o <dir>              # generate + mvn compile + vite build（与 slice 同路径）
-dsl bundle-jar <jar> -o <json> [--classes 简名] [--coord g:a:v]   # jar 扫描为依赖产物（dev/32）
+tdsl parse   <dir|file> [--json]              # 编译 + 摘要（--json 出完整 AST）
+tdsl check   <dir|file>                       # parse + typecheck，诊断人话化（error 退出码 1）
+tdsl generate <dir|file> -o <dir> [--java|--react]   # 双端 codegen 并写盘
+tdsl build   <dir|file> -o <dir>              # generate + mvn compile + vite build（与 slice 同路径）
+tdsl bundle-jar <jar> -o <json> [--classes 简名] [--coord g:a:v]   # jar 扫描为依赖产物（dev/32）
 ```
 
 输入是**目录或单文件**：目录 → 顶层 `*.tdsl` 按文件名排序（M7 分片形态）；app 名 `--name` 指定，缺省取目录名清洗为合法 Java 标识符（`sanitizeAppName`，codegen 包名校验是最后防线）。
@@ -54,4 +54,4 @@ javap -s -p   → 逐类签名 → 成员列表（static/params/ret）
 2. **人话化诊断**：`[error] a.tdsl app.logics.f: 悬空引用: ...`——file + path + message 一行，LLM 与人都能直接读。
 3. **bundle-jar 是扫描器不是集成器**：产物必须人工收窄后才放 libs/，"全量反射 → 精选"的收敛由人把关。
 
-**动手练习**：`npm run dsl -- check examples/fastjson-demo/demo.tdsl`，然后删掉 `libs/fastjson2.json` 再跑，对比 D-dep-2 的 warning 输出；再用 `--classes JSON` 重新扫描生成产物。
+**动手练习**：`npm run tdsl -- check examples/fastjson-demo/demo.tdsl`，然后删掉 `libs/fastjson2.json` 再跑，对比 D-dep-2 的 warning 输出；再用 `--classes JSON` 重新扫描生成产物。

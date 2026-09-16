@@ -1198,10 +1198,10 @@ function ffiCheckExpr(
       if (!m) {
         diagnostics.push({
           path: ownerPath(owner),
-          message: `成员 ${nsCls.alias}.${prop} 不在依赖 ${nsCls.maven ?? ''} 的扫描产物（可用成员：${nsCls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——请重跑 dsl bundle-jar 更新产物`,
+          message: `成员 ${nsCls.alias}.${prop} 不在依赖 ${nsCls.maven ?? ''} 的扫描产物（可用成员：${nsCls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——请重跑 tdsl bundle-jar 更新产物`,
           severity: 'error',
           code: 'FFI-MEMBER',
-          suggestion: `重跑 dsl bundle-jar 更新 libs/ 产物，或改用可用成员`,
+          suggestion: `重跑 tdsl bundle-jar 更新 libs/ 产物，或改用可用成员`,
         });
       } else if (m && !m.static) {
         diagnostics.push({
@@ -1222,7 +1222,7 @@ function ffiCheckExpr(
         if (cls && !m) {
           diagnostics.push({
             path: ownerPath(owner),
-            message: `成员 ${cls.alias}.${prop} 不在 FFI 目录（可用成员：${cls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——若为 Java 库成员，请运行 dsl bundle-jar 并入后重试`,
+            message: `成员 ${cls.alias}.${prop} 不在 FFI 目录（可用成员：${cls.members.map((mm) => mm.name).slice(0, 8).join('、')}…）——若为 Java 库成员，请运行 tdsl bundle-jar 并入后重试`,
             severity: 'error',
             code: 'FFI-MEMBER',
             suggestion: `改用可用成员，或 bundle-jar 并入该类`,
@@ -1317,10 +1317,10 @@ function checkDependencies(
       // D-dep-2：声明无产物
       diagnostics.push({
         path: ownerPath(d),
-        message: `依赖 ${depCoordinate(d)} 已声明但 libs/ 无匹配扫描产物——运行 dsl bundle-jar <jar> -o libs/<名>.json 并入`,
+        message: `依赖 ${depCoordinate(d)} 已声明但 libs/ 无匹配扫描产物——运行 tdsl bundle-jar <jar> -o libs/<名>.json 并入`,
         severity: 'warning',
         code: 'DEP-2',
-        suggestion: `dsl bundle-jar <jar> -o libs/<名>.json`,
+        suggestion: `tdsl bundle-jar <jar> -o libs/<名>.json`,
       });
       continue;
     }

@@ -21,12 +21,12 @@
 ## 2. 已落地（本轮）
 
 - **core/stdlib.ts**：目录模型（FfiClass/FfiMethod: java/js 模板 + static + ret/params）+ 四域精选（String 11 成员/BigDecimal 6/LocalDate 6/LocalDateTime 6/List 6 + count 糖别名）；core 单一 index re-export。
-- **typecheck 4.6 道**：静态/实例错配、目录外成员（诊断附 `dsl bundle-jar` 补录口径）、双端模板约束；单测 4 例（链式传播/目录外成员/错配/未知 receiver 放行）。
+- **typecheck 4.6 道**：静态/实例错配、目录外成员（诊断附 `tdsl bundle-jar` 补录口径）、双端模板约束；单测 4 例（链式传播/目录外成员/错配/未知 receiver 放行）。
 - 时序：dump/并入=开发期离线动作；编译期纯 Node 只读目录；缺录诊断附补录命令。
 
 ## 3. 下一步（本切面余项）
 
-1. **dump 工具**（`tools/jdk-catalog` javap/反射 → JSON → 人工收窄进目录；`dsl bundle-jar <jar>` 命令并入通用 jar 机制）
+1. **dump 工具**（`tools/jdk-catalog` javap/反射 → JSON → 人工收窄进目录；`tdsl bundle-jar <jar>` 命令并入通用 jar 机制）
 2. **react codegen js 模板翻译**（`contains→includes`、`List.size→length`、日期/数值 backend-only 硬闸）
 3. **d.ts 投影**：目录 JSON ↔ d.ts 双向（LLM cheatsheet 注入精选成员；自家 SDK 生成器同机制收编）
 4. jxc 样例创意重写示例 ≥10 处标准库调用（验收口径）

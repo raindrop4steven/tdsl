@@ -5,9 +5,9 @@
 import { runBuild, runBundleJar, runCheck, runGenerate, runParse, type CommandResult } from './commands';
 import { CliError, resolveInput, sanitizeAppName } from './input';
 
-export const HELP = `dsl — TDSL 命令行工具
+export const HELP = `tdsl — TDSL 命令行工具
 
-用法: dsl <command> <dir|file> [options]
+用法: tdsl <command> <dir|file> [options]
 
 命令:
   parse      编译（parse+link）并打印摘要
@@ -36,7 +36,7 @@ export function run(argv: string[]): CliResult {
       return { code: 0, stdout: HELP };
     }
     if (!target) {
-      throw new CliError(`缺少输入参数: dsl ${cmd} <dir|file>\n${HELP}`);
+      throw new CliError(`缺少输入参数: tdsl ${cmd} <dir|file>\n${HELP}`);
     }
 
     const { json, out, targets, name, coord, classes } = parseFlags(cmd, rest);

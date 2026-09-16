@@ -1,11 +1,10 @@
 {
   "name": "@tdsl/cli",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
-  "description": "TDSL 命令行工具：dsl parse/check/generate/build（M8）",
+  "description": "TDSL 命令行工具（tdsl parse/check/generate/build/bundle-jar）",
   "bin": {
-    "dsl": "./bin/dsl.mjs"
+    "tdsl": "./bin/tdsl.mjs"
   },
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -16,16 +15,21 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tdsl/codegen-java": "*",
-    "@tdsl/codegen-react": "*",
-    "@tdsl/core": "*",
-    "@tdsl/parser": "*",
-    "@tdsl/typecheck": "*"
+    "@tdsl/codegen-java": "0.0.1",
+    "@tdsl/codegen-react": "0.0.1",
+    "@tdsl/core": "0.0.1",
+    "@tdsl/parser": "0.0.1",
+    "@tdsl/typecheck": "0.0.1",
+    "tsx": "^4.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
-  }
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ]
 }

@@ -54,7 +54,7 @@
 ```
 1. 从官方手册抽取 → examples/yudao/spec.yaml（六层，照 jxc 格式）
 2. LLM/人 按 spec 编写 TDSL → examples/yudao/tdsl/*.tdsl（分片：00-model / 10-product / 20-stock / 30-purchase / 40-sale / 50-finance / 60-crm）
-3. dsl check（含 typecheck）→ 0 error 收敛
+3. tdsl check（含 typecheck）→ 0 error 收敛
 4. check-spec 对照 → 覆盖率报告（5 维：实体字段/枚举/页面/按钮/动作绑定）
 5. 能力范围缺口清单 → docs/dev/40_验收报告-TDSL能力范围验证-芋道.md
    - 结论分四档：✅ 全覆盖 / 🟡 覆盖但需绕路 / 🟠 部分（记录表现 X%）/ ❌ 缺口（进缺口单，标注影响）

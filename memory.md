@@ -30,7 +30,7 @@
 ## 3. 当前状态快照（2026-09，Spec 驱动对拍交付后）
 
 - **221 单测全绿（P11 双语法 + FFI 首轮后）**：core 5 / parser 48 / typecheck 35 / codegen-java 34 / codegen-react 28 / llm 13 / playground 6 / cli 14 / server 22；九包 strict typecheck 通过。
-- 演示入口：**`npm run server`（或根目录 start-server.sh，http://localhost:8787）**：浏览器提需求 → agent 写分片 → 编译自修 → 产物导出 zip → **run_app 起前后端（vite dev + mvn spring-boot:run + H2），用户反馈 → agent 读运行日志自修（M10 闭环）**；`npm run playground`（离线试验台）；端到端：`npm run slice`（单文件）+ `npm run slice:multi`（M7 对拍）；CLI：`npm run dsl -- check/build examples/todo-multi/tdsl`。
+- 演示入口：**`npm run server`（或根目录 start-server.sh，http://localhost:8787）**：浏览器提需求 → agent 写分片 → 编译自修 → 产物导出 zip → **run_app 起前后端（vite dev + mvn spring-boot:run + H2），用户反馈 → agent 读运行日志自修（M10 闭环）**；`npm run playground`（离线试验台）；端到端：`npm run slice`（单文件）+ `npm run slice:multi`（M7 对拍）；CLI：`npm run tdsl -- check/build examples/todo-multi/tdsl`。
 - **主线方向已校准（2026-09）**：一句话生成无法测出 DSL 表达力，改走 **Spec 驱动（SDD）**：结构化 Spec → TDSL → check-spec 自动对照（`npm run check-spec -w jxc`）。进销存（examples/jxc）为首个完整测试样例，暴露 7 项表达力缺口待排期（枚举 label/表单联动/where+aggregate 最痛）。网页（M9/M10）定位为外壳，暂缓。
 - **下一步**（按当前优先级）：表达力缺口补齐（C1 where+aggregate 查询链 → G1 枚举 label → G2 表单联动）→ 评测基准 → M3/M5 视需求排期。
 
@@ -263,3 +263,11 @@
 - 用户报"客户关系左侧菜单都点不了，固定第一个"——根因：左侧菜单 `onClick` 用 `keyPath.length === 1` 判断"是否页面项"，但 antd 对**子菜单内的子项** keyPath 长度是 2（子项+父组）→ 组内所有页面都不导航。
 - 修：改为按 key 形态判断——`const k = String(key); if (k.startsWith('/')) nav(k);`（分组 key 是文案、页面 key 是路由），与层级无关。
 - 回归：325 单测 / react tsc+build ✓。
+
+## 2026-09-16 续十六（CLI 改名 tdsl + 编译器独立打包 + yudao 一键演示）
+- **用户两点意见**：① 命令不能叫 `dsl`（太泛、易撞名）→ **改用 `tdsl`**（包名 `@tdsl/cli`、bin `tdsl`、根脚本 `npm run tdsl`，全仓文档/诊断文案/AGENTS 同步；`bin/dsl.mjs` → `bin/tdsl.mjs`）。② demo 脚本不该依赖 `../../`（编译器将独立发布）→ 改为**只依赖 `tdsl` 命令**（`npm run` 自动把 node_modules/.bin 入 PATH；仓库内由 workspace 链接，新环境 `npm i -D @tdsl/cli`），`TDSL_CLI` 可覆盖。
+- **编译器独立打包**：新增 `npm run pack:compiler`（`scripts/pack-compiler.mjs`）——对 6 个包做 esbuild bundle + **minify（无 sourcemap）** → `npm-dist/stage/<pkg>/dist/index.js`，改写发布用 package.json（main/exports/bin 指 dist、去掉 tsx 运行时依赖、`license: UNLICENSED` + 专有 LICENSE）→ `npm pack` → `npm-dist/tdsl-*.tgz`。仓库内开发流程不变（TS 源 + tsx 直跑，测试 import src）。
+- **明文问题（用户问"编译器不会被明文破解吧"）**：原方案确实发 TS 源码（可读可抄）。现在发布产物**只含压缩 JS**（cli 26K / codegen-react 78K，无 .ts）。注意：**压缩≠加密**，JS 仍可逆向；护城河在语义设计/文档/服务形态（packages/server 在线编译）+ 专有 LICENSE。
+- **新环境端到端验证**：临时目录 `npm init -y` → 装 6 个 tarball → 拷 `examples/yudao/tdsl/*.tdsl` → `npx tdsl check tdsl`（0 问题）→ `npx tdsl generate tdsl --name yudao -o generated`（java 352 + react 94）✓ 全程不依赖仓库目录。
+- **yudao 演示动线文档**：新增 `examples/yudao/README.md`（一键/分步/新环境/目录说明/演示动线）+ `scripts/demo.sh`（5 步：check+generate → 起后端等 healthz → seed → 起前端 → 打印地址与动线）+ `scripts/stop.sh`；yudao package.json 增 gen/build/backend/frontend/seed/demo/stop/check 脚本；根脚本 `demo:yudao`。
+- 回归：325 单测 / 九包 typecheck ✓。

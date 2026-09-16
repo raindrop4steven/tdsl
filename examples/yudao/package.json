@@ -4,7 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check-spec": "tsx scripts/check-spec.ts"
+    "check-spec": "tsx scripts/check-spec.ts",
+    "gen": "tdsl generate tdsl --name yudao -o generated",
+    "gen:java": "tdsl generate tdsl --name yudao --java -o generated",
+    "gen:react": "tdsl generate tdsl --name yudao --react -o generated",
+    "build:java": "mvn -q -f generated/java/pom.xml compile",
+    "build:react": "npm --prefix generated/react run build",
+    "build": "npm run gen && npm run build:java && npm run build:react",
+    "backend": "mvn -f generated/java/pom.xml spring-boot:run",
+    "frontend": "npm --prefix generated/react run dev",
+    "seed": "tsx scripts/seed.ts",
+    "demo": "bash scripts/demo.sh",
+    "stop": "bash scripts/stop.sh",
+    "check": "tdsl check tdsl"
   },
   "dependencies": {
     "@tdsl/core": "*",
@@ -16,6 +28,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "@tdsl/cli": "0.0.1"
   }
 }

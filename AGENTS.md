@@ -28,7 +28,7 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 | P2 LLM Prompt Pack（示例矩阵/prompt 组装/诊断修复闭环，`packages/llm`，13 单测） | ✅ |
 | P2 Playground（浏览器试验台：Monaco + 实时诊断/AST/双端代码，`packages/playground`，6 单测） | ✅ |
 | M7 多文件工程（`parseProject` 分片合并、跨文件全局命名空间引用、诊断带 file、按功能纵向切示例 todo-multi 对拍） | ✅ |
-| M8 CLI（`dsl parse/check/generate/build`，多文件目录入口、app 名清洗、诊断人话化；`packages/cli`，14 单测） | ✅ |
+| M8 CLI（`ttdsl parse/check/generate/build`，多文件目录入口、app 名清洗、诊断人话化；`packages/cli`，14 单测） | ✅ |
 | M9 在线 TDSL Agent（`npm run server` 嵌入 pi SDK：聊天页+WS 流式、compile_tdsl 裁判、沙箱分片读写、产物落盘+导出 zip；`packages/server`，14 单测；设计见 dev/23） | ✅ |
 | 依赖声明与目录外置（`dependency java/npm` 声明进 AST + bundle-jar 产物外置工程 libs/ + alias 唯一不变式/D-dep 诊断；设计见 dev/32） | ✅ |
 | M3 逻辑补全+typecheck 加深 / M5 数据完整性 / 评测基准 | ⬜ 未开始 |
@@ -51,7 +51,9 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 ```bash
 npm test              # 九包 vitest（272 个用例）
 npm run typecheck     # 九包 tsc --noEmit
-npm run dsl           # CLI：npm run dsl -- check examples/todo-multi/tdsl（parse/check/generate/build/bundle-jar）
+npm run tdsl           # CLI：npm run tdsl -- check examples/todo-multi/tdsl（parse/check/generate/build/bundle-jar）
+npm run pack:compiler  # 打包编译器为独立 npm 包（npm-dist/*.tgz，压缩 JS 无源码）
+npm run demo:yudao     # yudao 一键演示：生成双端 → 起前后端 → 灌数（http://localhost:5173）
 npm run slice         # 端到端：todo.tdsl → parse → typecheck → 双端 codegen → mvn compile + vite build
 npm run slice:multi   # M7 多文件端到端：todo-multi 5 个功能域分片 → parseProject → 对拍单文件 → 双端 build
 npm run playground    # 浏览器试验台：http://localhost:5173（左编辑 TDSL，右看诊断/AST/双端代码）
@@ -97,7 +99,7 @@ docs/
 | 新增节点类型 | 改 `core/types.ts` 判别联合后，**TS 编译会强制**你补齐所有 `never` 收窄点——顺着报错改完即闭环 |
 | 新增查询形态 | parser `parseCallArgs` 分派 → typecheck `checkChainMethod` 白名单 → codegen-java `QuerySpec`/`derivedMethodName` |
 | 新增页面组件 | parser `parseViewElement` 已通用；typecheck `KNOWN_VIEW_TYPES` + codegen-react `genElement`/`ANTD_OF` |
-| 接入第三方 jar | `dsl bundle-jar <jar> -o <工程>/libs/x.json [--classes 简名]`（坐标自动取 pom.properties）→ 产物人工收窄 → TDSL 写 `dependency java "g:a:v";` → check/generate 自动匹配装载（dev/32） |
+| 接入第三方 jar | `tdsl bundle-jar <jar> -o <工程>/libs/x.json [--classes 简名]`（坐标自动取 pom.properties）→ 产物人工收窄 → TDSL 写 `dependency java "g:a:v";` → check/generate 自动匹配装载（dev/32） |
 | 排查 typecheck 误报 | 当前策略是"宽松放行"（无法静态推导不报错）；确认是缺陷再收紧，避免破坏 demo |
 
 ## 8. 本机工具链

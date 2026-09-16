@@ -31,7 +31,7 @@ check(app: AppNode, opts?: { libs?: LoadedCatalog[] }): CheckResult
 - **链式**：`.orderBy/.page/.limit/.groupBy` 参数与字段校验（沿链递归找起点实体）
 - **实例**：`.save()/.delete()` 无参；`list.add(x)`/`list.count` 接收者须是 List
 - **外部服务**：`userService.getUser(id)` 按"接收者小驼峰 = service 短名"匹配，核对方法存在与参数个数
-- **FFI 成员解析（4.6）**：receiver 类型已知（变量表 / 目录别名静态调用 / 链上 ret 传播 / `ns.Alias` 限定）才查目录；**未知类型放行**。目录外成员报 error 并附补录口径（`dsl bundle-jar`）
+- **FFI 成员解析（4.6）**：receiver 类型已知（变量表 / 目录别名静态调用 / 链上 ret 传播 / `ns.Alias` 限定）才查目录；**未知类型放行**。目录外成员报 error 并附补录口径（`tdsl bundle-jar`）
 
 ## 4. 依赖声明诊断（4.7，dev/32）
 
@@ -59,4 +59,4 @@ D-dep-1 的"用了"来自 FFI 检查过程中收集的 `usedCoords`——**用�
 2. **诊断三要素**：nodePath（可寻址）+ 人话 message（LLM 可直接读）+ 补录口径（下一步动作可执行）。
 3. **宽松是策略不是偷懒**：每条已实现的诊断都对应真实踩坑（端点暴露拦截就是前端白屏事故回流的产物）。
 
-**动手练习**：把 fastjson-demo 的 `dependency` 声明删掉跑 `npm run dsl -- check examples/fastjson-demo/demo.tdsl`，观察 D-dep-1 的人话提示；再删 libs/fastjson2.json 看 D-dep-2。
+**动手练习**：把 fastjson-demo 的 `dependency` 声明删掉跑 `npm run tdsl -- check examples/fastjson-demo/demo.tdsl`，观察 D-dep-1 的人话提示；再删 libs/fastjson2.json 看 D-dep-2。

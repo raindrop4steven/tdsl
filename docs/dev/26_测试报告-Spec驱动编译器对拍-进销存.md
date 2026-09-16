@@ -79,6 +79,6 @@ Spec 格式要点（v1 实践定型）：
 
 - 首轮对照 91.6% → 缺口两类：检查器 target nodePath 匹配（链接后 `app.logics.x`）+ 漏写 2 个退货列表页 → 修复后 100%
 - mvn 首轮暴露 F2/F3/F4；react tsc 轮暴露 F5/F6；slice:multi 回归暴露 F8（存量缺陷，stash 验证与本次修改无关）
-- 命令：`npm run check-spec -w jxc`；`npm run dsl -- build examples/jxc/tdsl -o examples/jxc/generated --name jxc`
+- 命令：`npm run check-spec -w jxc`；`npm run tdsl -- build examples/jxc/tdsl -o examples/jxc/generated --name jxc`
 - 注意：CLI 不带 `-o` 时产物写当前目录 `./generated`（曾误写仓库根，已清）
 </content>
