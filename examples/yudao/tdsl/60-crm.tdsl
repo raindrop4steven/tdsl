@@ -841,7 +841,21 @@ function saveSystemUser(input: SystemUserInput): SystemUser {
   return u;
 }
 
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryCrmBusinessProducts(businessId: Integer): List<CrmBusinessProduct> {
+  return CrmBusinessProduct.where(businessId = businessId);
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryCrmContractProducts(contractId: Integer): List<CrmContractProduct> {
+  return CrmContractProduct.where(contractId = contractId);
+}
+
 interface CrmApi {
+  GET    '/api/crm/businesses/{businessId}/products' -> queryCrmBusinessProducts
+  GET    '/api/crm/contracts/{contractId}/products' -> queryCrmContractProducts
   GET    '/api/users'                     -> querySystemUser
   POST   '/api/users'                     -> saveSystemUser
   GET    '/api/crm/source-dicts'          -> querySourceDict
@@ -1252,7 +1266,7 @@ dialog crmBusinessForm {
     <input field="statusId" label="当前阶段" />
     <input field="discountPercent" label="优惠率" />
     <input field="remark" label="备注" />
-    <repeat field="products">
+    <repeat field="products" dataSource={useQuery('queryCrmBusinessProducts', initial.id)}>
       <input field="productId" label="产品" />
       <input field="productPrice" label="产品单价" />
       <input field="businessPrice" label="商机单价" />
@@ -1332,7 +1346,7 @@ dialog crmContractForm {
     <input field="signUserId" label="签约人" />
     <input field="discountPercent" label="优惠率" />
     <input field="remark" label="备注" />
-    <repeat field="products">
+    <repeat field="products" dataSource={useQuery('queryCrmContractProducts', initial.id)}>
       <input field="productId" label="产品" />
       <input field="productPrice" label="产品单价" />
       <input field="contractPrice" label="合同单价" />

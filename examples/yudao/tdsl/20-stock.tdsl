@@ -203,7 +203,14 @@ function auditErpStockCheck(id: Integer): Boolean {
   return true;
 }
 
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpStockCheckItems(checkId: Integer): List<StockCheckItem> {
+  return StockCheckItem.where(checkId = checkId);
+}
+
 interface StockApi {
+  GET    '/api/erp/stock-checks/{checkId}/items' -> queryErpStockCheckItems
   GET    '/api/erp/warehouses'          -> queryErpWarehouse
   POST   '/api/erp/warehouses'          -> saveErpWarehouse
   DELETE '/api/erp/warehouses/{id}'     -> deleteErpWarehouse
@@ -332,7 +339,7 @@ dialog erpStockCheckForm {
     <input field="checkTime" label="盘点时间" />
     <input field="warehouseId" label="仓库" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('queryErpStockCheckItems', initial.id)}>
       <input field="productId" label="产品" />
       <input field="productUnitId" label="产品单位" />
       <input field="count" label="盘点数量" />

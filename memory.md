@@ -218,3 +218,12 @@
 - 修过程中发现的三个生成器问题：①`as X[] | undefined ?? y` 优先级（TS2871 恒空）→ 加括号并按有无数据源分别生成；②无数据源时不再生成 `undefined ??` 前缀；③未使用 row 别名。
 - 样例：采购入库/销售出库两个表单的明细加数据源（注意首次脚本插错了 dialog——已按 dialog 块配平精确定位修正）。
 - 实测：322 单测全绿、九包 typecheck ✓、spec 1091 项 100%、react tsc+build ✓。
+
+## 2026-09-16 续十一（明细数据源通用化：覆盖全部 11 个带明细表单）
+- 追问"所有的都修了吗"——上一轮只覆盖了有详情 DTO 的两个（采购入库/销售出库）。本轮通用化：
+  - codegen：repeat dataSource 支持**两种返回形态**——`List<T>` → `q.data` 直接当数组；结构体 → `q.data.<field>`（按 logic 返回类型自动判别）。
+  - yudao：为其余 9 个带明细的表单补「明细列表查询 + 端点 + dataSource」：
+    库存盘点 items、采购订单/退货/付款 items、销售订单/退货/收款 items、CRM 商机 products、CRM 合同 products
+    （路径如 `GET '/api/erp/purchase-orders/{orderId}/items' -> queryErpPurchaseOrderItems`）。
+  - 采购入库/销售出库仍走详情 DTO 版本（同时补全区块字段）——两种形态并存且有测试锁定。
+- 真机：`purchase-orders/1/items`、`purchase-ins/1/detail`、`sale-orders/1/items`、`crm/contracts/1/products`、`crm/businesses/1/products` 均 200 返回明细；322 单测 / typecheck / java clean compile / react tsc+build / seed 105-0。

@@ -2760,8 +2760,14 @@ function collectFormSyncEffect(app: AppNode, v: ViewNode): string | undefined {
           // 列表行只带主表字段（无 items），靠该查询补明细；新增态（initial=null）不发请求
           const qb = r.bindings.find((b) => b.name === 'useQuery');
           const qvar = qb ? `q${cap(logicNameOf(qb.target))}` : null;
+          // 数据源两种形态：返回 List<T> → q.data 即数组；返回结构体 → 取 q.data.<field>
+          const rt = qb ? logicOf(app, qb.target)?.returns[0]?.type : undefined;
+          const isList = rt?.kind === 'generic' && rt.name === 'List';
           const fromInit = `(initial?.${field} as ${elemType}[] | undefined) ?? [{ ${defaults} }]`;
-          const src = qvar ? `(${qvar}.data?.${field} as ${elemType}[] | undefined) ?? ${fromInit}` : fromInit;
+          const fromQuery = isList
+            ? `(${qvar}.data as ${elemType}[] | undefined) ?? ${fromInit}`
+            : `(${qvar}.data?.${field} as ${elemType}[] | undefined) ?? ${fromInit}`;
+          const src = qvar ? fromQuery : fromInit;
           clearLines.push(`      set${cap(field)}([{ ${defaults} }]);`);
           setLines.push(`      set${cap(field)}(${src});`);
           if (qvar) depsVars.push(qvar);

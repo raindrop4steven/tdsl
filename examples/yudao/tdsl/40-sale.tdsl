@@ -436,7 +436,28 @@ function deauditErpSaleReceipt(id: Integer): Boolean {
   return true;
 }
 
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpSaleOrderItems(orderId: Integer): List<SaleOrderItem> {
+  return SaleOrderItem.where(orderId = orderId);
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpSaleReturnItems(returnId: Integer): List<SaleReturnItem> {
+  return SaleReturnItem.where(returnId = returnId);
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpSaleReceiptItems(receiptId: Integer): List<FinanceReceiptItem> {
+  return FinanceReceiptItem.where(receiptId = receiptId);
+}
+
 interface SaleApi {
+  GET    '/api/erp/sale-orders/{orderId}/items' -> queryErpSaleOrderItems
+  GET    '/api/erp/sale-returns/{returnId}/items' -> queryErpSaleReturnItems
+  GET    '/api/erp/sale-receipts/{receiptId}/items' -> queryErpSaleReceiptItems
   GET    '/api/erp/sale-orders'             -> queryErpSaleOrder
   GET    '/api/erp/sale-orders/{id}'        -> getErpSaleOrder
   POST   '/api/erp/sale-orders'             -> saveErpSaleOrder
@@ -504,7 +525,7 @@ dialog erpSaleOrderForm {
     <input field="depositPrice" label="定金金额" />
     <input field="fileUrl" label="附件" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('queryErpSaleOrderItems', initial.id)}>
       <input field="productId" label="产品" />
       <input field="productUnitId" label="产品单位" />
       <input field="productPrice" label="产品单价" />
@@ -699,7 +720,7 @@ dialog erpSaleReturnForm {
     <input field="otherPrice" label="其它费用" />
     <input field="fileUrl" label="附件" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('queryErpSaleReturnItems', initial.id)}>
       <input field="warehouseId" label="仓库" />
       <input field="productId" label="产品" />
       <input field="productUnitId" label="产品单位" />
@@ -773,7 +794,7 @@ dialog erpSaleReceiptForm {
     <input field="financeUserId" label="财务人员" />
     <input field="discountPrice" label="优惠金额" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('queryErpSaleReceiptItems', initial.id)}>
       <input field="bizType" label="核销业务类型" />
       <input field="bizId" label="关联业务单" />
       <input field="bizNo" label="关联单号" />

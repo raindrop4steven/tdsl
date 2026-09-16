@@ -437,7 +437,28 @@ function deauditErpPurchasePayment(id: Integer): Boolean {
   return true;
 }
 
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpPurchaseOrderItems(orderId: Integer): List<PurchaseOrderItem> {
+  return PurchaseOrderItem.where(orderId = orderId);
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpPurchaseReturnItems(returnId: Integer): List<PurchaseReturnItem> {
+  return PurchaseReturnItem.where(returnId = returnId);
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpPurchasePaymentItems(paymentId: Integer): List<FinancePaymentItem> {
+  return FinancePaymentItem.where(paymentId = paymentId);
+}
+
 interface PurchaseApi {
+  GET    '/api/erp/purchase-orders/{orderId}/items' -> queryErpPurchaseOrderItems
+  GET    '/api/erp/purchase-returns/{returnId}/items' -> queryErpPurchaseReturnItems
+  GET    '/api/erp/purchase-payments/{paymentId}/items' -> queryErpPurchasePaymentItems
   GET    '/api/erp/purchase-orders'            -> queryErpPurchaseOrder
   GET    '/api/erp/purchase-orders/{id}'       -> getErpPurchaseOrder
   POST   '/api/erp/purchase-orders'            -> saveErpPurchaseOrder
@@ -504,7 +525,7 @@ dialog erpPurchaseOrderForm {
     <input field="depositPrice" label="定金金额" />
     <input field="fileUrl" label="附件" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('queryErpPurchaseOrderItems', initial.id)}>
       <input field="productId" label="产品" />
       <input field="productUnitId" label="产品单位" />
       <input field="productPrice" label="产品单价" />
@@ -695,7 +716,7 @@ dialog erpPurchaseReturnForm {
     <input field="otherPrice" label="其它费用" />
     <input field="fileUrl" label="附件" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('queryErpPurchaseReturnItems', initial.id)}>
       <input field="warehouseId" label="仓库" />
       <input field="productId" label="产品" />
       <input field="productUnitId" label="产品单位" />
@@ -769,7 +790,7 @@ dialog erpPurchasePaymentForm {
     <input field="financeUserId" label="财务人员" />
     <input field="discountPrice" label="优惠金额" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('queryErpPurchasePaymentItems', initial.id)}>
       <input field="bizType" label="核销业务类型" />
       <input field="bizId" label="关联业务单" />
       <input field="bizNo" label="关联单号" />
