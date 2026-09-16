@@ -734,7 +734,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   const typeNames = usedTypes(app, v);
   // row 别名的类型也要 import（detail 页主查询 / 顶栏按钮行模式的实体类型）
   let aliasEntName: string | null = null;
-  if (rowSrc) {
+  if (rowSrc && viewRowBindingUse(v.elements)) {
     const rt = logicOf(app, rowSrc.target)?.returns[0]?.type;
     if (rt?.kind === 'reference') aliasEntName = nameFromPath(rt.path);
   } else if (hasTable && pageLevelRowUse(v)) {
@@ -833,14 +833,22 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     const varname = queryVars.get(target)!;
     const isRowSrc = rowSrc !== undefined && target === rowSrc.target;
     if (isRowSrc) {
-      // 主查询：row.id → 路由参数 Number(id)
+      // 主查询：row.id → 路由参数 Number(id)；initial.id → 抽屉按选中行取数（新增态 initial=null 时不发请求，避免 /0 404）
+      const usesInitial = rowSrc.args.some((a) => exprHasIdent(a, 'initial'));
       const args = rowSrc.args.map((a) => (exprHasIdent(a, 'row') ? 'Number(id)' : genBindingArg(a, hasRoute))).join(', ');
-      hooksInit.push(`  const ${varname} = useQuery(() => api.${logicNameOf(target)}(${args}));`);
+      if (usesInitial) {
+        hooksInit.push(`  const ${varname} = useQuery(() => (initial?.id ? api.${logicNameOf(target)}(${args}) : Promise.resolve(null)));`);
+      } else {
+        hooksInit.push(`  const ${varname} = useQuery(() => api.${logicNameOf(target)}(${args}));`);
+      }
       const retType = logicOf(app, target)?.returns[0]?.type;
-      hooksInit.push(
-        `  // 页面级 row：主查询结果（detail 页模式，后续 row.* 引用它）`,
-        `  const row = ${varname}.data ?? ({} as ${retType ? tsType(retType) : 'Record<string, unknown>'});`,
-      );
+      // row 别名仅在页面确实引用 row 时声明（如详情抽屉按钮）；表单的明细数据源查询不需要它，否则 TS 报未使用
+      if (viewRowBindingUse(v.elements)) {
+        hooksInit.push(
+          `  // 页面级 row：主查询结果（detail 页模式，后续 row.* 引用它）`,
+          `  const row = ${varname}.data ?? ({} as ${retType ? tsType(retType) : 'Record<string, unknown>'});`,
+        );
+      }
       continue;
     }
     // 其余引用 row 的查询（如明细 repeat）：row 变化后重查（JSON 序列化作依赖，引用稳定不循环）
@@ -2733,6 +2741,7 @@ function collectFormStateLines(app: AppNode, v: ViewNode): string[] {
 function collectFormSyncEffect(app: AppNode, v: ViewNode): string | undefined {
   const clearLines: string[] = [];
   const setLines: string[] = [];
+  const depsVars: string[] = [];
   const visit = (els: ViewElementNode[]): void => {
     for (const el of els) {
       if (el.type === 'form') {
@@ -2747,8 +2756,15 @@ function collectFormSyncEffect(app: AppNode, v: ViewNode): string | undefined {
           const elemType = itemStruct?.name ?? 'Record<string, unknown>';
           const subInputs = r.children.filter((c) => c.type === 'input');
           const defaults = repeatDefaultsOf(app, repeatItemStruct(app, el, r), subInputs);
+          // 明细数据源（可选）：<repeat field="items" dataSource={useQuery('getXxxDetail', initial.id)}>
+          // 列表行只带主表字段（无 items），靠该查询补明细；新增态（initial=null）不发请求
+          const qb = r.bindings.find((b) => b.name === 'useQuery');
+          const qvar = qb ? `q${cap(logicNameOf(qb.target))}` : null;
+          const fromInit = `(initial?.${field} as ${elemType}[] | undefined) ?? [{ ${defaults} }]`;
+          const src = qvar ? `(${qvar}.data?.${field} as ${elemType}[] | undefined) ?? ${fromInit}` : fromInit;
           clearLines.push(`      set${cap(field)}([{ ${defaults} }]);`);
-          setLines.push(`      set${cap(field)}((initial?.${field} as ${elemType}[] | undefined) ?? [{ ${defaults} }]);`);
+          setLines.push(`      set${cap(field)}(${src});`);
+          if (qvar) depsVars.push(qvar);
         }
       }
       visit(el.children);
@@ -2756,7 +2772,8 @@ function collectFormSyncEffect(app: AppNode, v: ViewNode): string | undefined {
   };
   visit(v.elements);
   if (clearLines.length === 0 && setLines.length === 0) return undefined;
-  return `  useEffect(() => {\n    if (open) {\n      if (initial) {\n${setLines.join('\n')}\n      } else {\n${clearLines.join('\n')}\n      }\n    }\n  }, [open, initial]);`;
+  const deps = ['open', 'initial', ...depsVars.map((d) => `${d}.data`)].join(', ');
+  return `  useEffect(() => {\n    if (open) {\n      if (initial) {\n${setLines.join('\n')}\n      } else {\n${clearLines.join('\n')}\n      }\n    }\n  }, [${deps}]);`;
 }
 
 /** text field="x" → <span>{data.x}</span> */

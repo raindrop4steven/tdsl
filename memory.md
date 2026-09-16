@@ -208,3 +208,13 @@
   修：**详情 DTO 扁平化**——`PurchaseInDetail`/`SaleOutDetail` 改为主表字段（id/no/status/…）+ `items` 平铺；getter 逐字段拷贝；详情页 `<text field="no">`、按钮用 `row.status`/`row.id`；编辑按钮直接传 `row` → 表头字段与明细行都能预填（真机验证 `/detail` 返回扁平 DTO + items）。
 - **根因2（告警）**：表单明细表用 `rowKey={(_, index) => String(index)}`（antd 已废弃）。修：`dataSource={items.map((it, i) => ({ ...it, key: String(i) }))}` + `rowKey="key"`（行对象多出渲染用 key，不进提交体）。
 - 回归：321 单测 / java clean compile / react tsc+build / seed 105-0。
+
+## 2026-09-16 续十（表单明细数据源：列表直接编辑也能带出明细）
+- **用户报**：详情→编辑有明细；**列表直接点编辑没有明细**。根因：列表行是实体（`PurchaseIn`，无 `items`），详情行是扁平 DTO（有 `items`），表单预填只认 `initial.items`；DTO 扁平化只解决了详情入口。
+- **新增能力（语言面既有绑定，零新语法）**：`<repeat field="items" dataSource={useQuery('getErpPurchaseInDetail', initial.id)}>` —— 明细行独立取数：
+  - codegen：manifest 的 sync effect 里明细来源优先级 `查询结果?.items ?? initial?.items ?? 默认空行`，并把数据源加入 `useEffect` 依赖（取数回来后重填）；
+  - 抽屉按 id 取数的查询加守卫 `initial?.id ? api.getX(...) : Promise.resolve(null)`（新增态不发请求，避免 `/0` 404 + 错误弹窗）；
+  - `row` 别名与对应类型 import 仅在「页面确实引用 row」时生成（否则 TS6133/TS6196）。
+- 修过程中发现的三个生成器问题：①`as X[] | undefined ?? y` 优先级（TS2871 恒空）→ 加括号并按有无数据源分别生成；②无数据源时不再生成 `undefined ??` 前缀；③未使用 row 别名。
+- 样例：采购入库/销售出库两个表单的明细加数据源（注意首次脚本插错了 dialog——已按 dialog 块配平精确定位修正）。
+- 实测：322 单测全绿、九包 typecheck ✓、spec 1091 项 100%、react tsc+build ✓。

@@ -579,7 +579,7 @@ dialog erpSaleOutForm {
     <input field="otherPrice" label="其它费用" />
     <input field="fileUrl" label="附件" />
     <input field="remark" label="备注" />
-    <repeat field="items">
+    <repeat field="items" dataSource={useQuery('getErpSaleOutDetail', initial.id)}>
       <input field="warehouseId" label="仓库" />
       <input field="productId" label="产品" />
       <input field="productUnitId" label="产品单位" />

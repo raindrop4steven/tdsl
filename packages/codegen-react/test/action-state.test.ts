@@ -183,4 +183,51 @@ page eList {
     expect(hooks).toContain('message.success(okMessage)');
   });
 });
+
+describe('codegen-react 明细数据源（repeat dataSource）', () => {
+  const files = gen(`
+@datasource('d')
+entity In { id: Integer @pk; no: String; }
+entity InItem { id: Integer @pk; inId: Integer; productId: Integer; count: Decimal; }
+struct InItemInput { productId: Integer; count: Decimal; }
+struct InInput { id: Integer; no: String; items: List<InItemInput>; }
+struct InDetail { id: Integer; no: String; items: List<InItem>; }
+@export
+function queryIn(): List<In> { return In.all; }
+@export
+function getInDetail(id: Integer): InDetail { const d = new InDetail(); d.items = InItem.where(inId = id); return d; }
+@export
+function saveIn(input: InInput): In { const b = new In(); b.no = input.no; b.save(); return b; }
+interface A {
+  GET  '/api/in'            -> queryIn
+  GET  '/api/in/{id}/detail' -> getInDetail
+  POST '/api/in'            -> saveIn
+}
+page inList {
+  <table dataSource={useQuery('queryIn')}>
+    <column field="no" title="单号" />
+    <button text="编辑" action={openDialog('inForm', row)} />
+  </table>
+}
+dialog inForm {
+  <form submit={useMutation('saveIn')}>
+    <input field="no" label="单号" />
+    <repeat field="items" dataSource={useQuery('getInDetail', initial.id)}>
+      <input field="productId" label="产品" />
+      <input field="count" label="数量" />
+    </repeat>
+  </form>
+}
+`);
+
+  it('明细数据源：按 initial.id 取数（新增态不发请求）+ 表单预填兜底', () => {
+    const form = files.get('src/pages/inForm.tsx')!;
+    expect(form).toContain("useQuery(() => (initial?.id ? api.getInDetail(Number(initial?.id ?? 0)) : Promise.resolve(null)))");
+    expect(form).toContain('setItems((qGetInDetail.data?.items as InItemInput[] | undefined) ?? (initial?.items as InItemInput[] | undefined) ??');
+    // 依赖包含数据源，保证取数回来后重填
+    expect(form).toMatch(/\}, \[open, initial, qGetInDetail\.data\]\);/);
+    // 未使用的 row 别名不生成
+    expect(form).not.toContain('const row =');
+  });
+});
 });
