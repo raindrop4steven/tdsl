@@ -189,8 +189,9 @@ page OrderDetail {
     expect(list).toMatch(/import \{[^}]*Button[^}]*\} from 'antd'/);
     expect(list).toContain('<Table');
     expect(list).toContain('dataIndex: \'id\'');
-    expect(list).toContain('pagination={false}');
     expect(list).toContain('rowKey="id"');
+    // 列表表默认分页（客户端）；rowKey 用实体主键（避免首列外键重复导致翻页残留）
+    expect(list).toContain('pagination={{ pageSize: 10, showSizeChanger: true');
   });
 
   it('generates form page with repeat rows and submit mutation', () => {
@@ -395,7 +396,10 @@ dialog CarForm {
     const form = files.find((f) => f.path === 'src/pages/CarForm.tsx')!.content;
     expect(form).toMatch(/import \{[^}]*Drawer[^}]*\} from 'antd'/);
     expect(form).toContain('function CarForm({ open, onClose, initial }: { open: boolean; onClose: () => void; initial?: Record<string, unknown> | null })');
-    expect(form).toContain('<Drawer title="CarForm" open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.6, 760)} destroyOnClose');
+    // 顶部右上角动作区（dev/45 续）：表单保存按钮移到 Drawer extra，用 form 属性关联
+    expect(form).toContain('<Drawer title="CarForm" extra={<Space size={4}>');
+    expect(form).toContain('htmlType="submit" form="f-CarForm">保存</Button>');
+    expect(form).toContain('<form id="f-CarForm" onSubmit={');
     expect(form).toContain('.then(() => onClose())');
   });
 
@@ -528,7 +532,9 @@ page GoodsList {
     const files = generateReact(SRC);
     const page = files.find((f) => f.path === 'src/pages/GoodsList.tsx')!.content;
     expect(page).toContain("label: '现金'");
-    expect(page).toContain('<h2 style={{ marginTop: 0, marginBottom: 16, fontSize: 18, fontWeight: 600, color: \'#1f1f1f\' }}>商品列表</h2>');
+    // 卡片标题行与右上角动作区同一行（dev/45 续）
+    expect(page).toContain("justifyContent: 'space-between'");
+    expect(page).toContain('>商品列表</h2>');
   });
 });
 

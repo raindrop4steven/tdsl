@@ -1,5 +1,40 @@
 // 芋道 ERP · 库存管理：仓库/产品库存/库存明细（含其它出入库）/库存盘点
 
+// ---- 库存联动公共入口（dev/45 F3：单据审批/反审批调用；不足抛业务错误） ----
+// delta 为正=入库、为负=出库；自动建库存行、写变动流水（含结存快照）
+function applyStock(productId: Integer, warehouseId: Integer, delta: Decimal,
+                    bizType: StockRecordBizType, bizId: Integer, bizNo: String): Boolean {
+  const rows = Stock.where(productId = productId, warehouseId = warehouseId);
+  if (rows.count === 0) {
+    if (delta < 0) {
+      throw '库存不足';
+    }
+    const init = new Stock();
+    init.productId = productId;
+    init.warehouseId = warehouseId;
+    init.count = 0;
+    init.save();
+  }
+  for (const s of Stock.where(productId = productId, warehouseId = warehouseId)) {
+    const next = s.count + delta;
+    if (next < 0) {
+      throw '库存不足';
+    }
+    s.count = next;
+    s.save();
+    const rec = new StockRecord();
+    rec.productId = productId;
+    rec.warehouseId = warehouseId;
+    rec.count = delta;
+    rec.totalCount = next;
+    rec.bizType = bizType;
+    rec.bizId = bizId;
+    rec.bizNo = bizNo;
+    rec.save();
+  }
+  return true;
+}
+
 // ---- 仓库 ----
 
 @export

@@ -400,7 +400,7 @@ function fileOfPath(map: Map<string, string>, path: string): string | undefined 
 
 /** 已知 ViewElement 组件类型（管理系统常用集） */
 const KNOWN_VIEW_TYPES = new Set([
-  'table', 'column', 'button', 'form', 'input', 'repeat', 'text', 'detail',
+  'table', 'column', 'button', 'form', 'input', 'repeat', 'text', 'detail', 'summary',
   // 管理端常用：标签/统计/标签页/布尔与选项控件/头像/徽标/分格
   'tag', 'statistic', 'tabs', 'pane', 'checkbox', 'radio', 'switch', 'avatar', 'badge', 'card',
 ]);
@@ -432,7 +432,40 @@ function checkView(
     if (el.type === 'form' || el.type === 'repeat') {
       checkFormSemantics(app, el, diagnostics, ownerPath, exposedLogics);
     }
+    // dev/45：明细合计结构校验（field 须匹配同表单 repeat；of/expr 至少一个）
+    if (el.type === 'summary') {
+      checkSummary(el, elements, diagnostics, ownerPath);
+    }
     if (el.children.length > 0) checkView(app, el.children, diagnostics, ownerPath, exposedLogics);
+  }
+}
+
+/** summary 结构校验（dev/45 §2）：field 指向同表单 repeat；of 与 expr 至少一个 */
+function checkSummary(
+  el: ViewElementNode,
+  siblings: ViewElementNode[],
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  const field = String(el.props['field'] ?? '');
+  const hasRepeat = siblings.some((s) => s.type === 'repeat' && String(s.props['field'] ?? 'items') === field);
+  if (!hasRepeat) {
+    diagnostics.push({
+      path: ownerPath(el),
+      message: `summary 的 field '${field}' 未匹配到同一表单内的 repeat`,
+      severity: 'error',
+      code: 'SUMMARY-TARGET',
+      suggestion: `确认 <repeat field="${field}"> 与 <summary field="${field}"> 在同一 form 下`,
+    });
+  }
+  if (el.props['of'] === undefined && el.props['expr'] === undefined) {
+    diagnostics.push({
+      path: ownerPath(el),
+      message: 'summary 需提供 of（单字段求和）或 expr（表达式求和）之一',
+      severity: 'error',
+      code: 'SUMMARY-EXPR',
+      suggestion: 'of="count" 或 expr={count * productPrice}',
+    });
   }
 }
 

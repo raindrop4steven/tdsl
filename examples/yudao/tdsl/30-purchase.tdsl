@@ -159,6 +159,34 @@ function auditErpPurchaseIn(id: Integer): Boolean {
   if (b.status !== DocStatus.UNAUDIT) {
     throw '仅未审批入库单可审批';
   }
+  // 库存联动：逐明细入库 + 写流水（不足抛错回滚）
+  for (const it of PurchaseInItem.where(inId = id)) {
+    applyStock(it.productId, it.warehouseId, it.count, StockRecordBizType.PURCHASE_IN, id, b.no);
+  }
+  // 回写来源采购订单：明细已入库数 + 订单累计；累计到总量 → 订单完成
+  if (b.orderId !== null) {
+    const order = PurchaseOrder.get(b.orderId);
+    for (const it of PurchaseInItem.where(inId = id)) {
+      if (it.orderItemId !== null) {
+        const oi = PurchaseOrderItem.get(it.orderItemId);
+        if (oi.inCount === null) {
+          oi.inCount = it.count;
+        } else {
+          oi.inCount = oi.inCount + it.count;
+        }
+        oi.save();
+      }
+      if (order.inCount === null) {
+        order.inCount = it.count;
+      } else {
+        order.inCount = order.inCount + it.count;
+      }
+    }
+    if (order.totalCount !== null && order.inCount >= order.totalCount) {
+      order.status = DocStatus.AUDITED;
+    }
+    order.save();
+  }
   b.status = DocStatus.AUDITED;
   b.save();
   return true;
@@ -169,6 +197,27 @@ function deauditErpPurchaseIn(id: Integer): Boolean {
   const b = PurchaseIn.get(id);
   if (b.status !== DocStatus.AUDITED) {
     throw '仅已审批入库单可反审批';
+  }
+  // 库存联动回退：出库 + 取消流水
+  for (const it of PurchaseInItem.where(inId = id)) {
+    applyStock(it.productId, it.warehouseId, 0 - it.count, StockRecordBizType.PURCHASE_IN_CANCEL, id, b.no);
+  }
+  if (b.orderId !== null) {
+    const order = PurchaseOrder.get(b.orderId);
+    for (const it of PurchaseInItem.where(inId = id)) {
+      if (it.orderItemId !== null) {
+        const oi = PurchaseOrderItem.get(it.orderItemId);
+        if (oi.inCount !== null) {
+          oi.inCount = oi.inCount - it.count;
+        }
+        oi.save();
+      }
+      if (order.inCount !== null) {
+        order.inCount = order.inCount - it.count;
+      }
+    }
+    order.status = DocStatus.UNAUDIT;
+    order.save();
   }
   b.status = DocStatus.UNAUDIT;
   b.save();
@@ -248,6 +297,10 @@ function auditErpPurchaseReturn(id: Integer): Boolean {
   if (b.status !== DocStatus.UNAUDIT) {
     throw '仅未审批退货单可审批';
   }
+  // 库存联动：退货出库
+  for (const it of PurchaseReturnItem.where(returnId = id)) {
+    applyStock(it.productId, it.warehouseId, 0 - it.count, StockRecordBizType.PURCHASE_RETURN, id, b.no);
+  }
   b.status = DocStatus.AUDITED;
   b.save();
   return true;
@@ -258,6 +311,9 @@ function deauditErpPurchaseReturn(id: Integer): Boolean {
   const b = PurchaseReturn.get(id);
   if (b.status !== DocStatus.AUDITED) {
     throw '仅已审批退货单可反审批';
+  }
+  for (const it of PurchaseReturnItem.where(returnId = id)) {
+    applyStock(it.productId, it.warehouseId, it.count, StockRecordBizType.PURCHASE_RETURN_CANCEL, id, b.no);
   }
   b.status = DocStatus.UNAUDIT;
   b.save();
@@ -330,6 +386,17 @@ function auditErpPurchasePayment(id: Integer): Boolean {
   if (b.status !== DocStatus.UNAUDIT) {
     throw '仅未审批付款单可审批';
   }
+  // 核销：按明细关联单号回写入库单已付金额
+  for (const it of FinancePaymentItem.where(paymentId = id)) {
+    for (const paid of PurchaseIn.where(no = it.bizNo)) {
+      if (paid.paymentPrice === null) {
+        paid.paymentPrice = it.paymentPrice;
+      } else {
+        paid.paymentPrice = paid.paymentPrice + it.paymentPrice;
+      }
+      paid.save();
+    }
+  }
   b.status = DocStatus.AUDITED;
   b.save();
   return true;
@@ -340,6 +407,14 @@ function deauditErpPurchasePayment(id: Integer): Boolean {
   const b = FinancePayment.get(id);
   if (b.status !== DocStatus.AUDITED) {
     throw '仅已审批付款单可反审批';
+  }
+  for (const it of FinancePaymentItem.where(paymentId = id)) {
+    for (const paid of PurchaseIn.where(no = it.bizNo)) {
+      if (paid.paymentPrice !== null) {
+        paid.paymentPrice = paid.paymentPrice - it.paymentPrice;
+      }
+      paid.save();
+    }
   }
   b.status = DocStatus.UNAUDIT;
   b.save();
@@ -354,7 +429,7 @@ interface PurchaseApi {
   POST   '/api/erp/purchase-orders/{id}/audit' -> auditErpPurchaseOrder
   POST   '/api/erp/purchase-orders/{id}/deaudit' -> deauditErpPurchaseOrder
   GET    '/api/erp/purchase-ins'               -> queryErpPurchaseIn
-  GET    '/api/erp/purchase-ins/{id}'          -> getErpPurchaseIn
+  GET    '/api/erp/purchase-ins/{id}/detail'   -> getErpPurchaseInDetail
   POST   '/api/erp/purchase-ins'               -> saveErpPurchaseIn
   DELETE '/api/erp/purchase-ins/{id}'          -> deleteErpPurchaseIn
   POST   '/api/erp/purchase-ins/{id}/audit'    -> auditErpPurchaseIn
@@ -388,10 +463,13 @@ page erpPurchaseOrderList {
     <column field="supplierId" title="供应商" />
     <column field="totalPrice" title="优惠后金额" />
     <column field="depositPrice" title="定金金额" />
-    <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)} />
+    <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
     <button text="删除" action={useMutation('deleteErpPurchaseOrder', row.id)} />
-    <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)} />
-    <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
     <button text="详情" action={openDialog('erpPurchaseOrderDetail', row)} />
   </table>
   <button text="新增采购订单" action={openDialog('erpPurchaseOrderForm')} />
@@ -438,9 +516,12 @@ dialog erpPurchaseOrderDetail {
     <text field="depositPrice" title="定金" />
     <text field="remark" title="备注" />
   </detail>
-  <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)} />
-  <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)} />
-  <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)} />
+  <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
 }
 
 @title('采购入库列表')
@@ -456,10 +537,13 @@ page erpPurchaseInList {
     <column field="supplierId" title="供应商" />
     <column field="totalPrice" title="优惠后金额" />
     <column field="paymentPrice" title="已付金额" />
-    <button text="编辑" action={openDialog('erpPurchaseInForm', row)} />
+    <button text="编辑" action={openDialog('erpPurchaseInForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
     <button text="删除" action={useMutation('deleteErpPurchaseIn', row.id)} />
-    <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)} />
-    <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
     <button text="详情" action={openDialog('erpPurchaseInDetail', row)} />
   </table>
   <button text="新增入库单" action={openDialog('erpPurchaseInForm')} />
@@ -491,25 +575,41 @@ dialog erpPurchaseInForm {
   </form>
 }
 
+struct PurchaseInDetail { in: PurchaseIn; items: List<PurchaseInItem>; }
+
 @export
-function getErpPurchaseIn(id: Integer): PurchaseIn {
-  return PurchaseIn.get(id);
+function getErpPurchaseInDetail(id: Integer): PurchaseInDetail {
+  const d = new PurchaseInDetail();
+  d.in = PurchaseIn.get(id);
+  d.items = PurchaseInItem.where(inId = id);
+  return d;
 }
 
 @title('采购入库详情')
 @menu('采购管理')
 dialog erpPurchaseInDetail {
-  <detail dataSource={useQuery('getErpPurchaseIn', initial.id)}>
-    <text field="no" title="入库单号" />
-    <text field="inTime" title="入库时间" />
-    <text field="orderNo" title="关联单号" />
-    <text field="totalPrice" title="优惠后金额" />
-    <text field="paymentPrice" title="已付金额" />
-    <text field="remark" title="备注" />
+  <detail dataSource={useQuery('getErpPurchaseInDetail', initial.id)}>
+    <text field="in.no" title="入库单号" />
+    <text field="in.inTime" title="入库时间" />
+    <text field="in.orderNo" title="关联单号" />
+    <text field="in.totalPrice" title="优惠后金额" />
+    <text field="in.paymentPrice" title="已付金额" />
+    <text field="in.remark" title="备注" />
+    <repeat field="items" title="入库明细">
+      <column field="productId" title="产品" />
+      <column field="warehouseId" title="仓库" />
+      <column field="productUnitId" title="单位" />
+      <column field="productPrice" title="单价" />
+      <column field="count" title="数量" />
+      <column field="taxPercent" title="税率" />
+    </repeat>
   </detail>
-  <button text="编辑" action={openDialog('erpPurchaseInForm', row)} />
-  <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)} />
-  <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)} />
+  <button text="编辑" action={openDialog('erpPurchaseInForm', row.in)}
+          disabled={row.in.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpPurchaseIn', row.in.id)}
+          visible={row.in.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.in.id)}
+          visible={row.in.status === DocStatus.AUDITED} />
 }
 
 @title('采购退货列表')
@@ -525,10 +625,13 @@ page erpPurchaseReturnList {
     <column field="supplierId" title="供应商" />
     <column field="totalPrice" title="优惠后金额" />
     <column field="refundPrice" title="退款金额" />
-    <button text="编辑" action={openDialog('erpPurchaseReturnForm', row)} />
+    <button text="编辑" action={openDialog('erpPurchaseReturnForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
     <button text="删除" action={useMutation('deleteErpPurchaseReturn', row.id)} />
-    <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)} />
-    <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
     <button text="详情" action={openDialog('erpPurchaseReturnDetail', row)} />
   </table>
   <button text="新增退货单" action={openDialog('erpPurchaseReturnForm')} />
@@ -576,9 +679,12 @@ dialog erpPurchaseReturnDetail {
     <text field="refundPrice" title="退款金额" />
     <text field="remark" title="备注" />
   </detail>
-  <button text="编辑" action={openDialog('erpPurchaseReturnForm', row)} />
-  <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)} />
-  <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)} />
+  <button text="编辑" action={openDialog('erpPurchaseReturnForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
 }
 
 @title('采购付款单列表')
@@ -595,10 +701,13 @@ page erpPurchasePaymentList {
     <column field="accountId" title="结算账户" />
     <column field="totalPrice" title="应付金额" />
     <column field="paymentPrice" title="实付金额" />
-    <button text="编辑" action={openDialog('erpPurchasePaymentForm', row)} />
+    <button text="编辑" action={openDialog('erpPurchasePaymentForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
     <button text="删除" action={useMutation('deleteErpPurchasePayment', row.id)} />
-    <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)} />
-    <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
     <button text="详情" action={openDialog('erpPurchasePaymentDetail', row)} />
   </table>
   <button text="新增付款单" action={openDialog('erpPurchasePaymentForm')} />
@@ -643,7 +752,10 @@ dialog erpPurchasePaymentDetail {
     <text field="paymentPrice" title="实付金额" />
     <text field="remark" title="备注" />
   </detail>
-  <button text="编辑" action={openDialog('erpPurchasePaymentForm', row)} />
-  <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)} />
-  <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)} />
+  <button text="编辑" action={openDialog('erpPurchasePaymentForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
 }

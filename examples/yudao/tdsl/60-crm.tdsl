@@ -1276,9 +1276,12 @@ dialog crmContractDetail {
     <text field="remark" title="备注" />
   </detail>
   <button text="编辑" action={openDialog('crmContractForm', row)} />
-  <button text="提交审批" action={useMutation('submitCrmContract', row.id)} />
-  <button text="审批通过" action={useMutation('approveCrmContract', row.id)} />
-  <button text="审批驳回" action={useMutation('rejectCrmContract', row.id)} />
+  <button text="提交审批" action={useMutation('submitCrmContract', row.id)}
+          visible={row.auditStatus === CrmAuditStatus.UNSUBMIT} />
+  <button text="审批通过" action={useMutation('approveCrmContract', row.id)}
+          visible={row.auditStatus === CrmAuditStatus.UNDER_REVIEW} />
+  <button text="审批驳回" action={useMutation('rejectCrmContract', row.id)}
+          visible={row.auditStatus === CrmAuditStatus.UNDER_REVIEW} />
 }
 
 @title('合同提醒配置')
@@ -1374,7 +1377,8 @@ dialog crmReceivableForm {
     <input field="remark" label="备注" />
     <button text="保存" />
   </form>
-  <button text="提交审批" action={useMutation('submitCrmReceivable', row.id)} />
+  <button text="提交审批" action={useMutation('submitCrmReceivable', row.id)}
+          visible={row.auditStatus === CrmAuditStatus.UNSUBMIT} />
 }
 
 @export
@@ -1392,8 +1396,10 @@ dialog crmReceivableDetail {
     <text field="remark" title="备注" />
   </detail>
   <button text="编辑" action={openDialog('crmReceivableForm', row)} />
-  <button text="审批通过" action={useMutation('approveCrmReceivable', row.id)} />
-  <button text="审批驳回" action={useMutation('rejectCrmReceivable', row.id)} />
+  <button text="审批通过" action={useMutation('approveCrmReceivable', row.id)}
+          visible={row.auditStatus === CrmAuditStatus.UNDER_REVIEW} />
+  <button text="审批驳回" action={useMutation('rejectCrmReceivable', row.id)}
+          visible={row.auditStatus === CrmAuditStatus.UNDER_REVIEW} />
   <button text="新增跟进" action={openDialog('crmFollowUpForm')} />
 }
 

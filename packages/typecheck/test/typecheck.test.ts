@@ -895,4 +895,54 @@ function f(o: Object): Object { return JSON.nope(o); }
     expect(d?.severity).toBe('error');
     expect(d?.message).toContain('bundle-jar');
   });
+
+  it('summary 结构校验：field 未匹配同表单 repeat → SUMMARY-TARGET', () => {
+    const r = check(parse(`
+entity Order { id: Integer @pk; total: Decimal; }
+struct OrderInput { id: Integer; total: Decimal; }
+@export
+function saveOrder(input: OrderInput): Order { const o = new Order(); o.total = input.total; o.save(); return o; }
+dialog orderForm {
+  <form submit={useMutation('saveOrder')}>
+    <input field="total" label="金额" />
+    <summary field="items" of="count" label="总数量" />
+  </form>
+}
+`));
+    expect(r.diagnostics.some((d) => d.code === 'SUMMARY-TARGET')).toBe(true);
+  });
+
+  it('summary 结构校验：of/expr 均缺失 → SUMMARY-EXPR', () => {
+    const r = check(parse(`
+entity Order { id: Integer @pk; total: Decimal; }
+struct OrderInput { id: Integer; items: List<ItemInput>; }
+struct ItemInput { count: Decimal; }
+@export
+function saveOrder(input: OrderInput): Order { const o = new Order(); o.save(); return o; }
+dialog orderForm {
+  <form submit={useMutation('saveOrder')}>
+    <repeat field="items"><input field="count" label="数量" /></repeat>
+    <summary field="items" label="合计" />
+  </form>
+}
+`));
+    expect(r.diagnostics.some((d) => d.code === 'SUMMARY-EXPR')).toBe(true);
+  });
+
+  it('summary 合法（field 匹配 + of）→ 无 SUMMARY 诊断', () => {
+    const r = check(parse(`
+entity Order { id: Integer @pk; total: Decimal; }
+struct OrderInput { id: Integer; items: List<ItemInput>; }
+struct ItemInput { count: Decimal; }
+@export
+function saveOrder(input: OrderInput): Order { const o = new Order(); o.save(); return o; }
+dialog orderForm {
+  <form submit={useMutation('saveOrder')}>
+    <repeat field="items"><input field="count" label="数量" /></repeat>
+    <summary field="items" of="count" label="总数量" />
+  </form>
+}
+`));
+    expect(r.diagnostics.some((d) => d.code.startsWith('SUMMARY'))).toBe(false);
+  });
 });

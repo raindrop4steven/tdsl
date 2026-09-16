@@ -151,6 +151,8 @@ async function main(): Promise<void> {
   });
 
   // ================= 采购 =================
+  let po1Id: number | null = null;
+  let po2Id: number | null = null;
   await t('采购订单', async () => {
     const po1 = await post('/api/erp/purchase-orders', {
       no: 'PO20260901001', orderTime: $('2026-09-01T09:30:00'), supplierId: supplierId['华科数码'],
@@ -175,26 +177,29 @@ async function main(): Promise<void> {
         { productId: productIds['罗技 MX Master 3S 无线鼠标'], productUnitId: unitIds['个'], productPrice: 449, count: 100, taxPercent: 13 },
       ],
     });
-    if (po1?.id) await post(`/api/erp/purchase-orders/${po1.id}/audit`, {});
+    // PO1 不显式审批：由「入库审批」按累计入库量推进（dev/45 F3 链路）
     if (po3?.id) await post(`/api/erp/purchase-orders/${po3.id}/audit`, {});
-    void po2;
+    po1Id = po1?.id ?? null;
+    po2Id = po2?.id ?? null;
   });
 
   await t('采购入库', async () => {
     const pi1 = await post('/api/erp/purchase-ins', {
       no: 'PI20260905001', inTime: $('2026-09-05T16:00:00'), supplierId: supplierId['华科数码'], accountId: finAccIds['招商银行基本户'],
-      remark: 'PO20260901001 对应入库（已审批）', discountPrice: 0, otherPrice: 0,
+      orderId: po1Id, orderNo: 'PO20260901001',
+      remark: 'PO20260901001 对应入库（审批后推进订单）', discountPrice: 0, otherPrice: 0,
       items: [
-        { orderItemId: 1, warehouseId: whIds['华东一号仓'], productId: productIds['联想 拯救者 Y9000P 笔记本电脑'], productUnitId: unitIds['台'], productPrice: 6499, count: 30, taxPercent: 13 },
-        { orderItemId: 2, warehouseId: whIds['华东一号仓'], productId: productIds['戴尔 U2723QE 4K 显示器'], productUnitId: unitIds['台'], productPrice: 2899, count: 40, taxPercent: 13 },
+        { orderItemId: null, warehouseId: whIds['华东一号仓'], productId: productIds['联想 拯救者 Y9000P 笔记本电脑'], productUnitId: unitIds['台'], productPrice: 6499, count: 30, taxPercent: 13 },
+        { orderItemId: null, warehouseId: whIds['华东一号仓'], productId: productIds['戴尔 U2723QE 4K 显示器'], productUnitId: unitIds['台'], productPrice: 2899, count: 40, taxPercent: 13 },
       ],
     });
     const pi2 = await post('/api/erp/purchase-ins', {
       no: 'PI20260916001', inTime: $('2026-09-16T09:00:00'), supplierId: supplierId['未来办公'], accountId: finAccIds['工商银行一般户'],
+      orderId: po2Id, orderNo: 'PO20260915001',
       remark: 'PO20260915001 对应入库（未审批）', discountPrice: 0, otherPrice: 0,
       items: [
-        { orderItemId: 1, warehouseId: whIds['华东一号仓'], productId: productIds['得力 A4 复印纸 80g'], productUnitId: unitIds['盒'], productPrice: 108, count: 300, taxPercent: 13 },
-        { orderItemId: 2, warehouseId: whIds['华东一号仓'], productId: productIds['晨光 中性笔 0.5mm(12支)'], productUnitId: unitIds['盒'], productPrice: 15, count: 500, taxPercent: 13 },
+        { orderItemId: null, warehouseId: whIds['华东一号仓'], productId: productIds['得力 A4 复印纸 80g'], productUnitId: unitIds['盒'], productPrice: 108, count: 300, taxPercent: 13 },
+        { orderItemId: null, warehouseId: whIds['华东一号仓'], productId: productIds['晨光 中性笔 0.5mm(12支)'], productUnitId: unitIds['盒'], productPrice: 15, count: 500, taxPercent: 13 },
       ],
     });
     if (pi1?.id) await post(`/api/erp/purchase-ins/${pi1.id}/audit`, {});
@@ -206,7 +211,7 @@ async function main(): Promise<void> {
       no: 'PR20260920001', returnTime: $('2026-09-20T11:00:00'), supplierId: supplierId['华科数码'], accountId: finAccIds['招商银行基本户'],
       remark: '部分货物返厂（未审批）', discountPrice: 0, otherPrice: 0,
       items: [
-        { orderItemId: 1, warehouseId: whIds['华东一号仓'], productId: productIds['戴尔 U2723QE 4K 显示器'], productUnitId: unitIds['台'], productPrice: 2899, count: 2, taxPercent: 13 },
+        { orderItemId: null, warehouseId: whIds['华东一号仓'], productId: productIds['戴尔 U2723QE 4K 显示器'], productUnitId: unitIds['台'], productPrice: 2899, count: 2, taxPercent: 13 },
       ],
     });
   });

@@ -892,10 +892,14 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     if (routerImport >= 0 && !imports.some((l) => l.includes('useNavigate'))) imports.splice(routerImport, 1);
   }
   // 管理端排版：列表页 → 两行：搜索行（条件 + 「查询」贴尾）+ 操作按钮行（新增等独立成行）
+  // 列表页：顶部 input/button 归搜索行/右上角动作区；卡片/抽屉页：顶层 button 归右上角动作区（正文不再重复渲染）
   const toolbarEls = hasTable ? v.elements.filter((el) => el.type === 'input' || el.type === 'button') : [];
-  const restEls = v.elements.filter((el) => !toolbarEls.includes(el));
+  const restEls = hasTable
+    ? v.elements.filter((el) => !toolbarEls.includes(el))
+    : v.elements.filter((el) => el.type !== 'button');
   const firstQueryVar = queryBindings.length > 0 ? queryVars.get(queryBindings[0].target) : undefined;
-  const body = restEls.map((el) => genElement(app, el, queryVars, pageStates, isDialog ? 'onClose' : undefined, firstQueryVar && !isDialog ? `${firstQueryVar}.refetch()` : undefined)).join('\n\n');
+  const formId = isDialog && viewHasForm(v) ? `f-${v.name}` : undefined;
+  const body = restEls.map((el) => genElement(app, el, queryVars, pageStates, isDialog ? 'onClose' : undefined, firstQueryVar && !isDialog ? `${firstQueryVar}.refetch()` : undefined, formId)).join('\n\n');
   const toolbarInputs = toolbarEls.filter((el) => el.type === 'input');
   const toolbarButtons = toolbarEls.filter((el) => el.type === 'button');
   const queryButton =
@@ -917,13 +921,8 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
             })
             .join('\n')}\n${queryButton}\n      </div>`
       : '';
-  const buttonRow =
-    toolbarButtons.length > 0
-      ? `      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>\n${toolbarButtons
-            .map((el) => `        ${genElement(app, el, queryVars, pageStates)}`)
-            .join('\n')}\n      </div>`
-      : '';
-  const toolbar = [searchRow, buttonRow].filter((s) => s !== '').join('\n');
+  // 列表页搜索行（条件输入 + 「查询」贴尾）；页面级按钮统一移到卡片右上角动作区（下方 headerActions）
+  const toolbar = searchRow;
   // 父页面 openDialog 接线：开关 state + Drawer 组件渲染（关闭时自动 refetch 主查询刷新列表）
   // G6 编辑闭环：每个 dialog 目标配 initial state（新增置 null / 编辑存选中行），打开时预填表单
   const dialogTargets = collectOpenDialogTargets(v);
@@ -970,9 +969,34 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
       : titleMatch
         ? ` title={initial ? '${titleMatch[1]}编辑' : '${titleMatch[1]}新增'}`
         : ` title="${viewTitle(v)}"`;
+  // ---- 顶部右上角动作区（统一风格）：列表页/卡片页/抽屉页的页面级按钮 + 表单提交按钮，多了折叠成「更多」 ----
+  const headerBtnEls: ViewElementNode[] = hasTable
+    ? toolbarButtons // 列表页：搜索行以外的页面级按钮（新增/导出…）
+    : v.elements.filter((el) => el.type === 'button'); // 卡片/详情抽屉：页面级按钮
+  const submitInfo = isDialog ? formSubmitInfoOf(app, v) : undefined; // 表单保存按钮移到右上角（form 属性关联）
+  const headerPlan = foldButtonsPlan(headerBtnEls, 3);
+  const headerInlineJsx = headerPlan.inline
+    .map((b) => genElement(app, b, queryVars, pageStates, isDialog ? 'onClose' : undefined))
+    .join('\n            ');
+  const dropdownJsx =
+    headerPlan.folded.length > 0
+      ? `\n            <Dropdown menu={{ items: [${headerPlan.folded.map((b, i) => `{ key: 'h${i + 1}', label: '${String(b.props.text ?? '')}' }`).join(', ')}], onClick: ({ key }) => { const map: Record<string, () => void> = {\n${headerPlan.folded
+          .map((b, i) => `              h${i + 1}: () => { ${foldButtonHandler(app, b, firstQueryVar ? `${firstQueryVar}.refetch()` : undefined)} }`)
+          .join(',\n')}\n            }; map[key]?.(); } }}><Button type="link" size="small">更多</Button></Dropdown>`
+      : '';
+  const submitJsx = submitInfo
+    ? `${headerInlineJsx ? '\n            ' : ''}<Button type="primary" htmlType="submit" form="${submitInfo.formId}">${submitInfo.label}</Button>`
+    : '';
+  const headerActionsJsx = headerInlineJsx + dropdownJsx + submitJsx;
+  const headerActions = headerActionsJsx
+    ? `\n            <Space size={4}>${headerActionsJsx}\n            </Space>`
+    : '';
+  const cardHeader = `<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0', paddingBottom: 12, marginBottom: 16 }}>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#1f1f1f' }}>${viewTitle(v)}</h2>${headerActions}
+    </div>`;
   const wrapperOpen = isDialog
-    ? `    <Drawer${drawerTitle} open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.6, 760)} destroyOnClose>`
-    : `    <Card style={{ margin: '0 auto', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,21,41,0.06)' }}>\n      <h2 style={{ marginTop: 0, marginBottom: 16, fontSize: 18, fontWeight: 600, color: '#1f1f1f' }}>${viewTitle(v)}</h2>`;
+    ? `    <Drawer${drawerTitle}${headerActionsJsx ? ` extra={<Space size={4}>${headerActionsJsx}\n    </Space>}` : ''} open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.6, 760)} destroyOnClose>`
+    : `    <Card style={{ margin: '0 auto', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,21,41,0.06)' }}>\n      ${cardHeader}`;
   const wrapperClose = isDialog ? `    </Drawer>` : `    </Card>`;
 
   // 页面渲染挂载了 dialog 组件时，Card 与 Drawer 是兄弟 JSX → 用 Fragment 包裹
@@ -992,8 +1016,28 @@ ${returnInner}
   return { path: `src/pages/${v.name}.tsx`, content };
 }
 
-/** 页面显式引用的 TS 类型名：mutation 参数/返回 + repeat 元素结构（query 类型靠推断，不 import） */
-function usedTypes(app: AppNode, v: ViewNode): string[] {
+/** 顶部动作区折叠计划：≤maxInline 全内联；超出 → 前 2 个内联 + 余下进「更多」下拉（与行内按钮同款交互） */
+function foldButtonsPlan(buttons: ViewElementNode[], maxInline: number): { inline: ViewElementNode[]; folded: ViewElementNode[] } {
+  if (buttons.length <= maxInline) return { inline: buttons, folded: [] };
+  return { inline: buttons.slice(0, 2), folded: buttons.slice(2) };
+}
+
+/** 抽屉表单的提交按钮信息（保存按钮移到右上角动作区，用 form 属性关联表单） */
+function formSubmitInfoOf(app: AppNode, v: ViewNode): { label: string; formId: string } | undefined {
+  let form: ViewElementNode | undefined;
+  const walk = (els: ViewElementNode[]): void => {
+    for (const el of els) {
+      if (el.type === 'form' && !form) form = el;
+      walk(el.children);
+    }
+  };
+  walk(v.elements);
+  if (!form) return undefined;
+  const innerBtn = form.children.find((c) => c.type === 'button');
+  return { label: innerBtn ? String(innerBtn.props.text ?? '保存') : '保存', formId: `f-${v.name}` };
+}
+
+/** 页面显式引用的 TS 类型名：mutation 参数/返回 + repeat 元素结构（query 类型靠推断，不 import） */function usedTypes(app: AppNode, v: ViewNode): string[] {
   const names = new Set<string>();
   // 搜索接线（G3）：无参 useQuery 会按搜索 state 注入 `name as Enum` 转换 → 相关类型须 import
   const stateNames = new Set([...collectInputFields(v)]);
@@ -1129,6 +1173,15 @@ function exprToTs(e: Expr): string {
 }
 
 /** derive 表达式 → JS（G2 dev/29）：字段状态数字化包装、成员/算术直转 */
+/** 枚举成员引用 → 字符串字面量（实体列按枚举名存储，前端值即名字符串）；非枚举成员返回 null */
+function enumMemberLiteralOf(app: AppNode, e: Expr): string | null {
+  if (e.kind !== 'Member') return null;
+  const obj = e.obj;
+  if (obj.kind !== 'Ident') return null;
+  if (!app.enums.some((en) => en.name === obj.name)) return null;
+  return `'${e.prop}'`;
+}
+
 function exprToJs(app: AppNode, e: Expr, bodyStruct: StructureNode | undefined): string {
   switch (e.kind) {
     case 'Ident': {
@@ -1140,6 +1193,8 @@ function exprToJs(app: AppNode, e: Expr, bodyStruct: StructureNode | undefined):
       return isNum ? `Number(${e.name})` : isStr ? e.name : e.name;
     }
     case 'Member': {
+      const lit = enumMemberLiteralOf(app, e);
+      if (lit !== null) return lit;
       return `${exprToJs(app, e.obj, bodyStruct)}.${e.prop}`;
     }
     case 'Call':
@@ -1214,14 +1269,14 @@ function collectNavBindings(v: ViewNode): BindingNode[] {
 }
 
 /** ViewElement → JSX（table/column/button/form/input/repeat/text/detail + 第三方 component） */
-function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = [], onCloseExpr?: string, refetchExpr?: string): string {
+function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = [], onCloseExpr?: string, refetchExpr?: string, formId?: string): string {
   switch (el.type) {
     case 'table':
       return genTable(app, el, queryVars, states, refetchExpr);
     case 'button':
       return genButton(app, el, queryVars, { row: false, states, refetch: refetchExpr, inDialog: Boolean(onCloseExpr) });
     case 'form':
-      return genForm(app, el, queryVars, onCloseExpr, refetchExpr);
+      return genForm(app, el, queryVars, onCloseExpr, refetchExpr, formId);
     case 'input':
       return genInput(el);
     case 'repeat':
@@ -1388,6 +1443,23 @@ function collectAntdComponents(app: AppNode, v: ViewNode): string[] {
     return hit;
   })();
   if (hasDelete) found.add('Popconfirm');
+  // 顶部右上角动作区：页面级按钮/表单提交按钮 → Space；动作数超出折叠阈值 → Dropdown「更多」
+  const topButtons = v.elements.filter((el) => el.type === 'button');
+  if (topButtons.length > 0 || collectFormStateLines(app, v).length > 0) found.add('Space');
+  if (foldButtonsPlan(topButtons, 3).folded.length > 0) found.add('Dropdown');
+  // 详情只读子表（detail 内 repeat）→ Table（genDetail 隐含产物）
+  const hasDetailRepeat = (() => {
+    let hit = false;
+    const walk = (els: ViewElementNode[]): void => {
+      for (const el of els) {
+        if (el.type === 'detail' && el.children.some((c) => c.type === 'repeat')) hit = true;
+        walk(el.children);
+      }
+    };
+    walk(v.elements);
+    return hit;
+  })();
+  if (hasDetailRepeat) found.add('Table');
   // Set 遍历顺序 = 插入序，稳定
   return [...found];
 }
@@ -1842,6 +1914,16 @@ function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
         const owner = structOwnerEntity(app, itemStruct);
         for (const c of el.children.filter((x) => x.type === 'input')) onStructField(itemStruct, String(c.props.field ?? ''), owner);
       }
+      // 详情只读子表：列上的引用字段也要 options 数据源（与列表列同源）
+      if (el.type === 'detail') {
+        const qb = el.bindings.find((b) => b.name === 'useQuery');
+        for (const rep of el.children.filter((c) => c.type === 'repeat')) {
+          const itemEnt = detailItemEntityOf(app, qb?.target, String(rep.props.field ?? 'items'));
+          for (const c of rep.children.filter((x) => x.type === 'column')) {
+            push(itemEnt?.name ?? null, String(c.props.field ?? ''));
+          }
+        }
+      }
       visit(el.children, el.type === 'form' ? el : parentForm, pageOwner);
     }
   };
@@ -1896,21 +1978,12 @@ function searchEnumSelect(app: AppNode, enumName: string, el: ViewElementNode): 
   return `<Select allowClear placeholder="${label}" style={{ width: 240 }} options={[${opts}]} value={${field} === '' ? null : ${field}} onChange={(v) => set${cap(field)}(v == null ? '' : String(v))} />`;
 }
 
-/** table dataSource={useQuery('x')} → antd Table + 数据驱动 columns（Page<T> 返回自动取 .content；column navigate → onRow 跳转） */
-function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = [], refetchExpr?: string): string {
-  const qBinding = el.bindings.find((b) => b.name === 'useQuery');
-  const dataVar = qBinding ? queryVars.get(qBinding.target)! : 'data';
-  const mainRefetch = refetchExpr ?? (qBinding ? `${dataVar}.refetch()` : undefined);
-  // 枚举列自动彩色 Tag：从查询返回实体解析字段类型（状态列不再裸文本）
-  const logic = qBinding ? logicOf(app, qBinding.target) : undefined;
-  const rtRaw = logic?.returns[0]?.type;
-  const rt = rtRaw?.kind === 'generic' && rtRaw.name === 'List' ? rtRaw.args[0] : rtRaw;
-  const entName = rt?.kind === 'reference' ? nameFromPath(rt.path) : null;
-  const ent = entName
-    ? app.datasources.flatMap((ds) => ds.entities).find((e) => e.name === entName)
-    : undefined;
-  const columns = el.children.filter((c) => c.type === 'column');
-  const colDefs = columns.map((c) => {
+/**
+ * 列定义（列表表格 / 详情只读子表共用）：枚举 → 彩色 Tag、外键 → 引用名、其余原值。
+ * 返回 antd columns 的 JSX 行数组（调用方 join(',\n')）。
+ */
+function columnDefsOf(app: AppNode, ent: EntityNode | undefined, columns: ViewElementNode[]): string[] {
+  return columns.map((c) => {
     const field = String(c.props.field ?? '');
     const title = String(c.props.title ?? field);
     const enumType = ent?.properties.find((p) => p.name === field)?.type;
@@ -1928,6 +2001,22 @@ function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, stri
     }
     return `    { title: '${title}', dataIndex: '${field}' }`;
   });
+}
+
+/** table dataSource={useQuery('x')} → antd Table + 数据驱动 columns（Page<T> 返回自动取 .content；column navigate → onRow 跳转） */
+function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = [], refetchExpr?: string): string {  const qBinding = el.bindings.find((b) => b.name === 'useQuery');
+  const dataVar = qBinding ? queryVars.get(qBinding.target)! : 'data';
+  const mainRefetch = refetchExpr ?? (qBinding ? `${dataVar}.refetch()` : undefined);
+  // 枚举列自动彩色 Tag：从查询返回实体解析字段类型（状态列不再裸文本）
+  const logic = qBinding ? logicOf(app, qBinding.target) : undefined;
+  const rtRaw = logic?.returns[0]?.type;
+  const rt = rtRaw?.kind === 'generic' && rtRaw.name === 'List' ? rtRaw.args[0] : rtRaw;
+  const entName = rt?.kind === 'reference' ? nameFromPath(rt.path) : null;
+  const ent = entName
+    ? app.datasources.flatMap((ds) => ds.entities).find((e) => e.name === entName)
+    : undefined;
+  const columns = el.children.filter((c) => c.type === 'column');
+  const colDefs = columnDefsOf(app, ent, columns);
   // 行内按钮（table 直接子 button）→ 操作列 render（Space 排布 + 「更多」折叠，间距与重要级两全）
   const rowButtons = el.children.filter((c) => c.type === 'button');
     const { inline: inlineBtns, folded: foldedBtns } = foldRowButtonPlan(rowButtons);
@@ -1952,13 +2041,14 @@ function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, stri
     onRowAttr = `\n  onRow={(row) => ({ onClick: () => nav('/${routeBaseOf(nb.target)}/' + String(${argExpr})) })}`;
   }
   const dataSource = qBinding ? tableDataSourceOf(app, qBinding.target, dataVar) : 'data';
-  const rowKey = String(columns[0]?.props.field ?? 'id');
+  // rowKey 必须是唯一键：取实体主键（第一列可能是 productId 这类不唯一的外键 → 重复 key 会让分页残留旧行）
+  const rowKey = ent?.properties.find((p) => p.primary)?.name ?? String(columns[0]?.props.field ?? 'id');
   return `<Table
   dataSource={${dataSource}}
   rowKey="${rowKey}"
   size="middle"
   bordered
-  pagination={false}
+  pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t: number) => '共 ' + t + ' 条' }}
   columns={[
 ${colDefs.join(',\n')}${opCol}
   ]}
@@ -1975,6 +2065,12 @@ function genButton(
   const label = el.props['text'] ? String(el.props['text']) : '确定';
   const isRow = opts?.row ?? false;
   const states = opts?.states ?? [];
+  // 动作可用性（dev/45 §1.2）：visible → 条件渲染；disabled → 置灰。条件在行上下文编译（row.<字段> 比较 + 枚举成员 + 逻辑组合）
+  const visProp = el.props['visible'];
+  const disProp = el.props['disabled'];
+  const visCond = typeof visProp === 'object' && visProp !== null ? exprToJs(app, visProp as Expr, undefined) : null;
+  const disAttr = typeof disProp === 'object' && disProp !== null ? ` disabled={${exprToJs(app, disProp as Expr, undefined)}}` : '';
+  const wrap = (jsx: string): string => (visCond ? `{${visCond} && (${jsx})}` : jsx);
   // 行内操作列用链接式按钮（管理端观感，实心按钮在每行太扎眼）；页面级按钮保持 primary
   const rowLink = isRow ? ' type="link" size="small"' : '';
   const primaryAttr = isRow ? rowLink : ' type="primary"';
@@ -1985,9 +2081,9 @@ function genButton(
   if (navB) {
     if (navB.args.length > 0) {
       const argExpr = genBindingArg(navB.args[0], false);
-      return `<Button${primaryAttr} onClick={${onClick(`nav('/${routeBaseOf(navB.target)}/' + String(${argExpr}))`)}}>${label}</Button>`;
+      return wrap(`<Button${primaryAttr}${disAttr} onClick={${onClick(`nav('/${routeBaseOf(navB.target)}/' + String(${argExpr}))`)}}>${label}</Button>`);
     }
-    return `<Button${primaryAttr} onClick={${onClick(`nav('/${routeBaseOf(navB.target)}')`)}}>${label}</Button>`;
+    return wrap(`<Button${primaryAttr}${disAttr} onClick={${onClick(`nav('/${routeBaseOf(navB.target)}')`)}}>${label}</Button>`);
   }
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
   if (mutB) {
@@ -2001,24 +2097,24 @@ function genButton(
     // 删除类动作 → Popconfirm 二次确认（防误删；行内按钮点击不下沉触发行跳转）
     if (label.includes('删')) {
       const btnAttrs = isRow ? ' danger type="link" size="small" onClick={(e) => e.stopPropagation()}' : ' danger type="primary"';
-      return `<Popconfirm title="确认删除？" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => { ${varname}.mutate(${callArgs})${ref}; }}><Button${btnAttrs}>${label}</Button></Popconfirm>`;
+      return wrap(`<Popconfirm title="确认删除？" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => { ${varname}.mutate(${callArgs})${ref}; }}><Button${btnAttrs}${disAttr}>${label}</Button></Popconfirm>`);
     }
-    return `<Button${rowLink} onClick={${onClick(`${varname}.mutate(${callArgs})${ref}`)}}>${label}</Button>`;
+    return wrap(`<Button${rowLink}${disAttr} onClick={${onClick(`${varname}.mutate(${callArgs})${ref}`)}}>${label}</Button>`);
   }
   // onClick={useQuery('x', args)} → 点击触发查询刷新（fn 闭包捕获最新 state，refetch 即用新值重查）
   const qB = el.bindings.find((b) => b.name === 'useQuery');
   if (qB) {
     const varname = queryVars.get(qB.target) ?? `q${cap(logicNameOf(qB.target))}`;
-    return `<Button${rowLink} onClick={${onClick(`${varname}.refetch()`)}}>${label}</Button>`;
+    return wrap(`<Button${rowLink}${disAttr} onClick={${onClick(`${varname}.refetch()`)}}>${label}</Button>`);
   }
   // onClick={openDialog('X')} → 打开右侧抽屉（X 为 dialog 页面，父页面持有开关 state）
   // openDialog('X', row) 带参 → 编辑语义：先把选中行写入 initial state，dialog 打开时预填表单
   const odB = el.bindings.find((b) => b.name === 'openDialog');
   if (odB) {
     const initSet = odB.args.length > 0 ? `set${cap(odB.target)}Initial(${genBindingArg(odB.args[0], false)}); ` : `set${cap(odB.target)}Initial(null); `;
-    return `<Button${primaryAttr} onClick={${onClick(`${initSet}setShow${cap(odB.target)}(true)`)}}>${label}</Button>`;
+    return wrap(`<Button${primaryAttr}${disAttr} onClick={${onClick(`${initSet}setShow${cap(odB.target)}(true)`)}}>${label}</Button>`);
   }
-  return `<Button${rowLink}>${label}</Button>`;
+  return wrap(`<Button${rowLink}${disAttr}>${label}</Button>`);
 }
 
 /** 父页面 openDialog 目标清单（去重保序） */
@@ -2185,7 +2281,7 @@ function needsDayjs(app: AppNode, v: ViewNode): boolean {
 }
 
 /** form submit={useMutation('x')} → 表单 + 输入（state 已在 pageFile 顶部提升，此处只出 JSX） */
-function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, onCloseExpr?: string, refetchExpr?: string): string {
+function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, onCloseExpr?: string, refetchExpr?: string, formId?: string): string {
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
   if (!mutB) {
     // form 无 submit 绑定：不生成 onSubmit（不能引用不存在的 mutation）
@@ -2345,6 +2441,23 @@ ${cellDefs},
 </div>`;
     })
     .join('\n');
+  // 明细合计（dev/45 §1.3）：form 内 <summary field expr/of label> → 实时归约文本
+  const summaryEls = el.children
+    .filter((c) => c.type === 'summary')
+    .map((s) => {
+      const field = String(s.props.field ?? '');
+      const label = String(s.props.label ?? '合计');
+      const rep = repeats.find((r) => String(r.props.field ?? 'items') === field);
+      const itemStruct = rep ? repeatItemStruct(app, el, rep) : null;
+      const exprProp = s.props['expr'];
+      const expr = typeof exprProp === 'object' && exprProp !== null ? (exprProp as Expr) : null;
+      const of = s.props['of'] !== undefined ? String(s.props['of']) : null;
+      const reduce = expr
+        ? `(${field}.reduce((s, it) => s + (${summaryExprToJs(app, expr, itemStruct)}), 0)).toFixed(2)`
+        : `(${field}.reduce((s, it) => s + Number(it.${of ?? ''}), 0)).toFixed(2)`;
+      return `  <div style={{ textAlign: 'right', marginTop: 8, fontWeight: 600 }}>${label}：{${reduce}}</div>`;
+    })
+    .join('\n');
   // body 对象：input 字段 + repeat 字段；每个字段按结构体形参类型转换（state 是 string）
   // G6 编辑闭环：结构体含 id 字段 → 提交体带上 initial.id（编辑=更新，新增=0）
   const bodyFields = [...inputs.map((i) => String(i.props.field ?? '')), ...repeats.map((r) => String(r.props.field ?? 'items'))];
@@ -2364,13 +2477,39 @@ ${cellDefs},
   const autoLabel = innerBtn ? String(innerBtn.props.text ?? '提交') : '提交';
   // 提交链：必填拦截 → mutate → 弹窗关闭（父层刷新）/ 非弹窗刷新主查询
   const afterMutate = onCloseExpr ? `.then(() => ${onCloseExpr}())` : refetchExpr ? `.then(() => ${refetchExpr})` : '';
-  return `<form onSubmit={(e) => { e.preventDefault(); ${reqCheck} ${varname}.mutate(${bodyObj})${afterMutate}; }}>
-  <Row gutter={16}>\n${inputEls}\n  </Row>
-  ${repeatEls}
-  <div style={{ textAlign: 'right', marginTop: 8 }}>
+  // 抽屉表单：id 供右上角动作区的提交按钮用 form 属性关联；页脚不再重复放保存按钮
+  const formOpenTag = formId ? `<form id="${formId}" onSubmit=` : `<form onSubmit=`;
+  const footer = formId
+    ? ''
+    : `\n  <div style={{ textAlign: 'right', marginTop: 8 }}>
     <Button type="primary" htmlType="submit">${autoLabel}</Button>
-  </div>
+  </div>`;
+  return `${formOpenTag}{(e) => { e.preventDefault(); ${reqCheck} ${varname}.mutate(${bodyObj})${afterMutate}; }}>
+  <Row gutter={16}>\n${inputEls}\n  </Row>
+  ${repeatEls}${summaryEls ? '\n' + summaryEls : ''}${footer}
 </form>`;
+}
+
+/** summary 归约表达式编译（明细行上下文）：字段标识 → it.<name>（数值包 Number）；支持 + - * / 与括号 */
+function summaryExprToJs(app: AppNode, e: Expr, itemStruct: StructureNode | null): string {
+  const walk = (x: Expr): string => {
+    switch (x.kind) {
+      case 'Ident': {
+        const p = itemStruct?.properties.find((pp) => pp.name === x.name);
+        const isNum = p?.type.kind === 'primitive' && p.type.builtin !== 'String';
+        return isNum ? `Number(it.${x.name})` : `it.${x.name}`;
+      }
+      case 'Binary':
+        return `(${walk(x.left)} ${x.operator === '===' ? '===' : x.operator} ${walk(x.right)})`;
+      case 'Group':
+        return `(${walk(x.expr)})`;
+      case 'Numeric':
+        return String(x.value);
+      default:
+        return exprToJs(app, x, itemStruct ?? undefined);
+    }
+  };
+  return walk(e);
 }
 
 /** form 内 repeat 的元素结构（items → OrderItemInput） */
@@ -2580,9 +2719,35 @@ function genDetail(app: AppNode, el: ViewElementNode, queryVars: Map<string, str
       return `    <Descriptions.Item label="${label}">{${dataVar}.data${safePath}}</Descriptions.Item>`;
     })
     .join('\n');
-  return `<Descriptions bordered size="small" column={1}>
+  // 详情只读子表（dev/45 §1.4）：<repeat field> → 查询返回结构体的 List 字段（明细行实体，只读列）
+  const repEls = el.children
+    .filter((c) => c.type === 'repeat')
+    .map((r) => {
+      const field = String(r.props.field ?? 'items');
+      const itemEnt = detailItemEntityOf(app, qBinding?.target, field);
+      const cols = r.children.filter((c) => c.type === 'column');
+      const colDefs = columnDefsOf(app, itemEnt, cols);
+      const title = String(r.props['title'] ?? '明细');
+      return `<div style={{ marginTop: 12, marginBottom: 4, fontSize: 13, fontWeight: 600, color: '#262626' }}>${title}</div>
+<Table dataSource={${dataVar}.data?.${field} ?? []} rowKey="id" size="small" bordered pagination={false} columns={[${colDefs.join(',\n')}]} />`;
+    })
+    .join('\n');
+  const detailBlock = `<Descriptions bordered size="small" column={1}>
 ${itemEls}
 </Descriptions>`;
+  return repEls ? `${detailBlock}\n${repEls}` : detailBlock;
+}
+
+/** 详情只读子表的行实体：详情查询返回结构体 → 字段 `List<Xxx>` 的实参类型（须为实体） */
+function detailItemEntityOf(app: AppNode, detailLogicTarget: string | undefined, field: string): EntityNode | undefined {
+  if (!detailLogicTarget) return undefined;
+  const rt = logicOf(app, detailLogicTarget)?.returns[0]?.type;
+  if (rt?.kind !== 'reference') return undefined;
+  const struct = app.structures.find((s) => s.name === nameFromPath(rt.path));
+  const t = struct?.properties.find((p) => p.name === field)?.type;
+  const elem = t?.kind === 'generic' && (t.name === 'List' || t.name === 'Page') ? t.args[0] : undefined;
+  if (elem?.kind !== 'reference') return undefined;
+  return app.datasources.flatMap((d) => d.entities).find((e) => e.name === nameFromPath(elem.path));
 }
 
 // ---------- App.tsx：路由表 ----------
