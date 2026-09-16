@@ -1841,27 +1841,64 @@ interface FkRef {
 function fkNumeric(t: TypeRef): boolean {
   return t.kind === 'primitive' && (t.builtin === 'Integer' || t.builtin === 'Decimal');
 }
-/** 实体的域 token：从它的 options 查询逻辑名提取（queryErpProduct → 'Erp'；queryCrmBusiness → 'Crm'）；无查询逻辑 → null */
-function domainTokenOf(app: AppNode, entName: string): string | null {
-  const elt = (t: TypeRef): TypeRef => (t.kind === 'generic' && (t.name === 'List' || t.name === 'Page') ? t.args[0] : t);
-  for (const l of app.logics) {
-    if (!l.name.startsWith('query') || !l.name.endsWith(entName)) continue;
-    if (l.returns.some((r) => {
-      const el = elt(r.type);
-      return el.kind === 'reference' && nameFromPath(el.path) === entName;
-    })) {
-      return l.name.slice('query'.length, l.name.length - entName.length) || null;
-    }
-  }
-  return null;
+/** nodePath → 实体（@ref 以 nodePath 表达） */
+function entityByNodePath(app: AppNode, path: string): EntityNode | null {
+  const m = /^app\.datasources\.([^.]+)\.entities\.(.+)$/.exec(path);
+  if (!m) return null;
+  return app.datasources.find((d) => d.name === m[1])?.entities.find((e) => e.name === m[2]) ?? null;
 }
 
-/** 外键显示字段：优先 name，其次 title，退化为第一个字符串字段 */
-function fkLabelFieldOf(ent: EntityNode): string | null {
-  for (const want of ['name', 'title']) {
-    if (ent.properties.some((p) => p.name === want)) return want;
-  }
-  return ent.properties.find((p) => p.type.kind === 'primitive' && p.type.builtin === 'String')?.name ?? null;
+/** 被引实体的 options 数据源定位：query{Ds}{Ent} / query{Ent} / 任意返回 List<Ent> 的 query*（类型驱动，不做关系推断） */
+function optionsApiFnOf(app: AppNode, entName: string): string | undefined {
+  const elt = (t: TypeRef): TypeRef => (t.kind === 'generic' && (t.name === 'List' || t.name === 'Page') ? t.args[0] : t);
+  const ds = app.datasources.find((d) => d.entities.some((e) => e.name === entName));
+  const cands = ds ? [`query${cap(ds.name)}${cap(entName)}`, `query${cap(entName)}`] : [`query${cap(entName)}`];
+  const direct = cands.find((n) => app.logics.some((l) => l.name === n));
+  if (direct) return direct;
+  return app.logics.find(
+    (l) =>
+      l.name.startsWith('query') &&
+      l.returns.some((r) => {
+        const el = elt(r.type);
+        return el.kind === 'reference' && nameFromPath(el.path) === entName;
+      }),
+  )?.name;
+}
+
+/**
+ * @ref 外键唯一入口（**零推断**）：holder 实体/结构体字段携带 @ref 注解才渲染引用下拉/引用名。
+ * 无注解 → null（原样显示数字）——命名（xxxId）只是书写约定，编译器不据此猜测关系。
+ */
+function explicitFkRefOf(app: AppNode, holder: EntityNode | StructureNode | null | undefined, field: string): FkRef | null {
+  if (!holder || !field) return null;
+  const prop = holder.properties.find((p) => p.name === field);
+  if (!prop?.ref) return null;
+  const ent = entityByNodePath(app, prop.ref.entityPath);
+  if (!ent) return null;
+  const apiFn = optionsApiFnOf(app, ent.name);
+  if (!apiFn) return null;
+  // display 由声明给出（缺省 'name'）；不存在则 typecheck FK-REF-DISPLAY 报错，生成端不猜
+  const display = ent.properties.some((p) => p.name === prop.ref!.display) ? prop.ref!.display : null;
+  if (!display) return null;
+  return { qvar: `qFk${cap(field)}`, apiFn, labelField: display };
+}
+
+/** 表单提交返回实体（表头字段的 @ref 归属）：来自 <form submit={useMutation(...)}> 的返回类型（声明式，非命名推断） */
+function formReturnEntityOf(app: AppNode, form: ViewElementNode | undefined): EntityNode | undefined {
+  const mutB = form?.bindings.find((b) => b.name === 'useMutation');
+  const rt = mutB ? logicOf(app, mutB.target)?.returns[0]?.type : undefined;
+  if (rt?.kind !== 'reference') return undefined;
+  return app.datasources.flatMap((d) => d.entities).find((e) => e.name === nameFromPath(rt.path));
+}
+
+/**
+ * 表单字段可否升级为外键 Select（零推断）：明细/表单字段自身 @ref 优先；表头字段落回「提交返回实体」的同名字段 @ref。
+ * 页面 import 收集与 genForm 渲染共用同一判定。
+ */
+function formFkSelectOf(app: AppNode, form: ViewElementNode | undefined, struct: StructureNode | null | undefined, field: string): FkRef | null {
+  const byStruct = struct?.properties.find((pp) => pp.name === field);
+  if (byStruct && !fkNumeric(byStruct.type)) return null;
+  return explicitFkRefOf(app, struct ?? null, field) ?? explicitFkRefOf(app, formReturnEntityOf(app, form) ?? null, field);
 }
 
 /** 页面顶层按钮是否引用 row（详情页顶栏动作行需要 row 上下文；表格操作列内的按钮不走此路径） */
@@ -1887,151 +1924,29 @@ function viewRowBindingUse(els: ViewElementNode[]): boolean {
   return false;
 }
 
-/** nodePath → 实体（M10 ref 按语义核约定以 nodePath 表达） */
-function entityByNodePath(app: AppNode, path: string): EntityNode | null {
-  const m = /^app\.datasources\.([^.]+)\.entities\.(.+)$/.exec(path);
-  if (!m) return null;
-  return app.datasources.find((d) => d.name === m[1])?.entities.find((e) => e.name === m[2]) ?? null;
-}
-
-/** 被引实体的 options 查询逻辑：query{Ds}{Ent} / query{Ent} / 任意返回 List<Ent> 的 query* */
-function optionsApiFnOf(app: AppNode, entName: string): string | undefined {
-  const elt = (t: TypeRef): TypeRef => (t.kind === 'generic' && (t.name === 'List' || t.name === 'Page') ? t.args[0] : t);
-  const ds = app.datasources.find((d) => d.entities.some((e) => e.name === entName));
-  const cands = ds ? [`query${cap(ds.name)}${cap(entName)}`, `query${cap(entName)}`] : [`query${cap(entName)}`];
-  const direct = cands.find((n) => app.logics.some((l) => l.name === n));
-  if (direct) return direct;
-  return app.logics.find(
-    (l) =>
-      l.name.startsWith('query') &&
-      l.returns.some((r) => {
-        const el = elt(r.type);
-        return el.kind === 'reference' && nameFromPath(el.path) === entName;
-      }),
-  )?.name;
-}
-
-/** M10 显式链：holder 实体同名字段携带 @ref 注解 → FkRef（推断完全失效的字典字段/命名不规范引用全靠它） */
-function explicitFkRefOf(app: AppNode, holderEntName: string | null | undefined, field: string): FkRef | null {
-  if (!holderEntName || !field) return null;
-  const holder = app.datasources.flatMap((d) => d.entities).find((e) => e.name === holderEntName);
-  const prop = holder?.properties.find((p) => p.name === field);
-  if (!prop?.ref) return null;
-  const ent = entityByNodePath(app, prop.ref.entityPath);
-  if (!ent) return null;
-  const apiFn = optionsApiFnOf(app, ent.name);
-  if (!apiFn) return null;
-  const display = ent.properties.some((p) => p.name === prop.ref!.display) ? prop.ref!.display : fkLabelFieldOf(ent);
-  if (!display) return null;
-  return { qvar: `qFk${cap(field)}`, apiFn, labelField: display };
-}
-
-/** 表单字段可否升级为外键 Select（显式 @ref 优先、推断兜底；页面 import 收集与 genForm 渲染共用同一判定） */
-function formFkSelectOf(app: AppNode, struct: StructureNode | null | undefined, field: string): FkRef | null {
-  if (!struct) return null;
-  const prop = struct.properties.find((pp) => pp.name === field);
-  if (!prop || !fkNumeric(prop.type)) return null;
-  return explicitFkRefOf(app, structOwnerEntity(app, struct), field) ?? fkRefOf(app, structOwnerEntity(app, struct), field);
-}
-
-/** 外键 → options 查询 + 引用实体（三级消歧：域 token 一致 → owner 公共前缀最长 → 最短候选；缺 options 查询逻辑则保持数字） */
-function fkRefOf(app: AppNode, ownerEntName: string | null, field: string): FkRef | null {
-  if (field.length <= 2 || !field.endsWith('Id')) return null;
-  const stem = field.slice(0, -2).toLowerCase();
-  if (stem === '') return null;
-  const elt = (t: TypeRef): TypeRef => (t.kind === 'generic' && (t.name === 'List' || t.name === 'Page') ? t.args[0] : t);
-  const apiFnOf = (ent: EntityNode): string | undefined => {
-    const ds = app.datasources.find((d) => d.entities.some((e) => e.name === ent.name));
-    const cands = ds ? [`query${cap(ds.name)}${cap(ent.name)}`, `query${cap(ent.name)}`] : [`query${cap(ent.name)}`];
-    const direct = cands.find((n) => app.logics.some((l) => l.name === n));
-    if (direct) return direct;
-    return app.logics.find(
-      (l) =>
-        l.name.startsWith('query') &&
-        l.returns.some((r) => {
-          const el = elt(r.type);
-          return el.kind === 'reference' && nameFromPath(el.path) === ent.name;
-        }),
-    )?.name;
-  };
-  // 候选：stem 同名/后缀命中（parent 特例 = owner 自身），且必须能出 options 下拉
-  const cands: Array<{ ent: EntityNode; apiFn: string; labelField: string }> = [];
-  for (const ds of app.datasources) {
-    for (const ent of ds.entities) {
-      const nm = ent.name.toLowerCase();
-      const hit =
-        stem === 'parent' && ownerEntName
-          ? nm === ownerEntName.toLowerCase()
-          : nm === stem || nm.endsWith(stem);
-      if (!hit) continue;
-      const apiFn = apiFnOf(ent);
-      const labelField = fkLabelFieldOf(ent);
-      if (apiFn && labelField) cands.push({ ent, apiFn, labelField });
-    }
-  }
-  if (cands.length === 1) return { qvar: `qFk${cap(field)}`, apiFn: cands[0].apiFn, labelField: cands[0].labelField };
-  if (cands.length === 0) return null;
-  // ① owner 同域：域 token（queryCrmBusiness→'Crm'）一致者胜
-  if (ownerEntName) {
-    const ownTok = domainTokenOf(app, ownerEntName);
-    if (ownTok) {
-      const inDom = cands.filter((c) => domainTokenOf(app, c.ent.name) === ownTok);
-      if (inDom.length === 1) return { qvar: `qFk${cap(field)}`, apiFn: inDom[0].apiFn, labelField: inDom[0].labelField };
-    }
-  }
-  // ② owner 公共前缀最长者（同 token 内 PurchaseIn→PurchaseOrder）
-  if (ownerEntName) {
-    const own = ownerEntName.toLowerCase();
-    const scored = cands.map((c) => {
-      const nm = c.ent.name.toLowerCase();
-      let s = 0;
-      while (s < nm.length && s < own.length && nm[s] === own[s]) s++;
-      return { c, s };
-    });
-    const max = Math.max(...scored.map((x) => x.s));
-    if (max > 0) {
-      const top = scored.filter((x) => x.s === max);
-      if (top.length === 1) return { qvar: `qFk${cap(field)}`, apiFn: top[0].c.apiFn, labelField: top[0].c.labelField };
-      // 平级取最短名（PurchaseOrder vs PurchaseOrderItem）
-      const shortest = top.reduce((a, b) => (b.c.ent.name.length < a.c.ent.name.length ? b : a));
-      const alsoShort = top.filter((t) => t.c.ent.name.length === shortest.c.ent.name.length);
-      if (alsoShort.length === 1) return { qvar: `qFk${cap(field)}`, apiFn: alsoShort[0].c.apiFn, labelField: alsoShort[0].c.labelField };
-    }
-  }
-  // ③ 最短候选唯一（Product vs CrmProductCategory，且 owner 无法提供前缀证据时）
-  const shortest = cands.reduce((a, b) => (b.ent.name.length < a.ent.name.length ? b : a));
-  const shortestTie = cands.filter((c) => c.ent.name.length === shortest.ent.name.length);
-  return shortestTie.length === 1 ? { qvar: `qFk${cap(field)}`, apiFn: shortest.apiFn, labelField: shortest.labelField } : null;
-}
-
-/** 结构体（XxxInput）→ 推导所属实体（用它的数据源做同源消歧） */
-function structOwnerEntity(app: AppNode, struct: StructureNode | null | undefined): string | null {
-  const base = struct?.name.replace(/Input$/, '') ?? '';
-  if (!base) return null;
-  return app.datasources.flatMap((d) => d.entities).find((e) => e.name === base)?.name ?? null;
-}
-
-/** 页面里全部外键渲染点 → options hooks（表格列 / 表单字段 / 明细单元格都指向同一份 refer 数据） */
+/** 页面里全部外键渲染点 → options hooks（表格列 / 表单字段 / 明细单元格都指向同一份 refer 数据）；零推断：仅 @ref */
 function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
   const out = new Map<string, FkRef>();
-  const push = (ownerEntName: string | null, field: string): void => {
-    const ref = explicitFkRefOf(app, ownerEntName, field) ?? fkRefOf(app, ownerEntName, field);
+  const push = (holder: EntityNode | StructureNode | null | undefined, field: string): void => {
+    const ref = explicitFkRefOf(app, holder, field);
     if (ref) out.set(`${ref.qvar}|${ref.apiFn}`, ref);
   };
-  const onStructField = (struct: StructureNode | null | undefined, f: string, ownerEntName: string | null): void => {
-    const p = struct?.properties.find((pp) => pp.name === f);
-    if (p && fkNumeric(p.type)) push(ownerEntName, f);
+  const pushForm = (form: ViewElementNode, struct: StructureNode | null | undefined, field: string): void => {
+    const ref = formFkSelectOf(app, form, struct, field);
+    if (ref) out.set(`${ref.qvar}|${ref.apiFn}`, ref);
   };
+  const entByName = (name: string | null | undefined): EntityNode | undefined =>
+    name ? app.datasources.flatMap((d) => d.entities).find((e) => e.name === name) : undefined;
   const visit = (els: ViewElementNode[], parentForm?: ViewElementNode, pageOwner?: string | null): void => {
     for (const el of els) {
       // 页面顶层搜索条 input：外键字段也走引用下拉（options 数据源与列/表单共用）
-      if (el.type === 'input' && !parentForm && pageOwner) push(pageOwner, String(el.props.field ?? ''));
+      if (el.type === 'input' && !parentForm && pageOwner) push(entByName(pageOwner), String(el.props.field ?? ''));
       if (el.type === 'table') {
         const qB = el.bindings.find((b) => b.name === 'useQuery');
         const lg = qB ? logicOf(app, qB.target) : undefined;
         const rtRaw = lg?.returns[0]?.type;
         const rt = rtRaw?.kind === 'generic' && rtRaw.name === 'List' ? rtRaw.args[0] : rtRaw;
-        const owner = rt?.kind === 'reference' ? nameFromPath(rt.path) : null;
+        const owner = rt?.kind === 'reference' ? entByName(nameFromPath(rt.path)) : undefined;
         for (const c of el.children.filter((x) => x.type === 'column')) push(owner, String(c.props.field ?? ''));
       }
       if (el.type === 'form') {
@@ -2039,13 +1954,11 @@ function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
         const logic = mutB ? logicOf(app, mutB.target) : undefined;
         const p0 = logic?.params[0]?.type;
         const bodyStruct = p0?.kind === 'reference' ? app.structures.find((s) => s.name === nameFromPath(p0.path)) : undefined;
-        const owner = structOwnerEntity(app, bodyStruct);
-        for (const c of el.children.filter((x) => x.type === 'input')) onStructField(bodyStruct, String(c.props.field ?? ''), owner);
+        for (const c of el.children.filter((x) => x.type === 'input')) pushForm(el, bodyStruct, String(c.props.field ?? ''));
       }
       if (el.type === 'repeat' && parentForm) {
         const itemStruct = repeatItemStruct(app, parentForm, el);
-        const owner = structOwnerEntity(app, itemStruct);
-        for (const c of el.children.filter((x) => x.type === 'input')) onStructField(itemStruct, String(c.props.field ?? ''), owner);
+        for (const c of el.children.filter((x) => x.type === 'input')) pushForm(parentForm, itemStruct, String(c.props.field ?? ''));
       }
       // 详情只读子表：列上的引用字段也要 options 数据源（与列表列同源）
       if (el.type === 'detail') {
@@ -2053,7 +1966,7 @@ function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
         for (const rep of el.children.filter((c) => c.type === 'repeat')) {
           const itemEnt = detailItemEntityOf(app, qb?.target, String(rep.props.field ?? 'items'));
           for (const c of rep.children.filter((x) => x.type === 'column')) {
-            push(itemEnt?.name ?? null, String(c.props.field ?? ''));
+            push(itemEnt, String(c.props.field ?? ''));
           }
         }
       }
@@ -2061,8 +1974,9 @@ function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
       if (el.type === 'list') {
         const qb = el.bindings.find((b) => b.name === 'useQuery');
         const ownerName = qb ? ownerEntityNameOfQuery(app, qb.target) : undefined;
+        const ownerEnt = ownerName ? app.datasources.flatMap((d) => d.entities).find((e) => e.name === ownerName) : undefined;
         for (const it of el.children.filter((c) => c.type === 'item')) {
-          push(ownerName ?? null, String(it.props.field ?? ''));
+          push(ownerEnt, String(it.props.field ?? ''));
         }
       }
       visit(el.children, el.type === 'form' ? el : parentForm, pageOwner);
@@ -2072,7 +1986,8 @@ function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
   return [...out.values()];
 }
 
-/** 页面主列表实体（首个 table 数据源；搜索条外壳输入的 @ref 归属用它判定） */function pageMainEntityOf(app: AppNode, v: ViewNode): string | null {
+/** 页面主列表实体（首个 table 数据源；搜索条外壳输入的 @ref 归属用它判定） */
+function pageMainEntityOf(app: AppNode, v: ViewNode): string | null {
   for (const el of v.elements) {
     if (el.type === 'table') {
       const qb = el.bindings.find((b) => b.name === 'useQuery');
@@ -2084,13 +1999,14 @@ function collectPageFkRefs(app: AppNode, v: ViewNode): FkRef[] {
   return null;
 }
 
-/** 搜索条 FK 字段清单：field → FkRef（页面顶层 input，按主列表实体归属做显式/推断） */
+/** 搜索条 FK 字段清单：field → FkRef（页面顶层 input；零推断，仅主列表实体上的 @ref） */
 function collectSearchFkFields(app: AppNode, v: ViewNode): Map<string, FkRef> {
-  const owner = pageMainEntityOf(app, v);
+  const ownerName = pageMainEntityOf(app, v);
+  const owner = ownerName ? app.datasources.flatMap((d) => d.entities).find((e) => e.name === ownerName) : undefined;
   if (!owner) return new Map();
   const out = new Map<string, FkRef>();
   for (const f of collectInputFields(v)) {
-    const ref = explicitFkRefOf(app, owner, f) ?? fkRefOf(app, owner, f);
+    const ref = explicitFkRefOf(app, owner, f);
     if (ref) out.set(f, ref);
   }
   return out;
@@ -2135,8 +2051,8 @@ function columnDefsOf(app: AppNode, ent: EntityNode | undefined, columns: ViewEl
       const labelMap = `{ ${en.items.map((i) => `'${i.name}': '${i.label ?? i.name}'`).join(', ')} }`;
       return `    { title: '${title}', dataIndex: '${field}', render: (_, row) => { const colors: Record<string, string> = ${colorMap}; const labels: Record<string, string> = ${labelMap}; return <Tag color={colors[String(row.${field})] ?? 'blue'}>{labels[String(row.${field})] ?? String(row.${field})}</Tag>; } }`;
     }
-    // 外键列：显式 @ref 优先，其次推断；引用实体 options 就位 → 显示引用名，不再是裸 id
-    const fk = explicitFkRefOf(app, ent?.name ?? null, field) ?? fkRefOf(app, ent?.name ?? null, field);
+    // 外键列：仅 @ref 声明（零推断）；引用实体 options 就位 → 显示引用名，否则原样
+    const fk = explicitFkRefOf(app, ent, field);
     if (fk) {
       return `    { title: '${title}', dataIndex: '${field}', render: (_, row) => { const opt = (${fk.qvar}.data ?? []).find((o) => o.id === row.${field}); return opt == null ? (Number(row.${field}) === 0 ? '-' : String(row.${field})) : String(opt.${fk.labelField}); } }`;
     }
@@ -2371,7 +2287,7 @@ function collectFormAntd(app: AppNode, v: ViewNode): string[] {
             out.add('Input');
             continue;
           }
-          const fkRef = formFkSelectOf(app, struct, f);
+          const fkRef = formFkSelectOf(app, el, struct, f);
           if (fkRef) {
             out.add('Select');
             continue;
@@ -2392,7 +2308,7 @@ function collectFormAntd(app: AppNode, v: ViewNode): string[] {
           for (const i of r.children.filter((c) => c.type === 'input')) {
             const f = String(i.props.field ?? '');
             const is = itemStructs[itemStructs.length - 1];
-            if (formFkSelectOf(app, is, f)) out.add('Select');
+            if (formFkSelectOf(app, el, is, f)) out.add('Select');
             else {
               const pp = is?.properties.find((x) => x.name === f)?.type;
               out.add(pp?.kind === 'primitive' && pp.builtin === 'String' ? 'Input' : 'InputNumber');
@@ -2492,8 +2408,8 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
         return `      <Col span={12}><div style={{ marginBottom: 16 }}><div style={{ marginBottom: 4, fontSize: 13, fontWeight: 500, color: '#262626' }}>${String(i.props.label ?? f)}</div><div style={{ width: '100%' }}><Input readOnly style={{ width: '100%' }} value={String(${dExpr})} /></div></div></Col>`;
       }
       let jsx = formInputJsx(app, bodyStruct, f);
-      // 外键字段 → 引用实体下拉（可解析时就地出 Select，不再让人填数字）
-      const fkRef = formFkSelectOf(app, bodyStruct, f);
+      // 外键字段 → 引用实体下拉（仅 @ref 声明才出下拉；零推断）
+      const fkRef = formFkSelectOf(app, el, bodyStruct, f);
       if (fkRef) {
         jsx = `<Select placeholder="${String(i.props.label ?? f)}" style={{ width: '100%' }} options={(${fkRef.qvar}.data ?? []).map((o) => ({ value: o.id, label: String(o.${fkRef.labelField}) }))} value={${f} === '' ? null : Number(${f})} onChange={(v) => set${cap(f)}(v == null ? '' : String(v))} />`;
       }
@@ -2538,7 +2454,7 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
             const body = `(<Select size="small" placeholder="${title}" style={{ width: '100%' }} options={[${opts}]} value={row.${f} === null ? null : row.${f}} onChange={(v) => { const next = [...${field}]; next[i] = { ...next[i], ${f}: String(v ?? '') as ${en.name} }; set${cap(field)}(next); }} />)`;
             return `      { title: '${title}', dataIndex: '${f}', render: ${cellParams(body)} => ${body} }`;
           }
-          const fkRef = formFkSelectOf(app, itemStruct, f);
+          const fkRef = formFkSelectOf(app, el, itemStruct, f);
           if (fkRef) {
             const body = `(<Select size="small" placeholder="${title}" style={{ width: '100%' }} options={(${fkRef.qvar}.data ?? []).map((o) => ({ value: o.id, label: String(o.${fkRef.labelField}) }))} value={row.${f} === 0 ? null : row.${f}} onChange={(v) => { const next = [...${field}]; next[i] = { ...next[i], ${f}: Number(v ?? 0) }; set${cap(field)}(next); }} />)`;
             return `      { title: '${title}', dataIndex: '${f}', render: ${cellParams(body)} => ${body} }`;
@@ -2974,7 +2890,7 @@ function listItemValueJsx(app: AppNode, owner: EntityNode | undefined, field: st
     const v = `String(${rowVar}.${field} ?? '')`;
     return `{(() => { const colors: Record<string, string> = ${colorMap}; const labels: Record<string, string> = ${labelMap}; const v = ${v}; return <Tag color={colors[v] ?? 'blue'}>{labels[v] ?? v}</Tag>; })()}`;
   }
-  const fk = explicitFkRefOf(app, owner?.name ?? null, field) ?? fkRefOf(app, owner?.name ?? null, field);
+  const fk = explicitFkRefOf(app, owner, field);
   if (fk) {
     return `{String((${fk.qvar}.data ?? []).find((o) => o.id === ${rowVar}.${field})?.${fk.labelField} ?? (Number(${rowVar}.${field}) === 0 ? '-' : ${rowVar}.${field}))}`;
   }

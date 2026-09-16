@@ -21,6 +21,7 @@ export type {
   EndpointNode,
   EntityNode,
   EntityPropertyNode,
+  EntityRefNode,
   EnumItemNode,
   EnumNode,
   GeneratedFile,

@@ -12,6 +12,7 @@ import {
   type DependencyNode,
   type EntityNode,
   type EntityPropertyNode,
+  type EntityRefNode,
   type EnumItemNode,
   type EnumNode,
   type Expr,
@@ -403,24 +404,7 @@ class Parser {
         else if (ann === 'nullable') prop.nullable = true;
         else if (ann === 'unique') prop.unique = true;
         else if (ann === 'ref') {
-          // M10 外键显式声明：@ref(实体[, display: '字段'])（display 缺省 'name'，typecheck 兜底校验）
-          // 实体短名或限定名 er.Supplier（分层作用域与类型引用一致）
-          this.expect('(');
-          let target = this.expectIdent();
-          while (this.peek().value === '.') {
-            this.next();
-            target = `${target}.${this.expectIdent()}`;
-          }
-          let display = 'name';
-          if (this.peek().value === ',') {
-            this.next();
-            const kv = this.expectIdent();
-            this.expect(':');
-            if (kv !== 'display') this.fail(`unknown ref option '${kv}'`);
-            display = this.expectString();
-          }
-          this.expect(')');
-          prop.ref = { ...createNode('EntityRef'), entityPath: target, display };
+          prop.ref = this.parseRefAnnotation();
         }
         else this.fail(`unknown annotation '@${ann}'`);
       }
@@ -429,6 +413,26 @@ class Parser {
     }
     this.expect('}');
     return { ...createNode('Entity'), name, properties };
+  }
+
+  /** M10 外键显式声明：@ref(实体[, display: '字段'])（display 缺省 'name'，typecheck 校验其存在且为 String） */
+  private parseRefAnnotation(): EntityRefNode {
+    this.expect('(');
+    let target = this.expectIdent();
+    while (this.peek().value === '.') {
+      this.next();
+      target = `${target}.${this.expectIdent()}`;
+    }
+    let display = 'name';
+    if (this.peek().value === ',') {
+      this.next();
+      const kv = this.expectIdent();
+      this.expect(':');
+      if (kv !== 'display') this.fail(`unknown ref option '${kv}'`);
+      display = this.expectString();
+    }
+    this.expect(')');
+    return { ...createNode('EntityRef'), entityPath: target, display };
   }
 
   private parseStructure(): StructureNode {
@@ -440,8 +444,19 @@ class Parser {
       const pname = this.expectIdent();
       this.expect(':');
       const type = this.parseTypeRef();
-      properties.push({ ...createNode('StructureProperty'), name: pname, type });
+      const prop: StructurePropertyNode = { ...createNode('StructureProperty'), name: pname, type };
+      while (this.peek().value === '@') {
+        this.next();
+        const ann = this.expectIdent();
+        if (ann === 'ref') {
+          // 表单/明细字段的外键同样必须显式声明（禁止 xxxId 命名推断）
+          prop.ref = this.parseRefAnnotation();
+        } else {
+          this.fail(`unknown annotation '@${ann}'`);
+        }
+      }
       this.expect(';');
+      properties.push(prop);
     }
     this.expect('}');
     return { ...createNode('Structure'), name, properties };
@@ -1144,6 +1159,13 @@ function linkApp(app: AppNode): void {
         if (!p.ref) continue;
         p.ref.entityPath = resolveTypeRef(table, p.ref.entityPath, ds.name);
       }
+    }
+  }
+  // struct 字段的 @ref 绑定（无数据源上下文 → 全局解析；短名歧义/未解析由 resolveTypeRef 报错）
+  for (const st of app.structures) {
+    for (const p of st.properties) {
+      if (!p.ref) continue;
+      p.ref.entityPath = resolveTypeRef(table, p.ref.entityPath);
     }
   }
 

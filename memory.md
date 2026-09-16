@@ -240,3 +240,15 @@
   core `EnumItemNode.color` + parser 可选第二参数 + codegen 用 `i.color ?? 'blue'` + 删除 `tagColorFor`；yudao 10 个枚举补齐颜色（业务数据留在样例）；语法手册 §1.4 补说明。
 - **架构护栏（新增守门测试）**：`packages/core/test/generality.test.ts` —— 扫描 core/parser/typecheck/codegen-java/codegen-react 的 src（剥注释）禁止出现业务域词表（yudao/supplier/warehouse/contract/customer/clue/invoice/采购/销售/库存/审批/领取/公海/回款/商机/线索/客户/合同 等），测试夹具不受限。以后的业务需求必须走 DSL 声明（注解/枚举颜色/样例数据）而非改生成器。
 - 回归：325 单测全绿（core +1 守门）、九包 typecheck ✓、spec 1091 项 100%、react tsc ✓、枚举颜色生成实证。
+
+## 2026-09-16 续十三（架构纠偏：编译器「零推断」——外键必须 @ref，禁止命名猜关系）
+- **用户定调**："约定可以（你可以按 xxxId 命名），但生成时必须忠实还原，不能推断！外键必须明确声明成 @ref，编译器要准确精确。"
+- **移除的推断链（codegen-react）**：`fkRefOf`（`xxxId` stem 匹配实体 + 域 token + 公共前缀 + 最短候选三级消歧）与 `domainTokenOf` 全部删除；`fkLabelFieldOf`（display 缺省猜 name/title/首个 String）收敛为「仅认声明 display，缺省 name，不存在则由 typecheck FK-REF-DISPLAY 报错」；`structOwnerEntity`（`XxxInput` 去 Input 后缀猜实体）删除。
+- **替代机制（全部声明式）**：
+  - 唯一入口 `explicitFkRefOf(app, holder, field)`：holder 可为 **entity 或 struct**，只有其字段带 `@ref` 才渲染引用名/下拉；
+  - 表头字段归属 = 表单 `<form submit={useMutation(...)}>` 的**返回实体**（声明），不再按 struct 名字猜；
+  - `@ref` 支持结构体字段：core `StructurePropertyNode.ref` + parser（抽出 `parseRefAnnotation`，struct 属性支持注解）+ linkApp（struct ref 全局解析）+ typecheck（`checkRefProp` 实体/结构体同一套 FK-REF 三码）。
+  - options 数据源定位保留 `optionsApiFnOf`（类型驱动：`query*` 返回 `List<该实体>`）——这是「找数据源」不是「猜关系」。
+- **样例补齐**：yudao 结构体 FK 字段 77 处 `@ref`（含 SystemUser 的 `display:'nickname'`）+ 3 处自引用 `parentId @ref(自身)`（原先靠 "parent 特例" 推断）。
+- **护栏测试**：新增「零推断」用例——命名 `supplierId` 但无 `@ref`（存在目标实体与查询）→ 断言**不生成** qFk/Select、列原样渲染；结构体字段 `@ref` → 断言渲染 Select 下拉。
+- 语法手册 §1.3 新增「外键必须显式声明 @ref（编译器零推断）」小节；回归：325 单测 / 九包 typecheck / spec 1091 项 100% / java clean compile / react tsc+build。

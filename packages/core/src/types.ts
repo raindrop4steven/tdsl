@@ -95,6 +95,8 @@ export interface StructurePropertyNode extends BaseNode {
   kind: 'StructureProperty';
   name: string;
   type: TypeRef;
+  /** M10 外键显式声明（表单/明细字段同样必须显式，禁止命名推断） */
+  ref?: EntityRefNode;
 }
 
 /** 枚举 */
