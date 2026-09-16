@@ -190,3 +190,9 @@
 - **CRM 公海语义修正（用户问"领取后效果是啥"）**：原 `takeCrmCustomerFromPool` 硬编码 ownerUserId=1 且无校验，seed 客户本就 owner=1 → 点了等于没点；`assignCrmCustomer` 还有 `ownerTime = ownerTime` 自赋值 stub。修：放入公海（校验已在公海/锁定、清 owner+ownerTime、重置 dealStatus）、领取（校验必须在公海且未锁定、写 owner=1+ownerTime=now）、锁定（公海不可锁）、分配（锁定不可分配）；页面按钮按状态显隐/置灰（领取/放入公海互斥、锁定↔解锁互斥、锁定后编辑置灰）；seed 造三态客户（正常/公海×2/锁定）。
 - **空外键占位**：外键列/列表项值为 0 → 显示 `-`（公海客户负责人不再显示 0）。
 - 真机实证：领取 id=3 → owner=1 + ownerTime 时间戳；重复领取/锁定客户领取/重复放入公海/公海锁定 均返回业务错误文案；待办完成 → completed=1。全仓 321 单测全绿、java `mvn clean compile` ✓、react tsc+build ✓、seed 105/0。
+
+## 2026-09-16 续七（外壳布局：顶部模块导航 + 左侧当前模块菜单）
+- **用户要求**："模块放在顶部，左侧只展示某个模块的菜单" → 重写 `routerFile` 外壳：顶部 Header 放**模块横向菜单**（`@menu` 分组值即模块），左侧 Sider 只渲染**当前模块**的页面；`PAGE_MODULE` 由路由反查当前模块，点模块跳该模块首页。
+- 无 `@menu` 的页面归入「其他」模块；若全无分组则以应用名作模块名（jxc/todo 等简单应用观感自然）。
+- 顺带清掉 routes 里残留的 `@role` 守卫代码（此前已决定角色不驱动外壳）。
+- 测试同步：折叠菜单用例改为断言 `MODULES/PAGE_MODULE`（顶部横向 + 左侧当前模块），断言不含旧 `group-`/`defaultOpenKeys`。全仓 321 单测全绿、react tsc+build ✓。

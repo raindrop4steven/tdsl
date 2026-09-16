@@ -85,7 +85,8 @@ describe('codegen-react dev/48 门户看板与角色视角', () => {
     expect(app).not.toContain('PAGE_ROLES');
     expect(app).not.toContain('ROLES');
     expect(app).not.toContain('演示级');
-    expect(app).toContain('items={MENU_ITEMS}');
+    expect(app).toContain('const MODULES:');
+    expect(app).toContain('items={pages}');
     expect(app).toContain('const HOME_ROUTE = FIRST_ROUTES[0]');
   });
 });

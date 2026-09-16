@@ -554,11 +554,21 @@ page GoodsList { <table dataSource={useQuery('listG')}><column field="code" /></
 @menu('库存查询')
 page Summary { <table dataSource={useQuery('listG')}><column field="code" /></table> }
 `);
-  it('@menu 视图归入 SubMenu，defaultOpenKeys 全展开', () => {
+  it('@menu 视图 → 顶部模块导航；左侧只渲染当前模块页面', () => {
     const app = generateReact(SRC).find((f) => f.path === 'src/App.tsx')!.content;
-    expect(app).toContain("key: 'group-基础数据'");
-    expect(app).toContain("label: '商品列表'");
-    expect(app).toMatch(/defaultOpenKeys=\{\['基础数据', '库存查询'\]\}/);
+    // 模块表：@menu 值成为模块 key/label，页面挂在其 pages 下
+    expect(app).toContain("const MODULES: Array<{ key: string; label: string; pages: Array<{ key: string; label: string }> }> = [");
+    expect(app).toContain("{ key: '基础数据', label: '基础数据', pages: [");
+    expect(app).toContain("{ key: '/goods-list', label: '商品列表' },");
+    expect(app).toContain("{ key: '库存查询', label: '库存查询', pages: [");
+    // 主题：顶部横向模块菜单 + 左侧当前模块菜单
+    expect(app).toContain("mode=\"horizontal\"");
+    expect(app).toContain("const current = PAGE_MODULE[base] ?? MODULES[0]?.key ?? '';");
+    expect(app).toContain("const pages = MODULES.find((m) => m.key === current)?.pages ?? [];");
+    expect(app).toContain('items={pages}');
+    // 不再有旧的 SubMenu/defaultOpenKeys 结构
+    expect(app).not.toContain('group-');
+    expect(app).not.toContain('defaultOpenKeys');
   });
 });
 

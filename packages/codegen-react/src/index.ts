@@ -2982,43 +2982,44 @@ function routerFile(app: AppNode): GeneratedFile {
     .map((v) => {
       const hasRoute = isDetail(v);
       const path = routePathOf(v) + (hasRoute ? '/:id' : '');
-      // dev/48：@role 保护（有注解的页面按角色渲染路由；无注解页面照旧）
-      const roleAnn = v.annotations?.find((a) => a.name === 'role');
-      const raw = roleAnn?.args?.['value'];
-      const roles = typeof raw === 'string' ? raw.split(',').map((x) => x.trim()).filter((x) => x !== '') : [];
-      if (roles.length === 0) return `  <Route path="${path}" element={<${cap(v.name)} />} />`;
-      return `  {(${JSON.stringify(roles)} as string[]).includes(role) && <Route path="${path}" element={<${cap(v.name)} />} />}`;
+      return `  <Route path="${path}" element={<${cap(v.name)} />} />`;
     })
-    .join('\n');
   // 根路径重定向到第一个列表页（dialog/详情不作为首页）
   const firstView = listViews[0];
   const firstRoute = firstView ? routePathOf(firstView) : null;
-  const redirect = firstRoute ? `  <Route path="/" element={<Navigate to={HOME_ROUTE} replace />} />\n` : '';
-  // 首页候选顺序（列表页声明序）：/ 重定向到当前角色第一个可见页
   const firstRoutes = listViews.map((v) => `'${routePathOf(v)}'`).join(', ');
-  const imports = routed.map((v) => `import ${cap(v.name)} from './pages/${v.name}';`).join('\n');
-  const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
-  // 管理端布局：顶部 Header（应用名）+ 左侧 Sider 菜单 + 右侧内容区（路由出口）；dialog 不进菜单
-  // 管理端布局：顶部 Header（应用名）+ 左侧 Sider 菜单 + 右侧内容区（路由出口）；dialog 不进菜单
-  // 菜单分组（模块折叠）：@menu('采购管理') 注解视图归入 SubMenu，无注解视图为顶级项
-  const menuGroups = new Map<string, ViewNode[]>();
-  const topViews: ViewNode[] = [];
+  const modules = new Map<string, ViewNode[]>();
+  const ungrouped: ViewNode[] = [];
   for (const v of listViews) {
     const ann = v.annotations?.find((a) => a.name === 'menu');
     const g = ann?.args?.['value'];
     if (typeof g === 'string' && g !== '') {
-      if (!menuGroups.has(g)) menuGroups.set(g, []);
-      menuGroups.get(g)!.push(v);
+      if (!modules.has(g)) modules.set(g, []);
+      modules.get(g)!.push(v);
     } else {
-      topViews.push(v);
+      ungrouped.push(v);
     }
   }
-  const menuItemLine = (v: ViewNode): string => `    { key: '${routePathOf(v)}', label: '${viewTitle(v)}' },`;
-  const groupLines = [...menuGroups.entries()].map(
-    ([g, vs]) =>
-      `  {\n    key: 'group-${g}',\n    label: '${g}',\n    children: [\n${vs.map((v) => `      { key: '${routePathOf(v)}', label: '${viewTitle(v)}' },`).join('\n')}\n    ],\n  },`,
-  );
-  const menuItems = [...groupLines, ...topViews.map((v) => `  { key: '${routePathOf(v)}', label: '${viewTitle(v)}' },`)].join('\n');
+  if (ungrouped.length > 0) {
+    // 无 @menu 的页面归入「其他」模块（若全无分组则用应用名，观感更自然）
+    const key = modules.size > 0 ? '其他' : app.name;
+    modules.set(key, ungrouped);
+  }
+  const moduleEntries = [...modules.entries()];
+  const modulesJs = moduleEntries
+    .map(
+      ([g, vs]) =>
+        `  { key: '${g}', label: '${g}', pages: [\n${vs
+          .map((v) => `    { key: '${routePathOf(v)}', label: '${viewTitle(v)}' },`)
+          .join('\n')}\n  ] },`,
+    )
+    .join('\n');
+  const pageModuleJs = moduleEntries
+    .flatMap(([g, vs]) => vs.map((v) => `  '${routePathOf(v)}': '${g}',`))
+    .join('\n');
+  const imports = routed.map((v) => `import ${cap(v.name)} from './pages/${v.name}';`).join('\n');
+  const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
+  const redirect = firstRoute ? `  <Route path="/" element={<Navigate to={HOME_ROUTE} replace />} />\n` : '';
   const content = `// 自动生成：页面路由 + 管理端布局（TDSL page）
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
@@ -3026,10 +3027,13 @@ ${imports}
 
 const { Header, Sider, Content } = Layout;
 
-const MENU_ITEMS = [
-${menuItems}
+// 模块（@menu 分组）→ 顶部导航；模块内页面 → 左侧菜单
+const MODULES: Array<{ key: string; label: string; pages: Array<{ key: string; label: string }> }> = [
+${modulesJs}
 ];
-
+const PAGE_MODULE: Record<string, string> = {
+${pageModuleJs}
+};
 // 首页：第一个列表页（门户文件声明在前 → 默认落门户）
 const FIRST_ROUTES: string[] = [${firstRoutes}];
 const HOME_ROUTE = FIRST_ROUTES[0] ?? '/';
@@ -3037,10 +3041,20 @@ const HOME_ROUTE = FIRST_ROUTES[0] ?? '/';
 export default function App() {
   const nav = useNavigate();
   const base = '/' + (useLocation().pathname.split('/')[1] ?? '');
+  const current = PAGE_MODULE[base] ?? MODULES[0]?.key ?? '';
+  const pages = MODULES.find((m) => m.key === current)?.pages ?? [];
   return (
     <Layout style={{ height: '100vh' }}>
-      <Header style={{ background: '#001529', color: '#fff', display: 'flex', alignItems: 'center', paddingInline: 24, fontWeight: 600, fontSize: 16 }}>
-        ${cap(app.name)} 管理系统
+      <Header style={{ background: '#001529', display: 'flex', alignItems: 'center', paddingInline: 24, gap: 32 }}>
+        <span style={{ color: '#fff', fontWeight: 600, fontSize: 16, whiteSpace: 'nowrap' }}>${cap(app.name)} 管理系统</span>
+        <Menu
+          theme="dark"
+          mode="horizontal"
+          selectedKeys={[current]}
+          items={MODULES.map((m) => ({ key: m.key, label: m.label }))}
+          onClick={({ key }) => { const m = MODULES.find((x) => x.key === String(key)); if (m && m.pages[0]) nav(m.pages[0].key); }}
+          style={{ flex: 1, minWidth: 0, background: 'transparent', borderBottom: 'none' }}
+        />
       </Header>
       <Layout style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
         <Sider width={216} style={{ background: '#001529' }} collapsible collapsedWidth={64}>
@@ -3048,9 +3062,8 @@ export default function App() {
             theme="dark"
             mode="inline"
             selectedKeys={[base]}
-            defaultOpenKeys={[${[...menuGroups.keys()].map((k) => `'${k}'`).join(', ')}]}
-            items={MENU_ITEMS}
-            onClick={({ key }) => (String(key).startsWith('group-') ? undefined : nav(String(key)))}
+            items={pages}
+            onClick={({ key }) => nav(String(key))}
             style={{ height: '100%', overflow: 'auto', borderInlineEnd: 'none' }}
           />
         </Sider>
