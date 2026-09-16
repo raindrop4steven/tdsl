@@ -995,7 +995,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#1f1f1f' }}>${viewTitle(v)}</h2>${headerActions}
     </div>`;
   const wrapperOpen = isDialog
-    ? `    <Drawer${drawerTitle}${headerActionsJsx ? ` extra={<Space size={4}>${headerActionsJsx}\n    </Space>}` : ''} open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.6, 760)} destroyOnClose>`
+    ? `    <Drawer${drawerTitle}${headerActionsJsx ? ` extra={<Space size={4}>${headerActionsJsx}\n    </Space>}` : ''} open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.78, 1200)} destroyOnClose>`
     : `    <Card style={{ margin: '0 auto', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,21,41,0.06)' }}>\n      ${cardHeader}`;
   const wrapperClose = isDialog ? `    </Drawer>` : `    </Card>`;
 
@@ -2178,6 +2178,7 @@ function genTable(app: AppNode, el: ViewElementNode, queryVars: Map<string, stri
   size="middle"
   bordered
   pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50], showTotal: (t: number) => '共 ' + t + ' 条' }}
+  scroll={{ x: 'max-content' }}
   columns={[
 ${colDefs.join(',\n')}${opCol}
   ]}
@@ -2560,6 +2561,7 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
     bordered
     pagination={false}
     rowKey={(_, index) => String(index)}
+    scroll={{ x: 'max-content' }}
     dataSource={${field}}
     columns={[
 ${cellDefs},
@@ -2891,7 +2893,7 @@ function genDetail(app: AppNode, el: ViewElementNode, queryVars: Map<string, str
       const colDefs = columnDefsOf(app, itemEnt, cols);
       const title = String(r.props['title'] ?? '明细');
       return `<div style={{ marginTop: 12, marginBottom: 4, fontSize: 13, fontWeight: 600, color: '#262626' }}>${title}</div>
-<Table dataSource={${dataVar}.data?.${field} ?? []} rowKey="id" size="small" bordered pagination={false} columns={[${colDefs.join(',\n')}]} />`;
+<Table dataSource={${dataVar}.data?.${field} ?? []} rowKey="id" size="small" bordered pagination={false} scroll={{ x: 'max-content' }} columns={[${colDefs.join(',\n')}]} />`;
     })
     .join('\n');
   const detailBlock = `<Descriptions bordered size="small" column={1}>
