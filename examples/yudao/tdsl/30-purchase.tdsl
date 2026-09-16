@@ -1,0 +1,618 @@
+// 芋道 ERP · 采购管理：采购订单/采购入库/采购退货/采购付款（主子表 + 审批/反审批流转 + 详情）
+
+// ---- 采购订单 ----
+
+@export
+function queryErpPurchaseOrder(no: String, status: DocStatus, supplierId: Integer): List<PurchaseOrder> {
+  return PurchaseOrder.where(no like '%' + no.trim() + '%', status = status, supplierId = supplierId).orderBy(id desc);
+}
+
+@export
+function saveErpPurchaseOrder(input: PurchaseOrderInput): PurchaseOrder {
+  const b = new PurchaseOrder();
+  if (input.id !== null && input.id > 0) {
+    const b = PurchaseOrder.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.orderTime = input.orderTime;
+  b.supplierId = input.supplierId;
+  b.accountId = input.accountId;
+  b.discountPercent = input.discountPercent;
+  b.discountPrice = input.discountPrice;
+  b.depositPrice = input.depositPrice;
+  b.fileUrl = input.fileUrl;
+  b.remark = input.remark;
+  b.totalCount = 0;
+  b.totalProductPrice = 0;
+  b.totalPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of PurchaseOrderItem.where(orderId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new PurchaseOrderItem();
+      item.orderId = b.id;
+      item.productId = it.productId;
+      item.productUnitId = it.productUnitId;
+      item.productPrice = it.productPrice;
+      item.count = it.count;
+      item.totalPrice = it.productPrice * it.count;
+      item.taxPercent = it.taxPercent;
+      item.remark = it.remark;
+      item.save();
+      b.totalCount = b.totalCount + it.count;
+      b.totalProductPrice = b.totalProductPrice + it.productPrice * it.count;
+    }
+    b.totalPrice = b.totalProductPrice - b.discountPrice;
+    b.save();
+  }
+  return b;
+}
+
+@export
+function deleteErpPurchaseOrder(id: Integer): Boolean {
+  const b = PurchaseOrder.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批订单不可删除';
+  }
+  for (const it of PurchaseOrderItem.where(orderId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+function auditErpPurchaseOrder(id: Integer): Boolean {
+  const b = PurchaseOrder.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批订单可审批';
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+function deauditErpPurchaseOrder(id: Integer): Boolean {
+  const b = PurchaseOrder.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批订单可反审批';
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+// ---- 采购入库 ----
+
+@export
+function queryErpPurchaseIn(no: String, status: DocStatus, supplierId: Integer): List<PurchaseIn> {
+  return PurchaseIn.where(no like '%' + no.trim() + '%', status = status, supplierId = supplierId).orderBy(id desc);
+}
+
+@export
+function saveErpPurchaseIn(input: PurchaseInInput): PurchaseIn {
+  const b = new PurchaseIn();
+  if (input.id !== null && input.id > 0) {
+    const b = PurchaseIn.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.inTime = input.inTime;
+  b.supplierId = input.supplierId;
+  b.accountId = input.accountId;
+  b.orderId = input.orderId;
+  b.orderNo = input.orderNo;
+  b.otherPrice = input.otherPrice;
+  b.fileUrl = input.fileUrl;
+  b.remark = input.remark;
+  b.totalCount = 0;
+  b.totalProductPrice = 0;
+  b.totalPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of PurchaseInItem.where(inId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new PurchaseInItem();
+      item.inId = b.id;
+      item.orderItemId = it.orderItemId;
+      item.warehouseId = it.warehouseId;
+      item.productId = it.productId;
+      item.productUnitId = it.productUnitId;
+      item.productPrice = it.productPrice;
+      item.count = it.count;
+      item.totalPrice = it.productPrice * it.count;
+      item.taxPercent = it.taxPercent;
+      item.remark = it.remark;
+      item.save();
+      b.totalCount = b.totalCount + it.count;
+      b.totalProductPrice = b.totalProductPrice + it.productPrice * it.count;
+    }
+    b.discountPrice = 0;
+    b.totalPrice = b.totalProductPrice - b.discountPrice + b.otherPrice;
+    b.save();
+  }
+  return b;
+}
+
+@export
+function deleteErpPurchaseIn(id: Integer): Boolean {
+  const b = PurchaseIn.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批入库单不可删除';
+  }
+  for (const it of PurchaseInItem.where(inId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+function auditErpPurchaseIn(id: Integer): Boolean {
+  const b = PurchaseIn.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批入库单可审批';
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+function deauditErpPurchaseIn(id: Integer): Boolean {
+  const b = PurchaseIn.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批入库单可反审批';
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+// ---- 采购退货 ----
+
+@export
+function queryErpPurchaseReturn(no: String, status: DocStatus, supplierId: Integer): List<PurchaseReturn> {
+  return PurchaseReturn.where(no like '%' + no.trim() + '%', status = status, supplierId = supplierId).orderBy(id desc);
+}
+
+@export
+function saveErpPurchaseReturn(input: PurchaseReturnInput): PurchaseReturn {
+  const b = new PurchaseReturn();
+  if (input.id !== null && input.id > 0) {
+    const b = PurchaseReturn.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.returnTime = input.returnTime;
+  b.supplierId = input.supplierId;
+  b.accountId = input.accountId;
+  b.orderId = input.orderId;
+  b.orderNo = input.orderNo;
+  b.otherPrice = input.otherPrice;
+  b.fileUrl = input.fileUrl;
+  b.remark = input.remark;
+  b.totalCount = 0;
+  b.totalProductPrice = 0;
+  b.totalPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of PurchaseReturnItem.where(returnId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new PurchaseReturnItem();
+      item.returnId = b.id;
+      item.orderItemId = it.orderItemId;
+      item.warehouseId = it.warehouseId;
+      item.productId = it.productId;
+      item.productUnitId = it.productUnitId;
+      item.productPrice = it.productPrice;
+      item.count = it.count;
+      item.totalPrice = it.productPrice * it.count;
+      item.taxPercent = it.taxPercent;
+      item.remark = it.remark;
+      item.save();
+      b.totalCount = b.totalCount + it.count;
+      b.totalProductPrice = b.totalProductPrice + it.productPrice * it.count;
+    }
+    b.discountPrice = 0;
+    b.totalPrice = b.totalProductPrice - b.discountPrice + b.otherPrice;
+    b.save();
+  }
+  return b;
+}
+
+@export
+function deleteErpPurchaseReturn(id: Integer): Boolean {
+  const b = PurchaseReturn.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批退货单不可删除';
+  }
+  for (const it of PurchaseReturnItem.where(returnId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+function auditErpPurchaseReturn(id: Integer): Boolean {
+  const b = PurchaseReturn.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批退货单可审批';
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+function deauditErpPurchaseReturn(id: Integer): Boolean {
+  const b = PurchaseReturn.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批退货单可反审批';
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+// ---- 采购付款 ----
+
+@export
+function queryErpPurchasePayment(no: String, status: DocStatus, supplierId: Integer): List<FinancePayment> {
+  return FinancePayment.where(no like '%' + no.trim() + '%', status = status, supplierId = supplierId).orderBy(id desc);
+}
+
+@export
+function saveErpPurchasePayment(input: FinancePaymentInput): FinancePayment {
+  const b = new FinancePayment();
+  if (input.id !== null && input.id > 0) {
+    const b = FinancePayment.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.paymentTime = input.paymentTime;
+  b.supplierId = input.supplierId;
+  b.accountId = input.accountId;
+  b.financeUserId = input.financeUserId;
+  b.discountPrice = input.discountPrice;
+  b.remark = input.remark;
+  b.totalPrice = 0;
+  b.paymentPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of FinancePaymentItem.where(paymentId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new FinancePaymentItem();
+      item.paymentId = b.id;
+      item.bizType = it.bizType;
+      item.bizId = it.bizId;
+      item.bizNo = it.bizNo;
+      item.totalPrice = it.totalPrice;
+      item.paidPrice = it.paidPrice;
+      item.paymentPrice = it.paymentPrice;
+      item.remark = it.remark;
+      item.save();
+      b.totalPrice = b.totalPrice + it.totalPrice;
+      b.paymentPrice = b.paymentPrice + it.paymentPrice;
+    }
+    b.save();
+  }
+  return b;
+}
+
+@export
+function deleteErpPurchasePayment(id: Integer): Boolean {
+  const b = FinancePayment.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批付款单不可删除';
+  }
+  for (const it of FinancePaymentItem.where(paymentId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+function auditErpPurchasePayment(id: Integer): Boolean {
+  const b = FinancePayment.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批付款单可审批';
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+function deauditErpPurchasePayment(id: Integer): Boolean {
+  const b = FinancePayment.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批付款单可反审批';
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+interface PurchaseApi {
+  GET    '/api/erp/purchase-orders'            -> queryErpPurchaseOrder
+  POST   '/api/erp/purchase-orders'            -> saveErpPurchaseOrder
+  DELETE '/api/erp/purchase-orders/{id}'       -> deleteErpPurchaseOrder
+  POST   '/api/erp/purchase-orders/{id}/audit' -> auditErpPurchaseOrder
+  POST   '/api/erp/purchase-orders/{id}/deaudit' -> deauditErpPurchaseOrder
+  GET    '/api/erp/purchase-ins'               -> queryErpPurchaseIn
+  POST   '/api/erp/purchase-ins'               -> saveErpPurchaseIn
+  DELETE '/api/erp/purchase-ins/{id}'          -> deleteErpPurchaseIn
+  POST   '/api/erp/purchase-ins/{id}/audit'    -> auditErpPurchaseIn
+  POST   '/api/erp/purchase-ins/{id}/deaudit'  -> deauditErpPurchaseIn
+  GET    '/api/erp/purchase-returns'           -> queryErpPurchaseReturn
+  POST   '/api/erp/purchase-returns'           -> saveErpPurchaseReturn
+  DELETE '/api/erp/purchase-returns/{id}'      -> deleteErpPurchaseReturn
+  POST   '/api/erp/purchase-returns/{id}/audit' -> auditErpPurchaseReturn
+  POST   '/api/erp/purchase-returns/{id}/deaudit' -> deauditErpPurchaseReturn
+  GET    '/api/erp/purchase-payments'          -> queryErpPurchasePayment
+  POST   '/api/erp/purchase-payments'          -> saveErpPurchasePayment
+  DELETE '/api/erp/purchase-payments/{id}'     -> deleteErpPurchasePayment
+  POST   '/api/erp/purchase-payments/{id}/audit' -> auditErpPurchasePayment
+  POST   '/api/erp/purchase-payments/{id}/deaudit' -> deauditErpPurchasePayment
+}
+
+// ---- 页面 ----
+
+@title('采购订单列表')
+@menu('采购管理')
+page erpPurchaseOrderList {
+  <input field="no" label="采购单号" />
+  <input field="status" label="单据状态" />
+  <input field="supplierId" label="供应商" />
+  <table dataSource={useQuery('queryErpPurchaseOrder')}>
+    <column field="no" title="采购单号" />
+    <column field="status" title="单据状态" />
+    <column field="orderTime" title="下单时间" />
+    <column field="supplierId" title="供应商" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="depositPrice" title="定金金额" />
+    <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)} />
+    <button text="删除" action={useMutation('deleteErpPurchaseOrder', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)} />
+    <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)} />
+    <button text="详情" action={navigate('erpPurchaseOrderDetail', row.id)} />
+  </table>
+  <button text="新增采购订单" action={openDialog('erpPurchaseOrderForm')} />
+}
+
+@title('采购订单编辑')
+@menu('采购管理')
+dialog erpPurchaseOrderForm {
+  <form submit={useMutation('saveErpPurchaseOrder')}>
+    <input field="no" label="采购单号" />
+    <input field="orderTime" label="下单时间" />
+    <input field="supplierId" label="供应商" />
+    <input field="accountId" label="结算账户" />
+    <input field="discountPercent" label="优惠率" />
+    <input field="discountPrice" label="优惠金额" />
+    <input field="depositPrice" label="定金金额" />
+    <input field="fileUrl" label="附件" />
+    <input field="remark" label="备注" />
+    <repeat field="items">
+      <input field="productId" label="产品" />
+      <input field="productUnitId" label="产品单位" />
+      <input field="productPrice" label="产品单价" />
+      <input field="count" label="数量" />
+      <input field="taxPercent" label="税率" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@title('采购订单详情')
+@menu('采购管理')
+page erpPurchaseOrderDetail {
+  <table dataSource={useQuery('queryErpPurchaseOrder')}>
+    <column field="no" title="采购单号" />
+    <column field="status" title="单据状态" />
+    <column field="supplierId" title="供应商" />
+    <column field="totalPrice" title="优惠后金额" />
+  </table>
+  <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)} />
+  <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)} />
+  <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)} />
+}
+
+@title('采购入库列表')
+@menu('采购管理')
+page erpPurchaseInList {
+  <input field="no" label="入库单号" />
+  <input field="status" label="单据状态" />
+  <input field="supplierId" label="供应商" />
+  <table dataSource={useQuery('queryErpPurchaseIn')}>
+    <column field="no" title="入库单号" />
+    <column field="status" title="单据状态" />
+    <column field="inTime" title="入库时间" />
+    <column field="supplierId" title="供应商" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="paymentPrice" title="已付金额" />
+    <button text="编辑" action={openDialog('erpPurchaseInForm', row)} />
+    <button text="删除" action={useMutation('deleteErpPurchaseIn', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)} />
+    <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)} />
+    <button text="详情" action={navigate('erpPurchaseInDetail', row.id)} />
+  </table>
+  <button text="新增入库单" action={openDialog('erpPurchaseInForm')} />
+}
+
+@title('采购入库编辑')
+@menu('采购管理')
+dialog erpPurchaseInForm {
+  <form submit={useMutation('saveErpPurchaseIn')}>
+    <input field="no" label="入库单号" />
+    <input field="inTime" label="入库时间" />
+    <input field="supplierId" label="供应商" />
+    <input field="accountId" label="结算账户" />
+    <input field="orderId" label="关联采购订单" />
+    <input field="orderNo" label="关联单号" />
+    <input field="otherPrice" label="其它费用" />
+    <input field="fileUrl" label="附件" />
+    <input field="remark" label="备注" />
+    <repeat field="items">
+      <input field="warehouseId" label="仓库" />
+      <input field="productId" label="产品" />
+      <input field="productUnitId" label="产品单位" />
+      <input field="productPrice" label="产品单价" />
+      <input field="count" label="数量" />
+      <input field="taxPercent" label="税率" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@title('采购入库详情')
+@menu('采购管理')
+page erpPurchaseInDetail {
+  <table dataSource={useQuery('queryErpPurchaseIn')}>
+    <column field="no" title="入库单号" />
+    <column field="status" title="单据状态" />
+    <column field="supplierId" title="供应商" />
+    <column field="totalPrice" title="优惠后金额" />
+  </table>
+  <button text="编辑" action={openDialog('erpPurchaseInForm', row)} />
+  <button text="审批" action={useMutation('auditErpPurchaseIn', row.id)} />
+  <button text="反审批" action={useMutation('deauditErpPurchaseIn', row.id)} />
+}
+
+@title('采购退货列表')
+@menu('采购管理')
+page erpPurchaseReturnList {
+  <input field="no" label="退货单号" />
+  <input field="status" label="单据状态" />
+  <input field="supplierId" label="供应商" />
+  <table dataSource={useQuery('queryErpPurchaseReturn')}>
+    <column field="no" title="退货单号" />
+    <column field="status" title="单据状态" />
+    <column field="returnTime" title="退货时间" />
+    <column field="supplierId" title="供应商" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="refundPrice" title="退款金额" />
+    <button text="编辑" action={openDialog('erpPurchaseReturnForm', row)} />
+    <button text="删除" action={useMutation('deleteErpPurchaseReturn', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)} />
+    <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)} />
+    <button text="详情" action={navigate('erpPurchaseReturnDetail', row.id)} />
+  </table>
+  <button text="新增退货单" action={openDialog('erpPurchaseReturnForm')} />
+}
+
+@title('采购退货编辑')
+@menu('采购管理')
+dialog erpPurchaseReturnForm {
+  <form submit={useMutation('saveErpPurchaseReturn')}>
+    <input field="no" label="退货单号" />
+    <input field="returnTime" label="退货时间" />
+    <input field="supplierId" label="供应商" />
+    <input field="accountId" label="结算账户" />
+    <input field="orderId" label="关联采购订单" />
+    <input field="orderNo" label="关联单号" />
+    <input field="otherPrice" label="其它费用" />
+    <input field="fileUrl" label="附件" />
+    <input field="remark" label="备注" />
+    <repeat field="items">
+      <input field="warehouseId" label="仓库" />
+      <input field="productId" label="产品" />
+      <input field="productUnitId" label="产品单位" />
+      <input field="productPrice" label="产品单价" />
+      <input field="count" label="数量" />
+      <input field="taxPercent" label="税率" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@title('采购退货详情')
+@menu('采购管理')
+page erpPurchaseReturnDetail {
+  <table dataSource={useQuery('queryErpPurchaseReturn')}>
+    <column field="no" title="退货单号" />
+    <column field="status" title="单据状态" />
+    <column field="supplierId" title="供应商" />
+    <column field="refundPrice" title="退款金额" />
+  </table>
+  <button text="编辑" action={openDialog('erpPurchaseReturnForm', row)} />
+  <button text="审批" action={useMutation('auditErpPurchaseReturn', row.id)} />
+  <button text="反审批" action={useMutation('deauditErpPurchaseReturn', row.id)} />
+}
+
+@title('采购付款单列表')
+@menu('采购管理')
+page erpPurchasePaymentList {
+  <input field="no" label="付款单号" />
+  <input field="status" label="单据状态" />
+  <input field="supplierId" label="供应商" />
+  <table dataSource={useQuery('queryErpPurchasePayment')}>
+    <column field="no" title="付款单号" />
+    <column field="status" title="单据状态" />
+    <column field="paymentTime" title="付款时间" />
+    <column field="supplierId" title="供应商" />
+    <column field="accountId" title="结算账户" />
+    <column field="totalPrice" title="应付金额" />
+    <column field="paymentPrice" title="实付金额" />
+    <button text="编辑" action={openDialog('erpPurchasePaymentForm', row)} />
+    <button text="删除" action={useMutation('deleteErpPurchasePayment', row.id)} />
+    <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)} />
+    <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)} />
+    <button text="详情" action={navigate('erpPurchasePaymentDetail', row.id)} />
+  </table>
+  <button text="新增付款单" action={openDialog('erpPurchasePaymentForm')} />
+}
+
+@title('采购付款编辑')
+@menu('采购管理')
+dialog erpPurchasePaymentForm {
+  <form submit={useMutation('saveErpPurchasePayment')}>
+    <input field="no" label="付款单号" />
+    <input field="paymentTime" label="付款时间" />
+    <input field="supplierId" label="供应商" />
+    <input field="accountId" label="结算账户" />
+    <input field="financeUserId" label="财务人员" />
+    <input field="discountPrice" label="优惠金额" />
+    <input field="remark" label="备注" />
+    <repeat field="items">
+      <input field="bizType" label="核销业务类型" />
+      <input field="bizId" label="关联业务单" />
+      <input field="bizNo" label="关联单号" />
+      <input field="totalPrice" label="应付金额" />
+      <input field="paidPrice" label="已付金额" />
+      <input field="paymentPrice" label="本次付款" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@title('采购付款详情')
+@menu('采购管理')
+page erpPurchasePaymentDetail {
+  <table dataSource={useQuery('queryErpPurchasePayment')}>
+    <column field="no" title="付款单号" />
+    <column field="status" title="单据状态" />
+    <column field="supplierId" title="供应商" />
+    <column field="paymentPrice" title="实付金额" />
+  </table>
+  <button text="编辑" action={openDialog('erpPurchasePaymentForm', row)} />
+  <button text="审批" action={useMutation('auditErpPurchasePayment', row.id)} />
+  <button text="反审批" action={useMutation('deauditErpPurchasePayment', row.id)} />
+}

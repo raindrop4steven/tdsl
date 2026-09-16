@@ -71,6 +71,17 @@ export interface EntityPropertyNode extends BaseNode {
   primary?: boolean;
   nullable?: boolean;
   unique?: boolean;
+  /** M10 外键显式声明：@ref(实体[, display]) — entityPath 在 parser link 阶段由短名绑定为 nodePath */
+  ref?: EntityRefNode;
+}
+
+/** 实体引用（M10 @ref 注解）：指向实体 + 显示字段（typecheck 校验为 String） */
+export interface EntityRefNode {
+  kind: 'EntityRef';
+  /** 实体 nodePath；link 失败时保留短名原文（由 typecheck FK-REF-ENTITY 报 Diagnostic） */
+  entityPath: string;
+  /** 引用实体的显示字段（缺省 'name'） */
+  display: string;
 }
 
 /** 结构：DTO / 嵌套结构 */

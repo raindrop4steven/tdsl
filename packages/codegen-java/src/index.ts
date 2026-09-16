@@ -1269,7 +1269,8 @@ function genEndpointMethod(
       if (t.kind === 'reference' && app.enums.some((e) => e.name === typeNameFromPath(t.path))) {
         return `@RequestParam(value = "${p.name}", required = false, defaultValue = "") ${javaType(t)} ${p.name}`;
       }
-      return `@RequestParam(value = "${p.name}", required = false, defaultValue = "0") ${javaType(t)} ${p.name}`;
+      // 数值 GET 参数缺省 = null（不可给 0：会把「无过滤条件」误变成 categoryId = 0 永假空集，依赖仓储 JPQL 的 ?n IS NULL OR 宽松匹配）
+      return `@RequestParam(value = "${p.name}", required = false) ${javaType(t)} ${p.name}`;
     }
     return `@RequestBody ${javaType(p.type)} ${p.name}`;
   });
@@ -1328,13 +1329,21 @@ function genStatement(
           ? `java.util.List<${javaType(elemType)}>`
           : inferredType
             ? inferredType
-            : 'var';
+            : st.init && exprJavaType(app, st.init, entities, vars) === 'java.math.BigDecimal'
+              ? 'java.math.BigDecimal'
+              : 'var';
       if (st.type) vars.vars.set(st.name, javaType(st.type));
       else if (elemType) vars.vars.set(st.name, `java.util.List<${javaType(elemType)}>`);
       else if (inferredType) vars.vars.set(st.name, inferredType);
+      // 无显式类型但推导为 BigDecimal 的算术中间变量（如 total = a.count + b.count）
+      else if (typeStr === 'java.math.BigDecimal') vars.vars.set(st.name, 'java.math.BigDecimal');
       // 整数字面量累加器 → long：实体 Integer 字段 getter 是 Long，int + long 会精度损失报错
       if (typeStr === 'var' && st.init?.kind === 'Numeric' && Number.isInteger(st.init.value)) {
         return [`    long ${st.name} = ${st.init.value}L;`];
+      }
+      // 显式 Integer 声明（Java Long）初值为整数字面量 → L 后缀
+      if (typeStr === 'Long' && st.init?.kind === 'Numeric' && Number.isInteger(st.init.value)) {
+        return [`    Long ${st.name} = ${st.init.value}L;`];
       }
       return [`    ${typeStr} ${st.name} = ${initStr};`];
     }
@@ -1348,6 +1357,10 @@ function genStatement(
           let v = value;
           // Decimal 字段赋值整数字面量 → BigDecimal.valueOf(...)
           const fieldType = memberFieldType(app, vars, t.obj.name, t.prop);
+          // Long 字段赋整数字面量 → L 后缀（int 无法转 Long）
+          if (fieldType === 'Long' && st.value.kind === 'Numeric' && Number.isInteger(st.value.value) && !/^(\d+)L$/.test(v)) {
+            v = `${v}L`;
+          }
           if (fieldType === 'java.math.BigDecimal' && exprJavaType(app, st.value, entities, vars) !== 'java.math.BigDecimal') {
             v = `java.math.BigDecimal.valueOf(${v})`;
           }
@@ -1542,7 +1555,7 @@ function exprJavaType(
       return null;
     }
     case 'Binary': {
-      if (e.operator === '+' || e.operator === '-' || e.operator === '*') {
+      if (e.operator === '+' || e.operator === '-' || e.operator === '*' || e.operator === '/') {
         const lt = exprJavaType(app, e.left, entities, vars);
         const rt = exprJavaType(app, e.right, entities, vars);
         if (lt === 'java.math.BigDecimal' || rt === 'java.math.BigDecimal') return 'java.math.BigDecimal';
@@ -1569,14 +1582,15 @@ function memberFieldType(
   return typeFieldType(app, typeName, prop);
 }
 
-/** 按类型名（实体/结构类名）查字段 Java 类型 */
+/** 按类型名（实体/结构类名）查字段 Java 类型；javaType 可能带包前缀（com.tdsl.structure.X），需归一取尾段 */
 function typeFieldType(app: AppNode, typeName: string, prop: string): string | null {
-  const ent = findEntityByName(app, typeName);
+  const shortName = typeName.includes('.') ? typeName.slice(typeName.lastIndexOf('.') + 1) : typeName;
+  const ent = findEntityByName(app, shortName);
   if (ent) {
     const p = ent.properties.find((x) => x.name === prop);
     if (p) return javaType(p.type);
   }
-  const st = app.structures.find((s) => s.name === typeName);
+  const st = app.structures.find((s) => s.name === shortName);
   if (st) {
     const p = st.properties.find((x) => x.name === prop);
     if (p) return javaType(p.type);
@@ -1673,9 +1687,12 @@ function genExpr(
       return e.name;
     }
     case 'Member': {
-      // list.count → .size()
+      // list.count → .size()；实体/结构体 count 字段 → getter（类型感知：仅 List 接收集翻 size）
       if (e.prop === 'count') {
-        return `${genExpr(app, e.obj, entities, vars)}.size()`;
+        const recvType = exprJavaType(app, e.obj, entities, vars);
+        if (!recvType || recvType.startsWith('java.util.List')) {
+          return `${genExpr(app, e.obj, entities, vars)}.size()`;
+        }
       }
       // 实体静态 X.all / erp.Order.all → findAll()
       if (e.obj.kind === 'Ident') {
@@ -1770,9 +1787,13 @@ function genExpr(
       const op = e.operator === '===' ? '==' : e.operator === '!==' ? '!=' : e.operator;
       const lt = exprJavaType(app, e.left, entities, vars);
       const rt = exprJavaType(app, e.right, entities, vars);
-      // Decimal 算术：+ → .add()、* → .multiply()、- → .subtract()（BigDecimal 不能用 Java 运算符）
-      if ((e.operator === '+' || e.operator === '*' || e.operator === '-') &&
+      // Decimal 算术：+ → .add()、* → .multiply()、- → .subtract()、/ → .divide(scale 2 HALF_UP)
+      //（BigDecimal 不能用 Java 运算符；除法定标避免非终止小数 ArithmeticException）
+      if ((e.operator === '+' || e.operator === '*' || e.operator === '-' || e.operator === '/') &&
           (lt === 'java.math.BigDecimal' || rt === 'java.math.BigDecimal')) {
+        if (e.operator === '/') {
+          return `(${toBigDecimal(app, e.left, entities, vars)}.divide(${toBigDecimal(app, e.right, entities, vars)}, 2, java.math.RoundingMode.HALF_UP))`;
+        }
         const m = e.operator === '+' ? 'add' : e.operator === '*' ? 'multiply' : 'subtract';
         return `(${toBigDecimal(app, e.left, entities, vars)}.${m}(${toBigDecimal(app, e.right, entities, vars)}))`;
       }

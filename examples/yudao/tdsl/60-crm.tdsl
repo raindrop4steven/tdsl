@@ -1,0 +1,1472 @@
+// 芋道 CRM：线索/客户/联系人/公海/商机/合同/回款/产品/跟进记录/待办事项
+
+// ---- 线索 ----
+
+@export
+function queryCrmClue(name: String, mobile: String, followUpStatus: FollowUpStatus, level: Integer, source: Integer): List<CrmClue> {
+  return CrmClue.where(name like '%' + name.trim() + '%', mobile like '%' + mobile.trim() + '%', followUpStatus = followUpStatus, level = level, source = source).orderBy(id desc);
+}
+
+@export
+function saveCrmClue(input: CrmClueInput): CrmClue {
+  const c = new CrmClue();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmClue.get(input.id);
+  }
+  c.name = input.name;
+  c.ownerUserId = input.ownerUserId;
+  c.followUpStatus = FollowUpStatus.UNFOLLOWED;
+  c.transformStatus = TransformStatus.UNTRANSFORMED;
+  c.mobile = input.mobile;
+  c.telephone = input.telephone;
+  c.qq = input.qq;
+  c.wechat = input.wechat;
+  c.email = input.email;
+  c.areaId = input.areaId;
+  c.detailAddress = input.detailAddress;
+  c.industryId = input.industryId;
+  c.level = input.level;
+  c.source = input.source;
+  c.remark = input.remark;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmClue(id: Integer): Boolean {
+  const c = CrmClue.get(id);
+  c.delete();
+  return true;
+}
+
+// 转化为客户：建客户 + 线索置已转化（链式写）
+@export
+function transformCrmClue(id: Integer): CrmCustomer {
+  const clue = CrmClue.get(id);
+  if (clue.transformStatus === TransformStatus.TRANSFORMED) {
+    throw '线索已转化';
+  }
+  const c = new CrmCustomer();
+  c.name = clue.name;
+  c.ownerUserId = clue.ownerUserId;
+  c.lockStatus = LockStatus.UNLOCKED;
+  c.dealStatus = DealStatus.UNDEALED;
+  c.followUpStatus = FollowUpStatus.UNFOLLOWED;
+  c.mobile = clue.mobile;
+  c.telephone = clue.telephone;
+  c.qq = clue.qq;
+  c.wechat = clue.wechat;
+  c.email = clue.email;
+  c.areaId = clue.areaId;
+  c.detailAddress = clue.detailAddress;
+  c.industryId = clue.industryId;
+  c.level = clue.level;
+  c.source = clue.source;
+  c.remark = clue.remark;
+  c.save();
+  clue.transformStatus = TransformStatus.TRANSFORMED;
+  clue.customerId = c.id;
+  clue.save();
+  return c;
+}
+
+// ---- 客户 ----
+
+@export
+function queryCrmCustomer(name: String, mobile: String, level: Integer, source: Integer, dealStatus: DealStatus): List<CrmCustomer> {
+  return CrmCustomer.where(name like '%' + name.trim() + '%', mobile like '%' + mobile.trim() + '%', level = level, source = source, dealStatus = dealStatus).orderBy(id desc);
+}
+
+@export
+function saveCrmCustomer(input: CrmCustomerInput): CrmCustomer {
+  const c = new CrmCustomer();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmCustomer.get(input.id);
+  }
+  c.name = input.name;
+  c.ownerUserId = input.ownerUserId;
+  if (c.lockStatus === null) {
+    c.lockStatus = LockStatus.UNLOCKED;
+  }
+  if (c.dealStatus === null) {
+    c.dealStatus = DealStatus.UNDEALED;
+  }
+  c.followUpStatus = FollowUpStatus.UNFOLLOWED;
+  c.mobile = input.mobile;
+  c.telephone = input.telephone;
+  c.qq = input.qq;
+  c.wechat = input.wechat;
+  c.email = input.email;
+  c.areaId = input.areaId;
+  c.detailAddress = input.detailAddress;
+  c.industryId = input.industryId;
+  c.level = input.level;
+  c.source = input.source;
+  c.remark = input.remark;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmCustomer(id: Integer): Boolean {
+  const c = CrmCustomer.get(id);
+  c.delete();
+  return true;
+}
+
+// 放入公海：清空负责人并解锁
+@export
+function putCrmCustomerToPool(id: Integer): Boolean {
+  const c = CrmCustomer.get(id);
+  c.ownerUserId = 0;
+  c.lockStatus = LockStatus.UNLOCKED;
+  c.save();
+  return true;
+}
+
+@export
+function takeCrmCustomerFromPool(id: Integer): Boolean {
+  const c = CrmCustomer.get(id);
+  c.ownerUserId = 1;
+  c.lockStatus = LockStatus.UNLOCKED;
+  c.save();
+  return true;
+}
+
+@export
+function lockCrmCustomer(id: Integer): Boolean {
+  const c = CrmCustomer.get(id);
+  c.lockStatus = LockStatus.LOCKED;
+  c.save();
+  return true;
+}
+
+@export
+function unlockCrmCustomer(id: Integer): Boolean {
+  const c = CrmCustomer.get(id);
+  c.lockStatus = LockStatus.UNLOCKED;
+  c.save();
+  return true;
+}
+
+@export
+function assignCrmCustomer(id: Integer): Boolean {
+  const c = CrmCustomer.get(id);
+  c.ownerUserId = 1;
+  c.ownerTime = c.ownerTime;
+  c.save();
+  return true;
+}
+
+// ---- 联系人 ----
+
+@export
+function queryCrmContact(name: String, customerId: Integer, mobile: String): List<CrmContact> {
+  return CrmContact.where(name like '%' + name.trim() + '%', customerId = customerId, mobile like '%' + mobile.trim() + '%').orderBy(id desc);
+}
+
+@export
+function saveCrmContact(input: CrmContactInput): CrmContact {
+  const c = new CrmContact();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmContact.get(input.id);
+  }
+  c.name = input.name;
+  c.customerId = input.customerId;
+  c.ownerUserId = input.ownerUserId;
+  c.post = input.post;
+  c.sex = input.sex;
+  c.master = input.master;
+  c.parentId = input.parentId;
+  c.mobile = input.mobile;
+  c.telephone = input.telephone;
+  c.email = input.email;
+  c.qq = input.qq;
+  c.wechat = input.wechat;
+  c.areaId = input.areaId;
+  c.detailAddress = input.detailAddress;
+  c.remark = input.remark;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmContact(id: Integer): Boolean {
+  const c = CrmContact.get(id);
+  c.delete();
+  return true;
+}
+
+// ---- 客户公海配置 ----
+
+@export
+function queryCrmCustomerPoolConfig(): List<CrmCustomerPoolConfig> {
+  return CrmCustomerPoolConfig.all;
+}
+
+@export
+function saveCrmCustomerPoolConfig(input: CrmCustomerPoolConfigInput): CrmCustomerPoolConfig {
+  const c = new CrmCustomerPoolConfig();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmCustomerPoolConfig.get(input.id);
+  }
+  c.enabled = input.enabled;
+  c.contactExpireDays = input.contactExpireDays;
+  c.dealExpireDays = input.dealExpireDays;
+  c.notifyEnabled = input.notifyEnabled;
+  c.notifyDays = input.notifyDays;
+  c.save();
+  return c;
+}
+
+// ---- 客户限制配置 ----
+
+@export
+function queryCrmCustomerLimitConfig(): List<CrmCustomerLimitConfig> {
+  return CrmCustomerLimitConfig.all;
+}
+
+@export
+function saveCrmCustomerLimitConfig(input: CrmCustomerLimitConfigInput): CrmCustomerLimitConfig {
+  const c = new CrmCustomerLimitConfig();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmCustomerLimitConfig.get(input.id);
+  }
+  c.type = input.type;
+  c.userIds = input.userIds;
+  c.deptIds = input.deptIds;
+  c.maxCount = input.maxCount;
+  c.dealCountEnabled = input.dealCountEnabled;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmCustomerLimitConfig(id: Integer): Boolean {
+  const c = CrmCustomerLimitConfig.get(id);
+  c.delete();
+  return true;
+}
+
+// ---- 商机状态 ----
+
+@export
+function queryCrmBusinessStatusType(name: String): List<CrmBusinessStatusType> {
+  return CrmBusinessStatusType.where(name like '%' + name.trim() + '%');
+}
+
+@export
+function saveCrmBusinessStatusType(input: CrmBusinessStatusTypeInput): CrmBusinessStatusType {
+  const c = new CrmBusinessStatusType();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmBusinessStatusType.get(input.id);
+  }
+  c.name = input.name;
+  c.deptIds = input.deptIds;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmBusinessStatusType(id: Integer): Boolean {
+  const c = CrmBusinessStatusType.get(id);
+  c.delete();
+  return true;
+}
+
+@export
+function queryCrmBusinessStatus(name: String): List<CrmBusinessStatus> {
+  return CrmBusinessStatus.where(name like '%' + name.trim() + '%').orderBy(sort asc);
+}
+
+@export
+function saveCrmBusinessStatus(input: CrmBusinessStatusInput): CrmBusinessStatus {
+  const c = new CrmBusinessStatus();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmBusinessStatus.get(input.id);
+  }
+  c.statusTypeId = input.statusTypeId;
+  c.name = input.name;
+  c.percent = input.percent;
+  c.sort = input.sort;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmBusinessStatus(id: Integer): Boolean {
+  const c = CrmBusinessStatus.get(id);
+  c.delete();
+  return true;
+}
+
+// ---- 商机 ----
+
+@export
+function queryCrmBusiness(name: String, customerId: Integer, statusId: Integer, endStatus: BusinessEndStatus): List<CrmBusiness> {
+  return CrmBusiness.where(name like '%' + name.trim() + '%', customerId = customerId, statusId = statusId, endStatus = endStatus).orderBy(id desc);
+}
+
+@export
+function saveCrmBusiness(input: CrmBusinessInput): CrmBusiness {
+  const b = new CrmBusiness();
+  if (input.id !== null && input.id > 0) {
+    const b = CrmBusiness.get(input.id);
+  }
+  b.name = input.name;
+  b.customerId = input.customerId;
+  b.ownerUserId = input.ownerUserId;
+  b.followUpStatus = FollowUpStatus.UNFOLLOWED;
+  b.statusTypeId = input.statusTypeId;
+  b.statusId = input.statusId;
+  b.discountPercent = input.discountPercent;
+  b.remark = input.remark;
+  b.totalProductPrice = 0;
+  b.totalPrice = 0;
+  b.save();
+  if (input.products.count > 0) {
+    for (const ol of CrmBusinessProduct.where(businessId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.products) {
+      const prod = new CrmBusinessProduct();
+      prod.businessId = b.id;
+      prod.productId = it.productId;
+      prod.productPrice = it.productPrice;
+      prod.businessPrice = it.businessPrice;
+      prod.count = it.count;
+      prod.totalPrice = it.businessPrice * it.count;
+      prod.save();
+      b.totalProductPrice = b.totalProductPrice + it.businessPrice * it.count;
+    }
+    b.totalPrice = b.totalProductPrice - b.discountPercent * b.totalProductPrice / 100;
+    b.save();
+  }
+  return b;
+}
+
+@export
+function deleteCrmBusiness(id: Integer): Boolean {
+  const b = CrmBusiness.get(id);
+  for (const it of CrmBusinessProduct.where(businessId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+// 赢单：商机置赢 + 联动客户成交（链式写）
+@export
+function winCrmBusiness(id: Integer): Boolean {
+  const b = CrmBusiness.get(id);
+  b.endStatus = BusinessEndStatus.WIN;
+  b.save();
+  const c = CrmCustomer.get(b.customerId);
+  c.dealStatus = DealStatus.DEALED;
+  c.save();
+  return true;
+}
+
+@export
+function loseCrmBusiness(id: Integer): Boolean {
+  const b = CrmBusiness.get(id);
+  b.endStatus = BusinessEndStatus.LOSE;
+  b.save();
+  return true;
+}
+
+@export
+function invalidateCrmBusiness(id: Integer): Boolean {
+  const b = CrmBusiness.get(id);
+  b.endStatus = BusinessEndStatus.INVALID;
+  b.save();
+  return true;
+}
+
+@export
+function changeCrmBusinessStage(input: CrmBusinessStageInput): CrmBusiness {
+  const b = CrmBusiness.get(input.statusId);
+  b.statusTypeId = input.statusTypeId;
+  b.statusId = input.statusId;
+  b.save();
+  return b;
+}
+
+// ---- 合同 ----
+
+@export
+function queryCrmContract(no: String, customerId: Integer, auditStatus: CrmAuditStatus): List<CrmContract> {
+  return CrmContract.where(no like '%' + no.trim() + '%', customerId = customerId, auditStatus = auditStatus).orderBy(id desc);
+}
+
+@export
+function saveCrmContract(input: CrmContractInput): CrmContract {
+  const c = new CrmContract();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmContract.get(input.id);
+  }
+  c.name = input.name;
+  c.no = input.no;
+  c.customerId = input.customerId;
+  c.businessId = input.businessId;
+  c.ownerUserId = input.ownerUserId;
+  c.auditStatus = CrmAuditStatus.UNSUBMIT;
+  c.orderDate = input.orderDate;
+  c.startTime = input.startTime;
+  c.endTime = input.endTime;
+  c.signContactId = input.signContactId;
+  c.signUserId = input.signUserId;
+  c.discountPercent = input.discountPercent;
+  c.remark = input.remark;
+  c.totalProductPrice = 0;
+  c.totalPrice = 0;
+  c.save();
+  if (input.products.count > 0) {
+    for (const ol of CrmContractProduct.where(contractId = c.id)) {
+      ol.delete();
+    }
+    for (const it of input.products) {
+      const prod = new CrmContractProduct();
+      prod.contractId = c.id;
+      prod.productId = it.productId;
+      prod.productPrice = it.productPrice;
+      prod.contractPrice = it.contractPrice;
+      prod.count = it.count;
+      prod.totalPrice = it.contractPrice * it.count;
+      prod.save();
+      c.totalProductPrice = c.totalProductPrice + it.contractPrice * it.count;
+    }
+    c.totalPrice = c.totalProductPrice - c.discountPercent * c.totalProductPrice / 100;
+    c.save();
+  }
+  return c;
+}
+
+@export
+function deleteCrmContract(id: Integer): Boolean {
+  const c = CrmContract.get(id);
+  for (const it of CrmContractProduct.where(contractId = id)) {
+    it.delete();
+  }
+  c.delete();
+  return true;
+}
+
+@export
+function submitCrmContract(id: Integer): Boolean {
+  const c = CrmContract.get(id);
+  c.auditStatus = CrmAuditStatus.UNDER_REVIEW;
+  c.save();
+  return true;
+}
+
+@export
+function approveCrmContract(id: Integer): Boolean {
+  const c = CrmContract.get(id);
+  c.auditStatus = CrmAuditStatus.APPROVED;
+  c.save();
+  return true;
+}
+
+@export
+function rejectCrmContract(id: Integer): Boolean {
+  const c = CrmContract.get(id);
+  c.auditStatus = CrmAuditStatus.REJECTED;
+  c.save();
+  return true;
+}
+
+// ---- 合同提醒配置 ----
+
+@export
+function queryCrmContractConfig(): List<CrmContractConfig> {
+  return CrmContractConfig.all;
+}
+
+@export
+function saveCrmContractConfig(input: CrmContractConfigInput): CrmContractConfig {
+  const c = new CrmContractConfig();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmContractConfig.get(input.id);
+  }
+  c.notifyEnabled = input.notifyEnabled;
+  c.notifyDays = input.notifyDays;
+  c.save();
+  return c;
+}
+
+// ---- 回款计划 ----
+
+@export
+function queryCrmReceivablePlan(customerId: Integer, contractId: Integer): List<CrmReceivablePlan> {
+  return CrmReceivablePlan.where(customerId = customerId, contractId = contractId).orderBy(period asc);
+}
+
+@export
+function saveCrmReceivablePlan(input: CrmReceivablePlanInput): CrmReceivablePlan {
+  const c = new CrmReceivablePlan();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmReceivablePlan.get(input.id);
+  }
+  c.period = input.period;
+  c.customerId = input.customerId;
+  c.contractId = input.contractId;
+  c.ownerUserId = input.ownerUserId;
+  c.returnTime = input.returnTime;
+  c.returnType = input.returnType;
+  c.price = input.price;
+  c.remindDays = input.remindDays;
+  c.remark = input.remark;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmReceivablePlan(id: Integer): Boolean {
+  const c = CrmReceivablePlan.get(id);
+  c.delete();
+  return true;
+}
+
+// ---- 回款 ----
+
+@export
+function queryCrmReceivable(no: String, customerId: Integer, auditStatus: CrmAuditStatus, returnType: ReturnType): List<CrmReceivable> {
+  return CrmReceivable.where(no like '%' + no.trim() + '%', customerId = customerId, auditStatus = auditStatus, returnType = returnType).orderBy(id desc);
+}
+
+@export
+function saveCrmReceivable(input: CrmReceivableInput): CrmReceivable {
+  const c = new CrmReceivable();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmReceivable.get(input.id);
+  }
+  c.no = input.no;
+  c.customerId = input.customerId;
+  c.contractId = input.contractId;
+  c.planId = input.planId;
+  c.ownerUserId = input.ownerUserId;
+  c.auditStatus = CrmAuditStatus.UNSUBMIT;
+  c.price = input.price;
+  c.returnTime = input.returnTime;
+  c.returnType = input.returnType;
+  c.remark = input.remark;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmReceivable(id: Integer): Boolean {
+  const c = CrmReceivable.get(id);
+  c.delete();
+  return true;
+}
+
+@export
+function submitCrmReceivable(id: Integer): Boolean {
+  const c = CrmReceivable.get(id);
+  c.auditStatus = CrmAuditStatus.UNDER_REVIEW;
+  c.save();
+  return true;
+}
+
+@export
+function approveCrmReceivable(id: Integer): Boolean {
+  const c = CrmReceivable.get(id);
+  c.auditStatus = CrmAuditStatus.APPROVED;
+  c.save();
+  return true;
+}
+
+@export
+function rejectCrmReceivable(id: Integer): Boolean {
+  const c = CrmReceivable.get(id);
+  c.auditStatus = CrmAuditStatus.REJECTED;
+  c.save();
+  return true;
+}
+
+// ---- CRM 产品 ----
+
+@export
+function queryCrmProductCategory(name: String): List<CrmProductCategory> {
+  return CrmProductCategory.where(name like '%' + name.trim() + '%').orderBy(sort asc);
+}
+
+@export
+function saveCrmProductCategory(input: CrmProductCategoryInput): CrmProductCategory {
+  const c = new CrmProductCategory();
+  if (input.id !== null && input.id > 0) {
+    const c = CrmProductCategory.get(input.id);
+  }
+  c.parentId = input.parentId;
+  c.name = input.name;
+  c.code = input.code;
+  c.sort = input.sort;
+  c.status = input.status;
+  c.save();
+  return c;
+}
+
+@export
+function deleteCrmProductCategory(id: Integer): Boolean {
+  const c = CrmProductCategory.get(id);
+  c.delete();
+  return true;
+}
+
+@export
+function queryCrmProduct(name: String, categoryId: Integer, status: ProductStatus): List<CrmProduct> {
+  return CrmProduct.where(name like '%' + name.trim() + '%', categoryId = categoryId, status = status);
+}
+
+@export
+function saveCrmProduct(input: CrmProductInput): CrmProduct {
+  const p = new CrmProduct();
+  if (input.id !== null && input.id > 0) {
+    const p = CrmProduct.get(input.id);
+  }
+  p.name = input.name;
+  p.code = input.code;
+  p.categoryId = input.categoryId;
+  p.unit = input.unit;
+  p.price = input.price;
+  p.status = input.status;
+  p.description = input.description;
+  p.remark = input.remark;
+  p.save();
+  return p;
+}
+
+@export
+function deleteCrmProduct(id: Integer): Boolean {
+  const p = CrmProduct.get(id);
+  p.delete();
+  return true;
+}
+
+// ---- 跟进记录 ----
+
+@export
+function queryCrmFollowUpRecord(bizType: Integer): List<CrmFollowUpRecord> {
+  return CrmFollowUpRecord.where(bizType = bizType).orderBy(id desc);
+}
+
+@export
+function saveCrmFollowUpRecord(input: CrmFollowUpRecordInput): CrmFollowUpRecord {
+  const r = new CrmFollowUpRecord();
+  r.content = input.content;
+  r.nextTime = input.nextTime;
+  r.nextFollowUpType = input.nextFollowUpType;
+  r.bizType = input.bizType;
+  r.bizId = input.bizId;
+  r.save();
+  return r;
+}
+
+// ---- 待办事项 ----
+
+@export
+function queryCrmTodo(completed: Integer): List<CrmTodo> {
+  return CrmTodo.where(completed = completed).orderBy(wakeUpTime asc);
+}
+
+@export
+function saveCrmTodo(input: CrmTodoInput): CrmTodo {
+  const t = new CrmTodo();
+  if (input.id !== null && input.id > 0) {
+    const t = CrmTodo.get(input.id);
+  }
+  t.name = input.name;
+  t.wakeUpTime = input.wakeUpTime;
+  t.bizType = input.bizType;
+  t.bizId = input.bizId;
+  t.completed = 0;
+  t.save();
+  return t;
+}
+
+@export
+function deleteCrmTodo(id: Integer): Boolean {
+  const t = CrmTodo.get(id);
+  t.delete();
+  return true;
+}
+
+@export
+function completeCrmTodo(id: Integer): Boolean {
+  const t = CrmTodo.get(id);
+  t.completed = 1;
+  t.status = 1;
+  t.save();
+  return true;
+}
+
+// ---- 数据字典（M10 @ref 配套：来源/行业/地区选项） ----
+
+@export
+function querySourceDict(): List<SourceDict> {
+  return SourceDict.all;
+}
+
+@export
+function queryIndustryDict(): List<IndustryDict> {
+  return IndustryDict.all;
+}
+
+@export
+function queryAreaDict(): List<AreaDict> {
+  return AreaDict.all;
+}
+
+@export
+function saveSourceDict(input: SourceDictInput): SourceDict {
+  const s = new SourceDict();
+  if (input.id !== null && input.id > 0) {
+    const s = SourceDict.get(input.id);
+  }
+  s.name = input.name;
+  s.save();
+  return s;
+}
+
+@export
+function saveIndustryDict(input: IndustryDictInput): IndustryDict {
+  const s = new IndustryDict();
+  if (input.id !== null && input.id > 0) {
+    const s = IndustryDict.get(input.id);
+  }
+  s.name = input.name;
+  s.save();
+  return s;
+}
+
+@export
+function saveAreaDict(input: AreaDictInput): AreaDict {
+  const s = new AreaDict();
+  if (input.id !== null && input.id > 0) {
+    const s = AreaDict.get(input.id);
+  }
+  s.name = input.name;
+  s.save();
+  return s;
+}
+
+// ---- 系统用户（@ref 配套：负责人/销售员来源） ----
+
+@export
+function querySystemUser(): List<SystemUser> {
+  return SystemUser.all;
+}
+
+@export
+function saveSystemUser(input: SystemUserInput): SystemUser {
+  const u = new SystemUser();
+  if (input.id !== null && input.id > 0) {
+    const u = SystemUser.get(input.id);
+  }
+  u.username = input.username;
+  u.nickname = input.nickname;
+  u.save();
+  return u;
+}
+
+interface CrmApi {
+  GET    '/api/users'                     -> querySystemUser
+  POST   '/api/users'                     -> saveSystemUser
+  GET    '/api/crm/source-dicts'          -> querySourceDict
+  POST   '/api/crm/source-dicts'          -> saveSourceDict
+  GET    '/api/crm/industry-dicts'        -> queryIndustryDict
+  POST   '/api/crm/industry-dicts'        -> saveIndustryDict
+  GET    '/api/crm/area-dicts'            -> queryAreaDict
+  POST   '/api/crm/area-dicts'            -> saveAreaDict
+  GET    '/api/crm/clues'                 -> queryCrmClue
+  POST   '/api/crm/clues'                 -> saveCrmClue
+  DELETE '/api/crm/clues/{id}'            -> deleteCrmClue
+  POST   '/api/crm/clues/{id}/transform'  -> transformCrmClue
+  GET    '/api/crm/customers'             -> queryCrmCustomer
+  POST   '/api/crm/customers'             -> saveCrmCustomer
+  DELETE '/api/crm/customers/{id}'        -> deleteCrmCustomer
+  POST   '/api/crm/customers/{id}/pool'   -> putCrmCustomerToPool
+  POST   '/api/crm/customers/{id}/take'   -> takeCrmCustomerFromPool
+  POST   '/api/crm/customers/{id}/lock'   -> lockCrmCustomer
+  POST   '/api/crm/customers/{id}/unlock' -> unlockCrmCustomer
+  POST   '/api/crm/customers/{id}/assign' -> assignCrmCustomer
+  GET    '/api/crm/contacts'              -> queryCrmContact
+  POST   '/api/crm/contacts'              -> saveCrmContact
+  DELETE '/api/crm/contacts/{id}'         -> deleteCrmContact
+  GET    '/api/crm/pool-config'           -> queryCrmCustomerPoolConfig
+  POST   '/api/crm/pool-config'           -> saveCrmCustomerPoolConfig
+  GET    '/api/crm/limit-config'          -> queryCrmCustomerLimitConfig
+  POST   '/api/crm/limit-config'          -> saveCrmCustomerLimitConfig
+  DELETE '/api/crm/limit-config/{id}'     -> deleteCrmCustomerLimitConfig
+  GET    '/api/crm/business-status-types' -> queryCrmBusinessStatusType
+  POST   '/api/crm/business-status-types' -> saveCrmBusinessStatusType
+  DELETE '/api/crm/business-status-types/{id}' -> deleteCrmBusinessStatusType
+  GET    '/api/crm/business-statuses'     -> queryCrmBusinessStatus
+  POST   '/api/crm/business-statuses'     -> saveCrmBusinessStatus
+  DELETE '/api/crm/business-statuses/{id}' -> deleteCrmBusinessStatus
+  GET    '/api/crm/businesses'            -> queryCrmBusiness
+  POST   '/api/crm/businesses'            -> saveCrmBusiness
+  DELETE '/api/crm/businesses/{id}'       -> deleteCrmBusiness
+  POST   '/api/crm/businesses/{id}/win'   -> winCrmBusiness
+  POST   '/api/crm/businesses/{id}/lose'  -> loseCrmBusiness
+  POST   '/api/crm/businesses/{id}/invalid' -> invalidateCrmBusiness
+  POST   '/api/crm/businesses/stage'       -> changeCrmBusinessStage
+  GET    '/api/crm/contracts'             -> queryCrmContract
+  POST   '/api/crm/contracts'             -> saveCrmContract
+  DELETE '/api/crm/contracts/{id}'        -> deleteCrmContract
+  POST   '/api/crm/contracts/{id}/submit' -> submitCrmContract
+  POST   '/api/crm/contracts/{id}/approve' -> approveCrmContract
+  POST   '/api/crm/contracts/{id}/reject' -> rejectCrmContract
+  GET    '/api/crm/contract-config'        -> queryCrmContractConfig
+  POST   '/api/crm/contract-config'        -> saveCrmContractConfig
+  GET    '/api/crm/receivable-plans'       -> queryCrmReceivablePlan
+  POST   '/api/crm/receivable-plans'       -> saveCrmReceivablePlan
+  DELETE '/api/crm/receivable-plans/{id}'  -> deleteCrmReceivablePlan
+  GET    '/api/crm/receivables'            -> queryCrmReceivable
+  POST   '/api/crm/receivables'            -> saveCrmReceivable
+  DELETE '/api/crm/receivables/{id}'       -> deleteCrmReceivable
+  POST   '/api/crm/receivables/{id}/submit' -> submitCrmReceivable
+  POST   '/api/crm/receivables/{id}/approve' -> approveCrmReceivable
+  POST   '/api/crm/receivables/{id}/reject' -> rejectCrmReceivable
+  GET    '/api/crm/product-categories'     -> queryCrmProductCategory
+  POST   '/api/crm/product-categories'     -> saveCrmProductCategory
+  DELETE '/api/crm/product-categories/{id}' -> deleteCrmProductCategory
+  GET    '/api/crm/products'               -> queryCrmProduct
+  POST   '/api/crm/products'               -> saveCrmProduct
+  DELETE '/api/crm/products/{id}'          -> deleteCrmProduct
+  GET    '/api/crm/follow-up-records'      -> queryCrmFollowUpRecord
+  POST   '/api/crm/follow-up-records'      -> saveCrmFollowUpRecord
+  GET    '/api/crm/todos'                  -> queryCrmTodo
+  POST   '/api/crm/todos'                  -> saveCrmTodo
+  DELETE '/api/crm/todos/{id}'             -> deleteCrmTodo
+  POST   '/api/crm/todos/{id}/complete'    -> completeCrmTodo
+}
+
+// ---- 页面 ----
+
+@title('线索列表')
+@menu('客户关系管理')
+page crmLeadList {
+  <input field="name" label="线索名称" />
+  <input field="mobile" label="手机" />
+  <input field="followUpStatus" label="跟进状态" />
+  <input field="level" label="客户级别" />
+  <input field="source" label="线索来源" />
+  <table dataSource={useQuery('queryCrmClue')}>
+    <column field="name" title="线索名称" />
+    <column field="ownerUserId" title="负责人" />
+    <column field="transformStatus" title="转化状态" />
+    <column field="followUpStatus" title="跟进状态" />
+    <column field="mobile" title="手机" />
+    <column field="source" title="线索来源" />
+    <column field="contactLastTime" title="最后跟进时间" />
+    <button text="编辑" action={openDialog('crmLeadForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmClue', row.id)} />
+    <button text="详情" action={navigate('crmLeadDetail', row.id)} />
+  </table>
+  <button text="新增线索" action={openDialog('crmLeadForm')} />
+}
+
+@title('线索编辑')
+@menu('客户关系管理')
+dialog crmLeadForm {
+  <form submit={useMutation('saveCrmClue')}>
+    <input field="name" label="线索名称" />
+    <input field="ownerUserId" label="负责人" />
+    <input field="mobile" label="手机" />
+    <input field="telephone" label="电话" />
+    <input field="qq" label="QQ" />
+    <input field="wechat" label="微信" />
+    <input field="email" label="邮箱" />
+    <input field="areaId" label="地区" />
+    <input field="detailAddress" label="详细地址" />
+    <input field="industryId" label="行业" />
+    <input field="level" label="客户级别" />
+    <input field="source" label="线索来源" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}
+
+@title('线索详情')
+@menu('客户关系管理')
+page crmLeadDetail {
+  <table dataSource={useQuery('queryCrmClue')}>
+    <column field="name" title="线索名称" />
+    <column field="transformStatus" title="转化状态" />
+    <column field="mobile" title="手机" />
+  </table>
+  <button text="编辑" action={openDialog('crmLeadForm', row)} />
+  <button text="转化为客户" action={useMutation('transformCrmClue', row.id)} />
+  <button text="新增跟进" action={openDialog('crmFollowUpForm')} />
+}
+
+@title('客户列表')
+@menu('客户关系管理')
+page crmCustomerList {
+  <input field="name" label="客户名称" />
+  <input field="mobile" label="手机" />
+  <input field="level" label="客户级别" />
+  <input field="source" label="客户来源" />
+  <input field="dealStatus" label="成交状态" />
+  <table dataSource={useQuery('queryCrmCustomer')}>
+    <column field="name" title="客户名称" />
+    <column field="ownerUserId" title="负责人" />
+    <column field="lockStatus" title="锁定状态" />
+    <column field="dealStatus" title="成交状态" />
+    <column field="followUpStatus" title="跟进状态" />
+    <column field="mobile" title="手机" />
+    <column field="source" title="客户来源" />
+    <column field="contactLastTime" title="最后跟进时间" />
+    <button text="编辑" action={openDialog('crmCustomerForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmCustomer', row.id)} />
+    <button text="放入公海" action={useMutation('putCrmCustomerToPool', row.id)} />
+    <button text="领取" action={useMutation('takeCrmCustomerFromPool', row.id)} />
+    <button text="详情" action={navigate('crmCustomerDetail', row.id)} />
+  </table>
+  <button text="新增客户" action={openDialog('crmCustomerForm')} />
+}
+
+@title('客户编辑')
+@menu('客户关系管理')
+dialog crmCustomerForm {
+  <form submit={useMutation('saveCrmCustomer')}>
+    <input field="name" label="客户名称" />
+    <input field="ownerUserId" label="负责人" />
+    <input field="mobile" label="手机" />
+    <input field="telephone" label="电话" />
+    <input field="qq" label="QQ" />
+    <input field="wechat" label="微信" />
+    <input field="email" label="邮箱" />
+    <input field="areaId" label="地区" />
+    <input field="detailAddress" label="详细地址" />
+    <input field="industryId" label="行业" />
+    <input field="level" label="客户级别" />
+    <input field="source" label="客户来源" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}
+
+@title('客户详情')
+@menu('客户关系管理')
+page crmCustomerDetail {
+  <table dataSource={useQuery('queryCrmCustomer')}>
+    <column field="name" title="客户名称" />
+    <column field="dealStatus" title="成交状态" />
+    <column field="mobile" title="手机" />
+  </table>
+  <button text="编辑" action={openDialog('crmCustomerForm', row)} />
+  <button text="锁定" action={useMutation('lockCrmCustomer', row.id)} />
+  <button text="解锁" action={useMutation('unlockCrmCustomer', row.id)} />
+  <button text="分配" action={useMutation('assignCrmCustomer', row.id)} />
+  <button text="放入公海" action={useMutation('putCrmCustomerToPool', row.id)} />
+  <button text="新增跟进" action={openDialog('crmFollowUpForm')} />
+  <button text="新增联系人" action={openDialog('crmContactForm')} />
+}
+
+@title('联系人列表')
+@menu('客户关系管理')
+page crmContactList {
+  <input field="name" label="联系人名称" />
+  <input field="customerId" label="客户" />
+  <input field="mobile" label="手机" />
+  <table dataSource={useQuery('queryCrmContact')}>
+    <column field="name" title="联系人名称" />
+    <column field="customerId" title="客户" />
+    <column field="ownerUserId" title="负责人" />
+    <column field="post" title="职位" />
+    <column field="mobile" title="手机" />
+    <column field="telephone" title="电话" />
+    <button text="编辑" action={openDialog('crmContactForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmContact', row.id)} />
+  </table>
+  <button text="新增联系人" action={openDialog('crmContactForm')} />
+}
+
+@title('联系人编辑')
+@menu('客户关系管理')
+dialog crmContactForm {
+  <form submit={useMutation('saveCrmContact')}>
+    <input field="name" label="联系人名称" />
+    <input field="customerId" label="客户" />
+    <input field="ownerUserId" label="负责人" />
+    <input field="post" label="职位" />
+    <input field="sex" label="性别" />
+    <input field="master" label="是否关键人" />
+    <input field="parentId" label="上级联系人" />
+    <input field="mobile" label="手机" />
+    <input field="telephone" label="电话" />
+    <input field="email" label="邮箱" />
+    <input field="qq" label="QQ" />
+    <input field="wechat" label="微信" />
+    <input field="areaId" label="地区" />
+    <input field="detailAddress" label="详细地址" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}
+
+@title('公海配置')
+@menu('客户关系管理')
+page crmCustomerPoolList {
+  <table dataSource={useQuery('queryCrmCustomerPoolConfig')}>
+    <column field="enabled" title="是否开启" />
+    <column field="contactExpireDays" title="跟进过期天数" />
+    <column field="dealExpireDays" title="成交过期天数" />
+    <column field="notifyEnabled" title="是否提醒" />
+    <column field="notifyDays" title="提醒天数" />
+    <button text="配置" action={openDialog('crmCustomerPoolForm', row)} />
+  </table>
+}
+
+@title('公海配置编辑')
+@menu('客户关系管理')
+dialog crmCustomerPoolForm {
+  <form submit={useMutation('saveCrmCustomerPoolConfig')}>
+    <input field="enabled" label="是否开启" />
+    <input field="contactExpireDays" label="跟进过期天数" />
+    <input field="dealExpireDays" label="成交过期天数" />
+    <input field="notifyEnabled" label="是否提醒" />
+    <input field="notifyDays" label="提醒天数" />
+    <button text="保存" />
+  </form>
+}
+
+@title('客户限制配置')
+@menu('客户关系管理')
+page crmCustomerLimitList {
+  <table dataSource={useQuery('queryCrmCustomerLimitConfig')}>
+    <column field="type" title="限制类型" />
+    <column field="userIds" title="用户" />
+    <column field="deptIds" title="部门" />
+    <column field="maxCount" title="最大数量" />
+    <column field="dealCountEnabled" title="成交是否计入" />
+    <button text="编辑" action={openDialog('crmCustomerLimitForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmCustomerLimitConfig', row.id)} />
+  </table>
+  <button text="新增配置" action={openDialog('crmCustomerLimitForm')} />
+}
+
+@title('客户限制配置编辑')
+@menu('客户关系管理')
+dialog crmCustomerLimitForm {
+  <form submit={useMutation('saveCrmCustomerLimitConfig')}>
+    <input field="type" label="限制类型" />
+    <input field="userIds" label="用户" />
+    <input field="deptIds" label="部门" />
+    <input field="maxCount" label="最大数量" />
+    <input field="dealCountEnabled" label="成交是否计入" />
+    <button text="保存" />
+  </form>
+}
+
+@title('商机状态组列表')
+@menu('客户关系管理')
+page crmBusinessStatusTypeList {
+  <input field="name" label="状态组名称" />
+  <table dataSource={useQuery('queryCrmBusinessStatusType')}>
+    <column field="name" title="状态组名称" />
+    <button text="编辑" action={openDialog('crmBusinessStatusTypeForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmBusinessStatusType', row.id)} />
+  </table>
+  <button text="新增状态组" action={openDialog('crmBusinessStatusTypeForm')} />
+}
+
+@title('状态组编辑')
+@menu('客户关系管理')
+dialog crmBusinessStatusTypeForm {
+  <form submit={useMutation('saveCrmBusinessStatusType')}>
+    <input field="name" label="状态组名称" />
+    <input field="deptIds" label="部门" />
+    <button text="保存" />
+  </form>
+}
+
+@title('商机状态列表')
+@menu('客户关系管理')
+page crmBusinessStatusList {
+  <input field="name" label="状态名称" />
+  <table dataSource={useQuery('queryCrmBusinessStatus')}>
+    <column field="statusTypeId" title="状态组" />
+    <column field="name" title="状态名称" />
+    <column field="percent" title="赢单率" />
+    <column field="sort" title="排序" />
+    <button text="编辑" action={openDialog('crmBusinessStatusForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmBusinessStatus', row.id)} />
+  </table>
+  <button text="新增状态" action={openDialog('crmBusinessStatusForm')} />
+}
+
+@title('商机状态编辑')
+@menu('客户关系管理')
+dialog crmBusinessStatusForm {
+  <form submit={useMutation('saveCrmBusinessStatus')}>
+    <input field="statusTypeId" label="状态组" />
+    <input field="name" label="状态名称" />
+    <input field="percent" label="赢单率" />
+    <input field="sort" label="排序" />
+    <button text="保存" />
+  </form>
+}
+
+@title('商机列表')
+@menu('客户关系管理')
+page crmBusinessList {
+  <input field="name" label="商机名称" />
+  <input field="customerId" label="客户" />
+  <input field="statusId" label="当前阶段" />
+  <input field="endStatus" label="结束状态" />
+  <table dataSource={useQuery('queryCrmBusiness')}>
+    <column field="name" title="商机名称" />
+    <column field="customerId" title="客户" />
+    <column field="ownerUserId" title="负责人" />
+    <column field="statusId" title="当前阶段" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="endStatus" title="结束状态" />
+    <column field="followUpStatus" title="跟进状态" />
+    <button text="编辑" action={openDialog('crmBusinessForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmBusiness', row.id)} />
+    <button text="详情" action={navigate('crmBusinessDetail', row.id)} />
+  </table>
+  <button text="新增商机" action={openDialog('crmBusinessForm')} />
+}
+
+@title('商机编辑')
+@menu('客户关系管理')
+dialog crmBusinessForm {
+  <form submit={useMutation('saveCrmBusiness')}>
+    <input field="name" label="商机名称" />
+    <input field="customerId" label="客户" />
+    <input field="ownerUserId" label="负责人" />
+    <input field="statusTypeId" label="状态组" />
+    <input field="statusId" label="当前阶段" />
+    <input field="discountPercent" label="优惠率" />
+    <input field="remark" label="备注" />
+    <repeat field="products">
+      <input field="productId" label="产品" />
+      <input field="productPrice" label="产品单价" />
+      <input field="businessPrice" label="商机单价" />
+      <input field="count" label="数量" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@title('商机详情')
+@menu('客户关系管理')
+page crmBusinessDetail {
+  <table dataSource={useQuery('queryCrmBusiness')}>
+    <column field="name" title="商机名称" />
+    <column field="customerId" title="客户" />
+    <column field="statusId" title="当前阶段" />
+    <column field="totalPrice" title="优惠后金额" />
+  </table>
+  <button text="编辑" action={openDialog('crmBusinessForm', row)} />
+  <button text="变更阶段" action={openDialog('crmBusinessStageForm', row)} />
+  <button text="赢单" action={useMutation('winCrmBusiness', row.id)} />
+  <button text="输单" action={useMutation('loseCrmBusiness', row.id)} />
+  <button text="无效" action={useMutation('invalidateCrmBusiness', row.id)} />
+  <button text="新增跟进" action={openDialog('crmFollowUpForm')} />
+}
+
+@title('商机阶段变更')
+@menu('客户关系管理')
+dialog crmBusinessStageForm {
+  <form submit={useMutation('changeCrmBusinessStage')}>
+    <input field="statusTypeId" label="状态组" />
+    <input field="statusId" label="当前阶段" />
+    <button text="保存" />
+  </form>
+}
+
+@title('合同列表')
+@menu('客户关系管理')
+page crmContractList {
+  <input field="no" label="合同编号" />
+  <input field="customerId" label="客户" />
+  <input field="auditStatus" label="审批状态" />
+  <table dataSource={useQuery('queryCrmContract')}>
+    <column field="no" title="合同编号" />
+    <column field="name" title="合同名称" />
+    <column field="customerId" title="客户" />
+    <column field="businessId" title="商机" />
+    <column field="auditStatus" title="审批状态" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="orderDate" title="下单时间" />
+    <button text="编辑" action={openDialog('crmContractForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmContract', row.id)} />
+    <button text="详情" action={navigate('crmContractDetail', row.id)} />
+  </table>
+  <button text="新增合同" action={openDialog('crmContractForm')} />
+}
+
+@title('合同编辑')
+@menu('客户关系管理')
+dialog crmContractForm {
+  <form submit={useMutation('saveCrmContract')}>
+    <input field="name" label="合同名称" />
+    <input field="no" label="合同编号" />
+    <input field="customerId" label="客户" />
+    <input field="businessId" label="商机" />
+    <input field="ownerUserId" label="负责人" />
+    <input field="orderDate" label="下单时间" />
+    <input field="startTime" label="合同开始时间" />
+    <input field="endTime" label="合同结束时间" />
+    <input field="signContactId" label="签约联系人" />
+    <input field="signUserId" label="签约人" />
+    <input field="discountPercent" label="优惠率" />
+    <input field="remark" label="备注" />
+    <repeat field="products">
+      <input field="productId" label="产品" />
+      <input field="productPrice" label="产品单价" />
+      <input field="contractPrice" label="合同单价" />
+      <input field="count" label="数量" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@title('合同详情')
+@menu('客户关系管理')
+page crmContractDetail {
+  <table dataSource={useQuery('queryCrmContract')}>
+    <column field="no" title="合同编号" />
+    <column field="name" title="合同名称" />
+    <column field="auditStatus" title="审批状态" />
+    <column field="totalPrice" title="优惠后金额" />
+  </table>
+  <button text="编辑" action={openDialog('crmContractForm', row)} />
+  <button text="提交审批" action={useMutation('submitCrmContract', row.id)} />
+  <button text="审批通过" action={useMutation('approveCrmContract', row.id)} />
+  <button text="审批驳回" action={useMutation('rejectCrmContract', row.id)} />
+}
+
+@title('合同提醒配置')
+@menu('客户关系管理')
+page crmContractConfigList {
+  <table dataSource={useQuery('queryCrmContractConfig')}>
+    <column field="notifyEnabled" title="是否提醒" />
+    <column field="notifyDays" title="提醒天数" />
+    <button text="配置" action={openDialog('crmContractConfigForm', row)} />
+  </table>
+}
+
+@title('合同提醒配置编辑')
+@menu('客户关系管理')
+dialog crmContractConfigForm {
+  <form submit={useMutation('saveCrmContractConfig')}>
+    <input field="notifyEnabled" label="是否提醒" />
+    <input field="notifyDays" label="提醒天数" />
+    <button text="保存" />
+  </form>
+}
+
+@title('回款计划列表')
+@menu('客户关系管理')
+page crmPlanList {
+  <input field="customerId" label="客户" />
+  <input field="contractId" label="合同" />
+  <table dataSource={useQuery('queryCrmReceivablePlan')}>
+    <column field="period" title="期数" />
+    <column field="contractId" title="合同" />
+    <column field="customerId" title="客户" />
+    <column field="returnTime" title="计划回款时间" />
+    <column field="price" title="回款金额" />
+    <column field="returnType" title="回款方式" />
+    <column field="receivableId" title="关联回款" />
+    <button text="编辑" action={openDialog('crmPlanForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmReceivablePlan', row.id)} />
+  </table>
+  <button text="新增计划" action={openDialog('crmPlanForm')} />
+}
+
+@title('回款计划编辑')
+@menu('客户关系管理')
+dialog crmPlanForm {
+  <form submit={useMutation('saveCrmReceivablePlan')}>
+    <input field="period" label="期数" />
+    <input field="contractId" label="合同" />
+    <input field="customerId" label="客户" />
+    <input field="ownerUserId" label="负责人" />
+    <input field="returnTime" label="计划回款时间" />
+    <input field="returnType" label="回款方式" />
+    <input field="price" label="回款金额" />
+    <input field="remindDays" label="提前提醒天数" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}
+
+@title('回款列表')
+@menu('客户关系管理')
+page crmReceivableList {
+  <input field="no" label="回款编号" />
+  <input field="customerId" label="客户" />
+  <input field="auditStatus" label="审批状态" />
+  <input field="returnType" label="回款方式" />
+  <table dataSource={useQuery('queryCrmReceivable')}>
+    <column field="no" title="回款编号" />
+    <column field="customerId" title="客户" />
+    <column field="contractId" title="合同" />
+    <column field="auditStatus" title="审批状态" />
+    <column field="price" title="回款金额" />
+    <column field="returnTime" title="回款时间" />
+    <column field="returnType" title="回款方式" />
+    <button text="编辑" action={openDialog('crmReceivableForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmReceivable', row.id)} />
+    <button text="详情" action={navigate('crmReceivableDetail', row.id)} />
+  </table>
+  <button text="新增回款" action={openDialog('crmReceivableForm')} />
+}
+
+@title('回款编辑')
+@menu('客户关系管理')
+dialog crmReceivableForm {
+  <form submit={useMutation('saveCrmReceivable')}>
+    <input field="no" label="回款编号" />
+    <input field="customerId" label="客户" />
+    <input field="contractId" label="合同" />
+    <input field="planId" label="回款计划" />
+    <input field="ownerUserId" label="负责人" />
+    <input field="price" label="回款金额" />
+    <input field="returnTime" label="回款时间" />
+    <input field="returnType" label="回款方式" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+  <button text="提交审批" action={useMutation('submitCrmReceivable', row.id)} />
+}
+
+@title('回款详情')
+@menu('客户关系管理')
+page crmReceivableDetail {
+  <table dataSource={useQuery('queryCrmReceivable')}>
+    <column field="no" title="回款编号" />
+    <column field="auditStatus" title="审批状态" />
+    <column field="price" title="回款金额" />
+    <column field="returnTime" title="回款时间" />
+  </table>
+  <button text="编辑" action={openDialog('crmReceivableForm', row)} />
+  <button text="审批通过" action={useMutation('approveCrmReceivable', row.id)} />
+  <button text="审批驳回" action={useMutation('rejectCrmReceivable', row.id)} />
+  <button text="新增跟进" action={openDialog('crmFollowUpForm')} />
+}
+
+@title('CRM 产品分类')
+@menu('客户关系管理')
+page crmProductCategoryList {
+  <input field="name" label="分类名称" />
+  <table dataSource={useQuery('queryCrmProductCategory')}>
+    <column field="name" title="分类名称" />
+    <column field="code" title="分类编码" />
+    <column field="sort" title="排序" />
+    <column field="status" title="启用状态" />
+    <button text="编辑" action={openDialog('crmProductCategoryForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmProductCategory', row.id)} />
+  </table>
+  <button text="新增分类" action={openDialog('crmProductCategoryForm')} />
+}
+
+@title('CRM 产品分类编辑')
+@menu('客户关系管理')
+dialog crmProductCategoryForm {
+  <form submit={useMutation('saveCrmProductCategory')}>
+    <input field="parentId" label="父分类" />
+    <input field="name" label="分类名称" />
+    <input field="code" label="分类编码" />
+    <input field="sort" label="排序" />
+    <input field="status" label="启用状态" />
+    <button text="保存" />
+  </form>
+}
+
+@title('CRM 产品列表')
+@menu('客户关系管理')
+page crmProductList {
+  <input field="name" label="产品名称" />
+  <input field="categoryId" label="产品分类" />
+  <input field="status" label="启用状态" />
+  <table dataSource={useQuery('queryCrmProduct')}>
+    <column field="name" title="产品名称" />
+    <column field="code" title="产品编码" />
+    <column field="categoryId" title="产品分类" />
+    <column field="unit" title="计量单位" />
+    <column field="price" title="售价" />
+    <column field="status" title="启用状态" />
+    <button text="编辑" action={openDialog('crmProductForm', row)} />
+    <button text="删除" action={useMutation('deleteCrmProduct', row.id)} />
+  </table>
+  <button text="新增产品" action={openDialog('crmProductForm')} />
+}
+
+@title('CRM 产品编辑')
+@menu('客户关系管理')
+dialog crmProductForm {
+  <form submit={useMutation('saveCrmProduct')}>
+    <input field="name" label="产品名称" />
+    <input field="code" label="产品编码" />
+    <input field="categoryId" label="产品分类" />
+    <input field="unit" label="计量单位" />
+    <input field="price" label="售价" />
+    <input field="status" label="启用状态" />
+    <input field="description" label="销售描述" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}
+
+@title('跟进记录列表')
+@menu('客户关系管理')
+page crmFollowUpList {
+  <input field="bizType" label="业务类型" />
+  <table dataSource={useQuery('queryCrmFollowUpRecord')}>
+    <column field="content" title="跟进内容" />
+    <column field="bizType" title="业务类型" />
+    <column field="bizId" title="业务对象" />
+    <column field="nextTime" title="下次跟进时间" />
+  </table>
+}
+
+@title('新增跟进')
+@menu('客户关系管理')
+dialog crmFollowUpForm {
+  <form submit={useMutation('saveCrmFollowUpRecord')}>
+    <input field="content" label="跟进内容" />
+    <input field="nextTime" label="下次跟进时间" />
+    <input field="nextFollowUpType" label="下次跟进方式" />
+    <input field="bizType" label="业务类型" />
+    <input field="bizId" label="业务对象" />
+    <button text="保存" />
+  </form>
+}
+
+@title('待办事项列表')
+@menu('客户关系管理')
+page crmTodoList {
+  <input field="completed" label="是否完成" />
+  <table dataSource={useQuery('queryCrmTodo')}>
+    <column field="name" title="待办标题" />
+    <column field="wakeUpTime" title="提醒时间" />
+    <column field="bizType" title="业务类型" />
+    <column field="completed" title="是否完成" />
+    <column field="status" title="状态" />
+    <button text="删除" action={useMutation('deleteCrmTodo', row.id)} />
+    <button text="完成" action={useMutation('completeCrmTodo', row.id)} />
+  </table>
+  <button text="新增待办" action={openDialog('crmTodoForm')} />
+}
+
+@title('待办编辑')
+@menu('客户关系管理')
+dialog crmTodoForm {
+  <form submit={useMutation('saveCrmTodo')}>
+    <input field="name" label="待办标题" />
+    <input field="wakeUpTime" label="提醒时间" />
+    <input field="bizType" label="业务类型" />
+    <input field="bizId" label="业务对象" />
+    <button text="保存" />
+  </form>
+}

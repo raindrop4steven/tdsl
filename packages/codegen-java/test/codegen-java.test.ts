@@ -624,4 +624,94 @@ function f(o: Object): String { return JSON.toJSONString(o); }
     const svc = files.find((f) => f.path.includes('service') && f.content.includes('toJSONString'))!;
     expect(svc.content).toContain('import com.alibaba.fastjson2.JSON;');
   });
+
+  // dev/40 芋道对拍批次修复回归：4 个真机编译错误（count 字段 getter / Decimal 除法 / Long 字面量 L / BigDecimal 中间变量）
+  const YUDAO_BATCH = `
+@datasource('yudaoDS')
+entity Stock {
+  id: Integer @pk;
+  count: Decimal;
+}
+entity StockRecord {
+  id: Integer @pk;
+  productId: Integer;
+  totalCount: Decimal;
+}
+entity Contract {
+  id: Integer @pk;
+  totalProductPrice: Decimal;
+  discountPercent: Decimal;
+}
+entity OrderItem {
+  id: Integer @pk;
+  count: Decimal;
+}
+entity Todo {
+  id: Integer @pk;
+  status: Integer;
+  completed: Integer;
+}
+struct ItemInput { productId: Integer; count: Decimal; }
+struct StockRecordInput { productId: Integer; count: Decimal; }
+@export
+function stockIn(input: StockRecordInput): StockRecord {
+  const stock = Stock.get(input.productId);
+  const total = stock.count + input.count;
+  stock.count = total;
+  stock.save();
+  return null;
+}
+@export
+function saveItems(items: List<ItemInput>): Boolean {
+  if (items.count === 0) { return false; }
+  for (const it of items) {
+    const item = new OrderItem();
+    item.count = it.count;
+    item.save();
+  }
+  return true;
+}
+@export
+function calcDiscount(c: Contract): Decimal {
+  const total = c.totalProductPrice * c.discountPercent / 100;
+  return total;
+}
+@export
+function markDone(id: Integer): Boolean {
+  const t = Todo.get(id);
+  t.completed = 1;
+  t.status = 0;
+  t.save();
+  return true;
+}
+`;
+
+  it('结构体 count 字段 → getter；List.count → .size()（类型感知，不再误翻 size）', () => {
+    const files = generateJava(parse(YUDAO_BATCH));
+    const svc = files.find((f) => f.path.endsWith('service/SaveItemsService.java'))!.content;
+    expect(svc).toContain('item.setCount(it.getCount());');
+    expect(svc).toContain('(items.size() == 0)');
+    const stockSvc = files.find((f) => f.path.endsWith('service/StockInService.java'))!.content;
+    expect(stockSvc).toContain('stock.setCount(total);');
+  });
+
+  it('Decimal 除法 → divide(scale 2, HALF_UP)；/ 推导为 BigDecimal', () => {
+    const files = generateJava(parse(YUDAO_BATCH));
+    const svc = files.find((f) => f.path.endsWith('service/CalcDiscountService.java'))!.content;
+    expect(svc).toContain('java.math.BigDecimal total = ((c.getTotalProductPrice().multiply(c.getDiscountPercent())).divide(java.math.BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP));');
+  });
+
+  it('BigDecimal 中间变量（total = a + b）推导类型，不再价值双重 valueOf', () => {
+    const files = generateJava(parse(YUDAO_BATCH));
+    const svc = files.find((f) => f.path.endsWith('service/StockInService.java'))!.content;
+    expect(svc).toContain('java.math.BigDecimal total = (stock.getCount().add(input.getCount()));');
+    expect(svc).not.toContain('BigDecimal.valueOf(total)');
+  });
+
+  it('Long 字段赋整数字面量 → L 后缀（int 无法转 Long）', () => {
+    const files = generateJava(parse(YUDAO_BATCH));
+    const svc = files.find((f) => f.path.endsWith('service/MarkDoneService.java'))!.content;
+    expect(svc).toContain('t.setCompleted(1L);');
+    expect(svc).toContain('t.setStatus(0L);');
+  });
 });

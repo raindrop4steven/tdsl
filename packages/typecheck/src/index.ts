@@ -192,6 +192,58 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
     }
   });
 
+  // 1.5 实体 @ref 外键显式声明（M10）：目标为实体 + display 为 String + 目标可出 options
+  for (const ds of app.datasources) {
+    for (const ent of ds.entities) {
+      for (const p of ent.properties) {
+        if (!p.ref) continue;
+        const target = resolve(app, p.ref.entityPath);
+        const targetEnt = target?.kind === 'Entity' ? (target as EntityNode) : undefined;
+        const ownerId = ownerPath(ent);
+        if (!targetEnt) {
+          diagnostics.push({
+            path: `${ownerId}.${p.name}`,
+            message: `@ref 目标 '${p.ref.entityPath}' 不是实体`,
+            severity: 'error',
+            code: 'FK-REF-ENTITY',
+            suggestion: '应引用 entity 声明（datasource 内 entity <Name>）',
+          });
+          continue;
+        }
+        const disp = targetEnt.properties.find((pp) => pp.name === p.ref!.display);
+        if (!disp || disp.type.kind !== 'primitive' || disp.type.builtin !== 'String') {
+          diagnostics.push({
+            path: `${ownerId}.${p.name}`,
+            message: `@ref 实体 '${targetEnt.name}' 的显示字段 '${p.ref.display}' 不存在或不是 String`,
+            severity: 'error',
+            code: 'FK-REF-DISPLAY',
+            suggestion: `display 改为其字符串字段之一：${targetEnt.properties.filter((pp) => pp.type.kind === 'primitive' && pp.type.builtin === 'String').map((pp) => pp.name).join(', ') || '（该实体没有字符串字段，无法作为下拉显示）'}`,
+          });
+          continue;
+        }
+        // options 数据源：该实体需有 query 逻辑（query* 返回 List<该实体>，参数全可缺省）
+        const unwrap = (t: TypeRef): TypeRef => (t.kind === 'generic' && (t.name === 'List' || t.name === 'Page') ? t.args[0] : t);
+        const hasQuery = app.logics.some(
+          (lg) =>
+            lg.name.startsWith('query') &&
+            lg.returns.some((r) => {
+              const el = unwrap(r.type);
+              return el.kind === 'reference' && el.path === p.ref!.entityPath;
+            }),
+        );
+        if (!hasQuery) {
+          diagnostics.push({
+            path: `${ownerId}.${p.name}`,
+            message: `@ref 实体 '${targetEnt.name}' 缺少查询逻辑，前端下拉缺数据源`,
+            severity: 'warning',
+            code: 'FK-REF-NO-QUERY',
+            suggestion: `补一个 function query${targetEnt.name}(...): List<${targetEnt.name}>`,
+          });
+        }
+      }
+    }
+  }
+
   // 2. ForEach 容器必须是可迭代的 List：实体查询（X.all / X.where(...)）、
 //    已声明变量/参数（含成员访问如 input.items）、或明显非 List 字面量才报错
   for (const l of app.logics) {

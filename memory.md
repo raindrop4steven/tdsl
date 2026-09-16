@@ -105,6 +105,14 @@
 - 第五次收敛：P2 整体不做（延迟基线/安全审计/服务化进不做栏）；业务表达力升入 P0（编译器主战场第一位级）；API 面闭包目录导出与 src 目录依赖形态暂缓。终版 P0 四项：①诊断全量结构化②表达式类型核对③业务表达力④修复出牌策略（llm 侧）。
 - 第六次：出牌策略彻底逐出编译器清单——定调"我们只要把报错分类，LLM 怎么拿怎么修是他的事"（P0-1 的 code/依赖序排序/级联分组已覆盖）。dev/35 收敛为 P0 三项：诊断全量结构化、表达式层类型核对、业务表达力。
 
+## 2026-09-16 会话追加（芋道 ERP/CRM 能力验证 · dev/39-40 编码）
+- 靶系统：ruoyi-vue-pro 芋道 ERP/CRM 子集打样（dev/39：46 实体/13 枚举/6 模块/product-stock-purchase-sale-finance-crm/79 页面/201 按钮，六层 spec.yaml）。
+- examples/yudao = 对照工程：spec.yaml（46 实体）+ check-spec.ts（从 jxc 拷贝，ROOT 解析）+ 7 分片 tdsl（00-model/10-product/20-stock/30-purchase/40-sale/50-finance/60-crm）+ 根 workspaces 挂接。
+- **实测结果（首轮一次通过，仅 3 处自修）**：check-spec 五维 1089 项缺口 0 覆盖率 100%；`dsl check` typecheck 0 问题（仅忠告类 NULLABLE-HINT warning，与 jxc 同款「局部遮蔽 X.get」写法）；codegen 双端成功 java 285 文件 + react 89 文件。
+- 自修 3 处：PurchaseInItemInput/PurchaseReturnItemInput 补 orderItemId 字段（链式写要从 input 拿 orderItemId）；changeCrmBusinessStage 补 interface 端点暴露（checkBinding 规则）。
+- 验证结论：单一 M4 语法面覆盖真实企业 100% 页面结构零缺口 → 语言生成力验证通过；唯一页面文字级 mismatch 仅 a标签 前缀（"通过"按钮含业务态说明文字，TDSL 按钮 text 精确匹配）。
+- 语义简化项（进 dev/40 缺口清单）：DateTime 无 now、除法运算 OK、dialog 内 submit 按钮在结构层可过、changeCrmBusinessStage 业务主键传递为结构占位。
+
 ## 2026-09-15 会话追加（P0 编码落地 · dev/36-38）
 - 用户 "do" 启动，六阶段全走完（四道 Gate 全部一次通过）。落地内容：
   1) Diagnostic + code/suggestion/root（48 处 push 收口，message 文案零改动），新增 DIAG_LAYERS{TYPE=1,API=2,DEP=3} + diagLayerOf
@@ -114,3 +122,13 @@
 - 新增测试 18：typecheck/p0.test.ts(15) + llm/p0.test.ts(3)；存量样本修正 1 处（typecheck.test.ts 静态调静态 member 成功例：y.getYear()←String 错配改为 y:Date=Date.now()+n:Integer=y.getYear()，属 F3 正确性收紧）
 - 回归：290 单测全绿（272→290）、typecheck 九包 ✓、slice/slice:multi 双端 build ✓、todo/todo-multi/jxc check 0 问题
 - 教训：closure 内 narrowing 失效（forEach 的 recv 需先提变量）；Diagnostic 住在 typecheck 不在 core（dev/38 笔误已 QA 记录）；kernel Date.now() ret 'Date' 而非 DateTime
+
+## 2026-09-16 会话追加（M10 @ref 全量补齐 + yudao 灌数 + 生成器清目录根治）
+- **@ref 审计结论**：yudao 原仅 9 处字典类 @ref；最大缺口 = 人员字段裸 Integer（无 User 表）→ 新增 `SystemUser` 实体(id/username/nickname)+UserInput，ownerUserId×7/saleUserId×3/financeUserId×2/signUserId 全挂 `@ref(SystemUser, display:'nickname')`；其余 ~45 个业务外键（产品/分类/单位/仓库/供应商/客户/结算账户/商机/状态/合同等）全部显式 @ref（显式优先、推断兜底口径落地）。例外口径：planId 撤回（CrmReceivablePlan 无 String 显示字段）、子表归属 id（inId/orderItemId/bizId/关联表）不挂。
+- 词典/人员 CRUD 补齐：source/industry/area 三个写字典 save 逻辑 + POST 端点（原只有 GET，seed 全 404）；`querySystemUser`/`saveSystemUser` + GET/POST /api/users。
+- **头部渲染 verify**：线索列表负责人列不再裸数字（qFkOwnerUserId → nickname）。
+- **codegen-react 六连修（import 收集与渲染精确对齐一战）**：collectAntdComponents 排除 form 内 input；collectFormAntd 逐字段镜像 genForm（derive/字符串→Input、fk/enum→Select、数值→InputNumber、Boolean→Switch、日期→DatePicker）；一刀切 Page 级 Select 收集取消（表格列 fk 不产生 Select）；_repeat 明细 render 未用 row → `_row`（noUnusedParameters）；重复生成孤儿文件根治（见下一条）；detail 页 row 上下文 = 首 List 查询首行 / dialog 内 row = initial；repeat 明细 useState 默认对象按**完整结构体**给值（对话框未声明字段缺值致 TS2741）、**枚举单元格** Select+as cast 取代 Number 赋值（TS2322）。
+- **CLI generate 清目录根治（用户发飙后）**：孤儿主类问题第三次出现；writeAll 先清本批路径管理的顶层子树（无扩展名顶层段）+ java/ 整目录重建（生成器全权所有，target 陈旧 class 一并消失）+ rmTree 带 maxRetries/retryDelay（Windows 句柄延迟释放 EPERM 兜底）；+1 单测锁孤儿不残留。口号：**生成前先清输出目录**。
+- **yudao 混包教训**：CLI app 名取目录名 → `examples/yudao/tdsl` 生成进 com.tdsl、旧手产物 com.yudao 并存，双主类 EPERM 连环；正解 `--name yudao` + 清空重刷。
+- **验证链**：yudao 双端 build ✓（java mvn compile、react tsc+vite build 全绿）；seed.ts 灌数 **105/105 0 失败**（users→字典→产品/仓库/供应商/账户→库存→采购/销售/财务→CRM 全链）；全仓 302 单测全绿（+2：cli 孤儿清理 ×1、react 补齐后口径）。
+- 余项：yudao 详情页查询不带 id 过滤（queryXxx 无 id 参数，spec 简化遗留）；react vite 警告 chunk>500KB（非阻断）。

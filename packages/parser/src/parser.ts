@@ -386,6 +386,26 @@ class Parser {
         if (ann === 'pk') prop.primary = true;
         else if (ann === 'nullable') prop.nullable = true;
         else if (ann === 'unique') prop.unique = true;
+        else if (ann === 'ref') {
+          // M10 外键显式声明：@ref(实体[, display: '字段'])（display 缺省 'name'，typecheck 兜底校验）
+          // 实体短名或限定名 er.Supplier（分层作用域与类型引用一致）
+          this.expect('(');
+          let target = this.expectIdent();
+          while (this.peek().value === '.') {
+            this.next();
+            target = `${target}.${this.expectIdent()}`;
+          }
+          let display = 'name';
+          if (this.peek().value === ',') {
+            this.next();
+            const kv = this.expectIdent();
+            this.expect(':');
+            if (kv !== 'display') this.fail(`unknown ref option '${kv}'`);
+            display = this.expectString();
+          }
+          this.expect(')');
+          prop.ref = { ...createNode('EntityRef'), entityPath: target, display };
+        }
         else this.fail(`unknown annotation '@${ann}'`);
       }
       this.expect(';');
@@ -1073,8 +1093,14 @@ function linkApp(app: AppNode): void {
   for (const ds of app.datasources) {
     for (const ent of ds.entities) {
       ent.properties.forEach((p) => linkTypeRef(p.type, ds.name));
+      // M10 @ref 绑定：实体引用短名 → nodePath（同 ctxDs 优先，失败抛错文案与 logicRef 同风格）
+      for (const p of ent.properties) {
+        if (!p.ref) continue;
+        p.ref.entityPath = resolveTypeRef(table, p.ref.entityPath, ds.name);
+      }
     }
   }
+
   for (const s of app.structures) {
     s.properties.forEach((p) => linkTypeRef(p.type));
   }

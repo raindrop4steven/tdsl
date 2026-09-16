@@ -123,6 +123,24 @@ describe('cli/commands', () => {
     expect(r.stdout).not.toContain('react');
   });
 
+  it('generate：写出孤儿文件不残留（重复生成先清 src 顶层子树）', () => {
+    const dir = makeDir({ 'a.tdsl': MODEL, 'b.tdsl': QUERY });
+    const out = join(dir, 'generated');
+    run(['generate', dir, '-o', out, '--java']);
+    // 造孤儿：旧 app 名/已删除实体的残留（mvn 双主类事故根源，src 与 target 双路径都要能消失）
+    const orphan = join(out, 'java', 'src', 'main', 'java', 'com', 'old', 'Orphan.java');
+    mkdirSync(join(orphan, '..'), { recursive: true });
+    writeFileSync(orphan, 'class Orphan {}', 'utf8');
+    const batchClass = join(out, 'java', 'target', 'classes', 'com', 'old', 'Orphan.class');
+    mkdirSync(join(batchClass, '..'), { recursive: true });
+    writeFileSync(batchClass, 'x', 'utf8');
+    run(['generate', dir, '-o', out, '--java']);
+    expect(existsSync(orphan)).toBe(false);
+    expect(existsSync(batchClass)).toBe(false);
+    // 正常产物仍在
+    expect(existsSync(join(out, 'java', 'pom.xml'))).toBe(true);
+  });
+
   it('app 名非法清洗后合法（codegen 防线不触发）', () => {
     const parent = makeDir({});
     const dir = join(parent, '01_x');

@@ -528,7 +528,7 @@ page GoodsList {
     const files = generateReact(SRC);
     const page = files.find((f) => f.path === 'src/pages/GoodsList.tsx')!.content;
     expect(page).toContain("label: '现金'");
-    expect(page).toContain('<h2 style={{ marginTop: 0 }}>商品列表</h2>');
+    expect(page).toContain('<h2 style={{ marginTop: 0, marginBottom: 16, fontSize: 18, fontWeight: 600, color: \'#1f1f1f\' }}>商品列表</h2>');
   });
 });
 

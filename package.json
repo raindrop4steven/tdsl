@@ -6,7 +6,8 @@
     "packages/*",
     "examples/todo-app",
     "examples/todo-multi",
-    "examples/jxc"
+    "examples/jxc",
+    "examples/yudao"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",

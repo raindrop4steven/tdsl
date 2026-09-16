@@ -1,0 +1,65 @@
+// 芋道 ERP · 财务管理：结算账户（收付款单页面归属采购/销售模块）
+
+@export
+function queryErpFinanceAccount(name: String): List<FinanceAccount> {
+  return FinanceAccount.where(name like '%' + name.trim() + '%').orderBy(sort asc);
+}
+
+@export
+function saveErpFinanceAccount(input: FinanceAccountInput): FinanceAccount {
+  const a = new FinanceAccount();
+  if (input.id !== null && input.id > 0) {
+    const a = FinanceAccount.get(input.id);
+  }
+  a.name = input.name;
+  a.no = input.no;
+  a.sort = input.sort;
+  a.defaultStatus = input.defaultStatus;
+  a.status = input.status;
+  a.remark = input.remark;
+  a.save();
+  return a;
+}
+
+@export
+function deleteErpFinanceAccount(id: Integer): Boolean {
+  const a = FinanceAccount.get(id);
+  a.delete();
+  return true;
+}
+
+interface FinanceApi {
+  GET    '/api/erp/finance-accounts'      -> queryErpFinanceAccount
+  POST   '/api/erp/finance-accounts'      -> saveErpFinanceAccount
+  DELETE '/api/erp/finance-accounts/{id}' -> deleteErpFinanceAccount
+}
+
+@title('结算账户列表')
+@menu('财务管理')
+page erpFinanceAccountList {
+  <input field="name" label="账户名称" />
+  <table dataSource={useQuery('queryErpFinanceAccount')}>
+    <column field="name" title="账户名称" />
+    <column field="no" title="账户编号" />
+    <column field="sort" title="排序" />
+    <column field="defaultStatus" title="是否默认" />
+    <column field="status" title="启用状态" />
+    <button text="编辑" action={openDialog('erpFinanceAccountForm', row)} />
+    <button text="删除" action={useMutation('deleteErpFinanceAccount', row.id)} />
+  </table>
+  <button text="新增账户" action={openDialog('erpFinanceAccountForm')} />
+}
+
+@title('结算账户编辑')
+@menu('财务管理')
+dialog erpFinanceAccountForm {
+  <form submit={useMutation('saveErpFinanceAccount')}>
+    <input field="name" label="账户名称" />
+    <input field="no" label="账户编号" />
+    <input field="sort" label="排序" />
+    <input field="defaultStatus" label="是否默认" />
+    <input field="status" label="启用状态" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}

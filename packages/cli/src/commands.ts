@@ -65,8 +65,16 @@ export function runGenerate(input: TdslInput, outDir: string, targets: { java: b
   const java = targets.java ? generateJava(app, { libs }) : [];
   const react = targets.react ? generateReact(app) : [];
   // 双端各写各的子目录（与 runBuild 的 outDir/{java,react} 声明一致；合写根目录会混树）
-  if (targets.java) writeAll(join(outDir, 'java'), java);
-  if (targets.react) writeAll(join(outDir, 'react'), react);
+  // java 目录由生成器全权所有（含 target/ 构建产物）→ 整目录重建，杜绝旧 app 名孤儿类（双主类事故）与陈旧 class
+  // react 不能整目录清（node_modules 由用户 npm install）；由 writeAll 清其管理的 src/ 顶层子树
+  if (targets.java) {
+    rmTree(join(outDir, 'java'));
+    writeAll(join(outDir, 'java'), java);
+  }
+  if (targets.react) {
+    rmTree(join(outDir, 'react', 'src'));
+    writeAll(join(outDir, 'react'), react);
+  }
   const wrote = [...java, ...react];
 
   const parts = [
@@ -130,7 +138,23 @@ function run(cmd: string, cwd: string, label: string): void {
   console.log(`${label} OK`);
 }
 
+function rmTree(p: string): void {
+  // Windows：句柄释放有延迟（杀进程后仍短暂 EPERM）→ 重试兜底
+  try {
+    rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {
+    /* 目录不存在或被占用：后者极少发生，写盘会覆盖存活路径 */
+  }
+}
+
 function writeAll(outDir: string, files: GeneratedFile[]): void {
+  // 生成前先清（防孤儿：实体/端点从 AST 消失后旧文件残留——两次踩坑 com.tdsl 孤儿主类后的根治）。
+  // 只清本批文件路径里的顶层子目录（如 java 的 src/、react 的 src/），根级散文件由覆盖写保证不残留过时内容。
+  const managedDirs = new Set(
+    files.map((f) => f.path.split(/[\\/]/)[0]).filter((t) => t !== '' && !t.includes('.')),
+  );
+  for (const d of managedDirs) rmTree(join(outDir, d));
+  mkdirSync(outDir, { recursive: true });
   for (const f of files) {
     const p = join(outDir, f.path);
     mkdirSync(dirname(p), { recursive: true });
