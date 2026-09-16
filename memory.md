@@ -157,3 +157,18 @@
 - **codegen-react 支撑改动**：① dialog 子组件改**条件挂载** `{showX && (<X .../>)}`——否则抽屉未打开时 `initial.id` 查询会以 0 触发 404 + 错误弹窗；② `rowSrc` 支持 `initial.id`（抽屉按行查单条 → `row` = 查询结果）；③ `genBindingArg` 支持 `initial.id` → `Number(initial?.id ?? 0)`；④ 已有 rowSrc 时不再重复声明 dialog 的 `row` 别名（避免重复声明）。
 - **spec/对拍同步**：spec.yaml 14 行内「详情」按钮 navigate→openDialog；check-spec `kind: detail` 期望由 `page` 改为 `dialog`（详情即抽屉，与编辑/新建同形）。
 - 回归：302 单测全绿、九包 typecheck ✓、check-spec **1091 项 100%**、java mvn compile ✓、react tsc+vite build ✓、真机 seed 105/0。
+
+### 2026-09-16 续四（dev/43-45：动作状态化 + 业务链联动 + 列表/抽屉统一交互 · 六阶段交付）
+- **用户定调**："yudao 像个 CRUD 架子"——逻辑在但呈现/联动断裂。切面走完整六阶段（需求 dev/43 → 系统设计 dev/44 → 详细设计 dev/45 → 编码 → 测试 → 交付），四道 Gate 全通过。
+- **语言面新增（零新增 AST 节点，全挂既有属性；parser 零改动）**：
+  - `visible={row.status === DocStatus.UNAUDIT}` / `disabled={...}`：按钮条件渲染/置灰；条件为行上下文受限子集（字段比较 + 枚举成员 + 逻辑组合）；枚举成员在 codegen 侧**字面量化**为 `'UNAUDIT'`（`enumMemberLiteralOf`，derive 同步受益）。
+  - `<summary field="items" of="count"|expr={count * productPrice} label="合计"/>`：表单明细实时归约（`summaryExprToJs`，Ident→`it.x`）。
+  - `<detail>` 内 `<repeat field><column/></repeat>`：详情只读子表（抽 `columnDefsOf` 与列表列共用枚举 Tag/外键名三态）。
+  - typecheck：KNOWN_VIEW_TYPES += summary；`SUMMARY-TARGET` / `SUMMARY-EXPR`（结构性可判 → error）。
+- **业务链联动（yudao，纯 logic）**：`applyStock(productId, warehouseId, delta, bizType, bizId, bizNo)` 共享入口（库存±、不足抛「库存不足」、写 StockRecord 含结存快照）；8 个审批/反审批接线（入库/退货/出库/退货 → 库存+流水、订单 inCount/outCount 回写与状态推进；付款/收款 → 按 bizNo 核销回写 paymentPrice/receiptPrice）。
+- **详情聚合**：`PurchaseInDetail { in, items }` / `SaleOutDetail { out, items }` + `GET .../{id}/detail`；抽屉按 `initial.id` 查单条（rowSrc 支持 initial；genBindingArg 处理 `initial.id` → `Number(initial?.id ?? 0)`）。
+- **用户实测追加的 UI 统一**：①右上角动作区（列表卡片标题右侧 / 抽屉 extra，含表单「保存」用 form 属性关联、页脚不再重复；动作 >3 折叠「更多」）②标题分隔线 borderBottom ③详情抽屉化（*Detail 改 dialog + 列表「详情」→ openDialog）④抽屉标题按模式（新增/编辑/详情，靠 initial）⑤行内按钮链接式 type=link size=small ⑥删除按钮 Popconfirm 二次确认。
+- **实测（阶段五）**：A1-A6 全过——库存 120→140、PURCHASE_IN 流水、订单 inCount=70=totalCount 自动 AUDITED、库存不足回滚且库存不变、详情 {in, items[2]}、核销 93261/48920；seed 104/0。
+- **用户报缺陷（真机）**：①列表无分页（genTable 硬编码 pagination=false）→ 改客户端分页（10/20/50 + 总数）②**翻页后条数虚增（第一页显示 14 条）根因 = rowKey 取首列字段**（库存变动明细首列 productId 重复 → React key 冲突残留旧行）→ rowKey 改实体主键。教训：**表格 rowKey 必须唯一，宁可取实体主键也不取首列**。
+- 交付：310 单测全绿（codegen-react +5 action-state、typecheck +3 summary）、九包 typecheck ✓、yudao dsl check 0 / spec 1091 项 100% / java compile ✓ / react tsc+build ✓；文档 dev/43-45 + 语法手册 §4 + index.html + QA 19-25 行 + 本段。
+- **交付形态适配记录**：本项目是"编译器+生成器"无常驻 REST 服务，skill 模板的 `docs/api/接口文档 + Postman 集合`降级为**语言面文档（语法手册）+ interface 契约（生成物 Controller 即 REST 端点）**；如需 OpenAPI 可另立切面从生成物导出。
