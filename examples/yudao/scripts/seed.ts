@@ -8,11 +8,15 @@ let BASE = 'http://localhost:8080';
 if (process.argv[2]) BASE = process.argv[2].replace(/\/$/, '');
 let pass = 0;
 let fail = 0;
+// M11 鉴权：除 /api/auth/** 外全部接口要求 Bearer token（先注册/登录管理员）
+let TOKEN = '';
 
 async function post(path: string, body: unknown): Promise<any> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -38,6 +42,35 @@ const t = async (label: string, fn: () => Promise<void>) => {
 const $ = (s: string): string => `${s}+08:00`;
 
 async function main(): Promise<void> {
+  // ================= M11 鉴权：管理员注册 + 登录拿 token（唯一免 token 入口是 /api/auth/**） =================
+  await t('鉴权（注册 admin / 登录拿 token）', async () => {
+    // 幂等：已存在（重跑）不算失败
+    const reg = await fetch(`${BASE}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: '123456', nickname: '管理员' }),
+    });
+    const regText = await reg.text();
+    console.log(`  ✓ 注册 admin → ${reg.status}${reg.ok ? '' : `（${regText.slice(0, 60)}，重跑忽略）`}`);
+    const loginRes = await fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: '123456' }),
+    });
+    if (!loginRes.ok) {
+      fail++;
+      console.error(`  ✗ 登录失败 → ${loginRes.status}: ${await loginRes.text()}`);
+      process.exit(1);
+    }
+    const lr = await loginRes.json();
+    TOKEN = String(lr?.token ?? '');
+    console.log(`  ✓ 登录成功（token 长度 ${TOKEN.length}）`);
+  });
+
+  // 未带 token 访问受保护接口应 401（鉴权链路自检）
+  const probe = await fetch(`${BASE}/api/erp/products`);
+  console.log(`  ✓ 无 token 探针 /api/erp/products → ${probe.status}${probe.status === 401 ? '（401 ✓ 鉴权生效）' : ''}`);
+
   // ================= 系统用户（负责人/销售员引用） =================
   const users = ['王建国', '李国华', '张云飞', '刘思远'];
   for (const [i, nickname] of users.entries()) {

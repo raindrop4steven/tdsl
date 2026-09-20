@@ -18,9 +18,13 @@ const JACKSON: LoadedCatalog = {
 };
 
 describe('core/dev32 依赖目录', () => {
-  it('FFI_CORE 只含语言自有五域（无第三方坐标）', () => {
-    expect(FFI_CORE.map((c) => c.alias).sort()).toEqual(['Date', 'DateTime', 'Decimal', 'List', 'String']);
+  it('FFI_CORE 只含语言自有五域 + 平台鉴权域（M11；均无第三方坐标）', () => {
+    expect(FFI_CORE.map((c) => c.alias).sort()).toEqual(['Auth', 'Date', 'DateTime', 'Decimal', 'List', 'String']);
     expect(FFI_CORE.every((c) => !c.maven)).toBe(true);
+    // 平台自宿主域标记：Auth 模板全限定自洽（import 收集跳过），密码原语 backend-only
+    const auth = FFI_CORE.find((c) => c.alias === 'Auth');
+    expect(auth?.internal).toBe(true);
+    expect(auth?.members.every((m) => m.static && !m.js)).toBe(true);
   });
 
   it('createCatalog：产物类补 maven 坐标，裸 alias 唯一命中', () => {

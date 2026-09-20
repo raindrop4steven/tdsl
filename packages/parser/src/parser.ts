@@ -110,6 +110,10 @@ function mergeApp(name: string, fragments: AppNode[]): AppNode {
       seenDeps.add(key);
       app.dependencies.push(d);
     }
+    // M11 @auth：单值声明，后写覆盖（多分片重复声明以最后一份为准）
+    if (frag.auth) app.auth = frag.auth;
+    // M11 @app 显示名：单值声明，后写覆盖
+    if (frag.title) app.title = frag.title;
   }
   return app;
 }
@@ -198,12 +202,34 @@ class Parser {
           this.expect('(');
           pendingViewAnnos.set(ann, this.expectString());
           this.expect(')');
+        } else if (ann === 'public') {
+          // M11：@public 无参注解 → 免登录 + 不进主布局/菜单（值存 '1' 占位，消费端只看名字）
+          pendingViewAnnos.set('public', '1');
         } else if (ann === 'ok') {
           // dev/48：操作成功提示文案（业务声明，生成器只搬运）→ 暂存给下一个 function
           this.expect('(');
           const okText = this.expectString();
           this.expect(')');
           pendingLogicAnno = { kind: 'Annotation', name: 'ok', args: { value: okText } };
+        } else if (ann === 'auth') {
+          // M11 鉴权（dev/49-51）：@auth(user: 'X', username: 'u', password: 'p', loginPage: 'L', registerPage: 'R')
+          const cfg = this.parseAuthConfig();
+          if (!cfg.user || !cfg.username || !cfg.password || !cfg.loginPage || !cfg.registerPage) {
+            this.fail(`@auth 需要 user/username/password/loginPage/registerPage 五项声明（缺 ${['user', 'username', 'password', 'loginPage', 'registerPage'].filter((k) => !cfg[k]).join('/')}）`);
+          }
+          app.auth = {
+            ...createNode('Auth'),
+            user: cfg.user,
+            usernameProp: cfg.username,
+            passwordProp: cfg.password,
+            loginPage: cfg.loginPage,
+            registerPage: cfg.registerPage,
+          };
+        } else if (ann === 'app') {
+          // M11：应用显示名（@app('芋道 ERP 管理系统')）→ 外壳/登录页/页面标题用
+          this.expect('(');
+          app.title = this.expectString();
+          this.expect(')');
         } else if (this.peek().value === '(') {
           // 其余带参注解：跳过括号内容（@export 等无参注解直接忽略）
           this.skipParen();
@@ -270,6 +296,22 @@ class Parser {
       if (t.type === 'string') cfg[key] = this.next().value;
       else if (t.type === 'number') cfg[key] = this.next().value;
       else this.fail(`expected string/number value for '${key}'`);
+      if (this.peek().value === ',') this.next();
+    }
+    this.expect(')');
+    return cfg;
+  }
+
+  /** @auth(user: 'X', username: 'u', ...) → Record<string,string>（M11；冒号形态，与设计稿 dev/51 §1.2 一致） */
+  private parseAuthConfig(): Record<string, string> {
+    const cfg: Record<string, string> = {};
+    this.expect('(');
+    while (this.peek().value !== ')') {
+      const key = this.expectIdent();
+      this.expect(':');
+      const t = this.peek();
+      if (t.type === 'string') cfg[key] = this.next().value;
+      else this.fail(`expected string value for '${key}'（@auth 各项均为字符串字面量）`);
       if (this.peek().value === ',') this.next();
     }
     this.expect(')');
@@ -1167,6 +1209,10 @@ function linkApp(app: AppNode): void {
       if (!p.ref) continue;
       p.ref.entityPath = resolveTypeRef(table, p.ref.entityPath);
     }
+  }
+  // M11 @auth：用户实体短名 → nodePath（全局解析；未声明实体在 link 期即报错，与类型引用同口径）
+  if (app.auth) {
+    app.auth.userPath = resolveTypeRef(table, app.auth.user);
   }
 
   for (const s of app.structures) {

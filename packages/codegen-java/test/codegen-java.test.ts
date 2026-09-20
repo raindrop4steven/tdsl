@@ -36,6 +36,18 @@ describe('codegen-java', () => {
     const yml = files.find((f) => f.path === 'src/main/resources/application.yml')!.content;
     expect(yml).toContain('TDSL_BACKEND_PORT');
     expect(yml).toContain('ddl-auto: update');
+    // 数据库连接可被环境变量覆盖（默认 H2）——便于切 MySQL 等外部库
+    expect(yml).toContain('${TDSL_DB_URL:jdbc:h2:mem:todo}');
+    expect(yml).toContain('${TDSL_DB_USER:sa}');
+    expect(yml).toContain('${TDSL_DB_PASSWORD:}');
+  });
+
+  it('pom 内置 MySQL 驱动（数据库可经 TDSL_DB_URL 切到 MySQL）', () => {
+    const files = generateJava(parse(SAMPLE));
+    const pom = files.find((f) => f.path === 'pom.xml')!.content;
+    expect(pom).toContain('<artifactId>h2</artifactId>');
+    expect(pom).toContain('<groupId>com.mysql</groupId>');
+    expect(pom).toContain('<artifactId>mysql-connector-j</artifactId>');
   });
 
   it('generates JPA entity with getters/setters', () => {
@@ -48,6 +60,38 @@ describe('codegen-java', () => {
     expect(entity).toContain('private Boolean done;');
     expect(entity).toContain('public String getTitle()');
     expect(entity).toContain('public void setTitle(String title)');
+  });
+
+  it('generates db/schema.sql (建库底稿：CREATE TABLE 与注解口径逐列一致)', () => {
+    const files = generateJava(parse(SAMPLE));
+    const schema = files.find((f) => f.path === 'src/main/resources/db/schema.sql');
+    expect(schema).toBeDefined();
+    const s = schema!.content;
+    // 表名小写 + @pk → NOT NULL PRIMARY KEY
+    expect(s).toContain('CREATE TABLE IF NOT EXISTS todo (');
+    expect(s).toContain('id BIGINT NOT NULL PRIMARY KEY');
+    // 类型映射：String→VARCHAR(255) / Boolean→BOOLEAN
+    expect(s).toContain('title VARCHAR(255)');
+    expect(s).toContain('done BOOLEAN');
+    // 非标量列跳过（struct/List 不进 DDL）
+    expect(s).not.toContain('List<');
+  });
+
+  it('schema.sql honors @nullable (NULL 标记) 与枚举 VARCHAR', () => {
+    const src = `
+@datasource('defaultDS')
+enum DocStatus { DRAFT('草稿') }
+entity Order {
+  id: Integer @pk;
+  status: DocStatus;
+  remark: String @nullable;
+}
+`;
+    const files = generateJava(parse(src));
+    const s = files.find((f) => f.path === 'src/main/resources/db/schema.sql')!.content;
+    expect(s).toContain('status VARCHAR(255)');
+    expect(s).toContain('remark VARCHAR(255) NULL');
+    expect(s).not.toContain('remark VARCHAR(255)\n');
   });
 
   it('generates repository per entity', () => {

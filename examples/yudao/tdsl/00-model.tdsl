@@ -1,5 +1,7 @@
 // 芋道 ERP/CRM · 数据模型：枚举 + 实体 + 输入结构（来自 examples/yudao/spec.yaml data 节，逐字段对照）
 
+@app('芋道 ERP 管理系统')
+
 @datasource('yudaoDS')
 
 // ---- 枚举（数据字典） ----
@@ -78,9 +80,11 @@ entity IndustryDict { id: Integer @pk; name: String; }
 entity AreaDict { id: Integer @pk; name: String; }
 
 // 负责人/销售员/财务人员等人员字段统一引用此表（@ref display 取昵称）
+// M11：username 唯一 + password（@auth 登录实体；密码经由 /api/auth/register 走加盐哈希）
 entity SystemUser {
   id: Integer @pk;
-  username: String;
+  username: String @unique;
+  password: String;
   nickname: String;
 }
 
@@ -780,6 +784,13 @@ struct CrmFollowUpRecordInput { id: Integer; content: String; nextTime: DateTime
 struct CrmTodoInput { id: Integer; name: String; wakeUpTime: DateTime; bizType: Integer; bizId: Integer; }
 
 struct SystemUserInput { id: Integer; username: String; nickname: String; }
+
+// M11 鉴权会话 DTO（dev/49-51）
+struct LoginInput { username: String; password: String; }
+
+struct LoginResult { token: String; nickname: String; userId: Integer; }
+
+struct RegisterInput { username: String; password: String; nickname: String; }
 
 struct SourceDictInput { id: Integer; name: String; }
 

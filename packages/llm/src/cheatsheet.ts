@@ -16,6 +16,10 @@ interface OrderApi { GET '/api/orders/{id}' -> getOrderDetail }        // GET/PO
 @service(kind = 'dubbo', group = 'x', version = '1.0') service UserSvc { getUser(id: Integer): User; }   // 外部系统对接（dubbo=运行中 RPC / http=REST 契约）；本地 jar 类不用 service——dependency java + libs 直调
 @service(kind = 'http', baseUrl = 'http://x') service ErpApi { GET '/path' -> opName(id: Integer): Order; }
 page OrderList { <table dataSource={useQuery('listOrders')}> <column field="id" /> </table> }
+@auth(user: 'SystemUser', username: 'username', password: 'password', loginPage: 'Login', registerPage: 'Register')   // 整应用鉴权开关（五项缺一不可）；登录/注册是普通 function+interface，端点路径 /api/auth/** 自动放行
+@public                            // 页面注解：免登录 + 不进主布局与菜单（登录/注册页专用）
+//   鉴权原语: Auth.hash(raw, salt) / Auth.matches(raw, stored, salt)——仅 @auth 应用可用（backend-only）；token 签发/校验/前端会话全部由生成器托管，TDSL 无 token 概念
+//   密码框: <input field="password" type="password" />；无一元 !（取反用 条件 === false）
 //   页面绑定: useQuery('logic') / useMutation('logic', args...) / navigate('PageName', row.id) / openDialog('DialogName')
 //   内置组件: table/column/button/form/input/repeat/text/detail；管理端常用: tag(color)/statistic(title,value)
 //     tabs > pane(title) / checkbox / switch / radio(options="A,B") / avatar / badge(count) / card(title)——枚举列自动彩色标签、Boolean 字段自动开关

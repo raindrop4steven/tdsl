@@ -1,7 +1,7 @@
 # yudao —— TDSL 能力验证样例（芋道 ERP/CRM 子集）
 
 用真实企业系统（芋道 [ruoyi-vue-pro](https://doc.iocoder.cn/) 的 ERP + CRM 子集）验证 TDSL 的表达力与生成力：
-**一份 TDSL → 编译裁判 → 生成 Java 后端（Spring Boot + JPA + H2）+ React 前端（Vite + antd）→ 真机跑通**。
+**一份 TDSL → 编译裁判 → 生成 Java 后端（Spring Boot + JPA + MySQL）+ React 前端（Vite + antd）→ 真机跑通**。
 
 ```
 tdsl/*.tdsl ──parse+typecheck──▶ Typed AST ──codegen──▶ generated/java（Spring Boot）
@@ -49,12 +49,44 @@ npm run stop
 | 步骤 | 动作 |
 |------|------|
 | 1 | `tdsl check tdsl`（编译裁判：0 问题才继续）→ `tdsl generate tdsl --name yudao -o generated`（Java + React 双端） |
-| 2 | 启动后端 `mvn spring-boot:run`（Spring Boot + **H2 内存库**，零安装），等 `/healthz` 就绪 |
+| 2 | 启动后端 `npm run backend`（Spring Boot + **MySQL 库 `erp`**，见下「数据库」；`ddl-auto` 启动时建表），等 `/healthz` 就绪 |
 | 3 | `tsx scripts/seed.ts` 灌演示数据（产品/库存/采购/销售/财务/CRM 全链路，105 条请求） |
 | 4 | 启动前端 `npm run dev`（Vite，`/api` 代理到 8080） |
 | 5 | 打印地址与演示动线 |
 
-> H2 是内存库：**后端一重启数据即清空**，重跑 `npm run demo`（或 `npm run seed`）即可。
+> MySQL 是持久库：**数据重启不丢**。要重来一遍，先清库再重跑 `npm run demo`（详见下）。
+
+---
+
+## 数据库（MySQL）
+
+生成工程默认连本机 MySQL：`localhost:3306/erp`，账号 `root` / `123456`。表由 JPA `ddl-auto: update` 在后端启动时自动建好；演示数据由 `npm run seed` 经 REST 灌入。
+
+连接参数可用环境变量覆盖（`npm run backend` 已把下列默认值注入）：
+
+| 环境变量 | 默认值 |
+|----------|--------|
+| `TDSL_DB_URL` | `jdbc:mysql://localhost:3306/erp?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai` |
+| `TDSL_DB_USER` | `root` |
+| `TDSL_DB_PASSWORD` | `123456` |
+| `TDSL_BACKEND_PORT` | `8080` |
+
+> 生成器本身与数据库无关：`application.yml` 里连接是环境变量占位（缺省回落到 H2 内存库），pom 同时带 H2 与 MySQL 驱动；本项目只是通过 `scripts/backend.ts` 把 MySQL 三件套注入进程环境。
+
+清库重灌（只删本应用的表，不动库内其他表）：
+
+```bash
+mysql -h127.0.0.1 -uroot -p123456 -e "DROP DATABASE erp;"
+# 或保留库只清表：逐个 DROP TABLE；重启后端会自动重建
+npm run demo
+```
+
+## 登录与鉴权（M11）
+
+- 打开前端**先到登录页**（布局外全屏企业风）→「注册」或用 seed 预置的 **admin / 123456** 登录；
+- 登录后右上角显示当前用户 + 退出；未登录访问任意业务页会被路由守卫拦回登录页；
+- **所有 `/api/**`（除 `/api/auth/**`、`/healthz`）要求 Bearer token**，前端由 `src/auth.ts` 统一注入、后端由 `AuthInterceptor` 校验（无效/过期 → 401 → 前端自动清会话回登录页）；
+- 密码加盐哈希（SHA-256 + 用户名盐）落库，不明文。
 
 ---
 
@@ -115,7 +147,7 @@ examples/yudao/
 
 ## 生成物是什么样
 
-- **后端**：`@Entity`/`Repository`（查询链生成 `@Query` JPQL，命名参数、null 宽松）/`Service`（业务逻辑 + `@Transactional`）/`Controller`（interface 端点 → REST）/**H2 建表由 JPA 自动完成**，无需 DDL。
+- **后端**：`@Entity`/`Repository`（查询链生成 `@Query` JPQL，命名参数、null 宽松）/`Service`（业务逻辑 + `@Transactional`）/`Controller`（interface 端点 → REST）/**建表由 JPA `ddl-auto` 自动完成**，无需 DDL（也可用生成的 `db/schema.sql` 交付建库）。
 - **前端**：每页一个 `.tsx`（antd 表格/表单/抽屉），列表列自动识别枚举（中文 Tag，颜色由 enum 声明）/外键（显示引用名）/分页；表单按字段类型升级控件；`@ref` 字段出下拉；`visible/disabled` 控制按钮可用性；`@ok` 文案驱动操作成功提示。
 - **门户**：`statistic` 绑聚合查询（`where(...).aggregate(count())`）、轮播、进度、只读列表。
 

@@ -30,6 +30,24 @@ export interface AppNode extends BaseNode {
   views: ViewNode[];
   services: ServiceNode[];
   dependencies: DependencyNode[];
+  /** M11 鉴权（dev/49-51）：@auth 声明存在才生成鉴权层（无则双端产物与既有逐字节一致） */
+  auth?: AuthConfigNode;
+  /** 应用显示名（@app('芋道 ERP 管理系统')）：外壳/登录页/页面标题用；缺省回落 cap(app.name) */
+  title?: string;
+}
+
+/** 鉴权声明（M11）：@auth(user: '实体短名', username: '字段', password: '字段', loginPage: '页名', registerPage: '页名') */
+export interface AuthConfigNode extends BaseNode {
+  kind: 'Auth';
+  /** 用户实体短名（parser 解析期），linkApp 后绑定 nodePath */
+  user: string;
+  /** linkApp 绑定产物：用户实体 nodePath（app.datasources.x.entities.X） */
+  userPath?: string;
+  usernameProp: string;
+  passwordProp: string;
+  /** 登录页/注册页（@public page 名，显式声明不猜名字） */
+  loginPage: string;
+  registerPage: string;
 }
 
 /** 依赖声明（dev/32/34）：dependency java/npm "坐标" [as ns] [import X | import { A, B as C }] */

@@ -11,7 +11,7 @@
     "build:java": "mvn -q -f generated/java/pom.xml compile",
     "build:react": "npm --prefix generated/react run build",
     "build": "npm run gen && npm run build:java && npm run build:react",
-    "backend": "mvn -f generated/java/pom.xml spring-boot:run",
+    "backend": "tsx scripts/backend.ts",
     "frontend": "npm --prefix generated/react run dev",
     "seed": "tsx scripts/seed.ts",
     "demo": "bash scripts/demo.sh",

@@ -63,7 +63,9 @@ function tsType(tr: TypeRef): string {
 
 /** 生成完整 Vite + React 工程文件列表 */
 export function generateReact(app: AppNode): GeneratedFile[] {
-  const files = [...projectFiles(app)];
+  // 应用显示名：@app('...') 声明优先，缺省 cap(app.name)
+  const displayTitle = app.title ?? cap(app.name);
+  const files = [...projectFiles(app, displayTitle)];
   // 条件：有实体（rows/types）或有页面（views）——纯 FFI API 应用也要能建 react 工程
   if (app.datasources.some((ds) => ds.entities.length > 0) || app.views.length > 0) {
     files.push(typesFile(app));
@@ -82,7 +84,7 @@ export function generateReact(app: AppNode): GeneratedFile[] {
 
 // ---------- 工程脚手架 ----------
 
-function projectFiles(app: AppNode): GeneratedFile[] {
+function projectFiles(app: AppNode, displayTitle: string): GeneratedFile[] {
   const name = `${app.name}-react`;
   const hasViews = app.views.length > 0;
   // npm 依赖集合（dev/33）：页面骨架默认项 → dependency npm 声明（三方组件 import 的唯一包名来源）
@@ -225,7 +227,7 @@ export default defineConfig({
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${app.name} App</title>
+    <title>${displayTitle}</title>
   </head>
   <body>
     <div id="root"></div>
@@ -499,9 +501,60 @@ function viewAppFiles(app: AppNode): GeneratedFile[] {
   return [
     apiFile(app),
     hooksFile(),
+    // M11 鉴权（dev/49-51）：@auth 声明存在才生成会话层（无则零产出）
+    ...(app.auth ? [authTsFile(app)] : []),
     ...app.views.map((v) => pageFile(app, v)),
     routerFile(app),
   ];
+}
+
+// ---------- M11 鉴权会话（dev/49-51）：@auth 声明驱动 ----------
+
+/** 页面是否 @public（免登录 + 不进主布局/菜单） */
+function isPublicView(v: ViewNode): boolean {
+  return v.annotations?.some((a) => a.name === 'public') ?? false;
+}
+
+/** token 存取与统一请求封装（仅 @auth 应用生成） */
+function authTsFile(_app: AppNode): GeneratedFile {
+  return {
+    path: 'src/auth.ts',
+    content: `// 自动生成：鉴权会话（TDSL @auth）
+const TOKEN_KEY = 'tdsl_token';
+const USER_KEY = 'tdsl_user';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function currentUser(): string | null {
+  return localStorage.getItem(USER_KEY);
+}
+
+export function setAuth(token: string, user: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, user);
+}
+
+export function clearAuth(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+/** 统一请求封装：自动携带 Bearer token；401 → 清会话回登录页（登录/注册自身除外） */
+export async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set('Authorization', \`Bearer \${token}\`);
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401 && !url.includes('/api/auth/')) {
+    clearAuth();
+    window.location.href = '/login';
+  }
+  return res;
+}
+`,
+  };
 }
 
 // ---------- api.ts：从 interface endpoints 生成 fetch 封装 ----------
@@ -522,11 +575,14 @@ function apiFile(app: AppNode): GeneratedFile {
   }
   const typeImport =
     usedTypesSet.size > 0 ? `import type { ${[...usedTypesSet].join(', ')} } from './types';\n` : '';
-  const content = `// 自动生成：接口 → fetch 封装（TDSL interface）
-${typeImport}const API = '';
+  // M11：@auth 应用 → 全部请求走 authFetch（自动带 token + 401 回流）；无 @auth 保持原 fetch
+  const authImport = app.auth ? `import { authFetch } from './auth';\n` : '';
+  let content = `// 自动生成：接口 → fetch 封装（TDSL interface）
+${typeImport}${authImport}const API = '';
 
 ${funcs.join('\n')}
 `;
+  if (app.auth) content = content.split('fetch(').join('authFetch(');
   return { path: 'src/api.ts', content };
 }
 
@@ -724,6 +780,16 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   if (navBindings.length > 0) {
     imports.push("import { useNavigate } from 'react-router-dom';");
   }
+  // M11：@public 登录/注册页 → 成功后写会话/跳转（useNavigate + auth 存取）
+  const isPublic = app.auth ? isPublicView(v) : false;
+  const isLoginPage = isPublic && v.name === app.auth?.loginPage;
+  const isRegisterPage = isPublic && v.name === app.auth?.registerPage;
+  if ((isLoginPage || isRegisterPage) && !imports.some((l) => l.includes('useNavigate'))) {
+    imports.push("import { useNavigate } from 'react-router-dom';");
+  }
+  if (isLoginPage) {
+    imports.push("import { setAuth } from '../auth';");
+  }
   if (hasRoute) {
     imports.push("import { useParams } from 'react-router-dom';");
   }
@@ -775,7 +841,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     ...new Set([
       ...collectAntdComponents(app, v),
       ...collectFormAntd(app, v),
-      ...(formHasRequired(app, v) ? ['message'] : []),
+      ...(formHasRequired(app, v) || isRegisterPage ? ['message'] : []),
       // 搜索条外键字段 → 引用下拉（数据源 hook 与列共享，控件本身需要 Select）
       // 搜索条枚举字段 → 选项 Select（后缀同 form 的枚举升级）
       ...(collectSearchFkFields(app, v).size > 0 || collectSearchEnumFields(app, v).size > 0 ? ['Select'] : []),
@@ -812,7 +878,7 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   if (hasRoute) {
     hooksInit.push(`  const { id } = useParams();`);
   }
-  if (navBindings.length > 0) {
+  if (navBindings.length > 0 || isLoginPage || isRegisterPage) {
     hooksInit.push(`  const nav = useNavigate();`);
   }
   // 页面级 input（如搜索框）：每个 field 一个 state（声明在 query hook 之前，闭包引用更清晰）
@@ -909,7 +975,13 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
     : v.elements.filter((el) => el.type !== 'button');
   const firstQueryVar = queryBindings.length > 0 ? queryVars.get(queryBindings[0].target) : undefined;
   const formId = isDialog && viewHasForm(v) ? `f-${v.name}` : undefined;
-  const body = restEls.map((el) => genElement(app, el, queryVars, pageStates, isDialog ? 'onClose' : undefined, firstQueryVar && !isDialog ? `${firstQueryVar}.refetch()` : undefined, formId)).join('\n\n');
+  // M11：登录 → setAuth(token, nickname) 后回首页；注册 → 去登录页（d = mutation 返回值）
+  const authSuccess = isLoginPage
+    ? `setAuth(String(d?.token ?? ''), String(d?.nickname ?? '')); nav('/');`
+    : isRegisterPage
+      ? `message.success('注册成功，请登录'); nav('/login');`
+      : undefined;
+  const body = restEls.map((el) => genElement(app, el, queryVars, pageStates, isDialog ? 'onClose' : undefined, firstQueryVar && !isDialog ? `${firstQueryVar}.refetch()` : undefined, formId, authSuccess)).join('\n\n');
   const toolbarInputs = toolbarEls.filter((el) => el.type === 'input');
   const toolbarButtons = toolbarEls.filter((el) => el.type === 'button');
   const queryButton =
@@ -1004,10 +1076,23 @@ function pageFile(app: AppNode, v: ViewNode): GeneratedFile {
   const cardHeader = `<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0', paddingBottom: 12, marginBottom: 16 }}>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#1f1f1f' }}>${viewTitle(v)}</h2>${headerActions}
     </div>`;
-  const wrapperOpen = isDialog
-    ? `    <Drawer${drawerTitle}${headerActionsJsx ? ` extra={<Space size={4}>${headerActionsJsx}\n    </Space>}` : ''} open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.78, 1200)} destroyOnClose>`
-    : `    <Card style={{ margin: '0 auto', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,21,41,0.06)' }}>\n      ${cardHeader}`;
-  const wrapperClose = isDialog ? `    </Drawer>` : `    </Card>`;
+  // M11：@public 登录/注册页 → 布局外全屏（浅灰底 + 软性装饰 + 居中品牌卡片；弃用大蓝渐变）
+  const brand = app.title ?? cap(app.name);
+  const publicWrapperOpen = `    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', width: 480, height: 480, borderRadius: '50%', background: 'rgba(22, 119, 255, 0.05)', top: -160, right: -120 }} />
+      <div style={{ position: 'absolute', width: 320, height: 320, borderRadius: '50%', background: 'rgba(22, 119, 255, 0.04)', bottom: -100, left: -80 }} />
+      <Card style={{ width: 400, borderRadius: 12, boxShadow: '0 4px 24px rgba(31, 45, 61, 0.08)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 4 }}>
+          <div style={{ width: 34, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #1677ff, #69b1ff)', color: '#fff', fontWeight: 700, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>${brand.charAt(0).toUpperCase()}</div>
+          <span style={{ fontSize: 20, fontWeight: 700, color: 'rgba(0, 0, 0, 0.88)' }}>${brand}</span>
+        </div>
+        <div style={{ textAlign: 'center', marginBottom: 20, marginTop: 6, color: '#8c8c8c', fontSize: 13 }}>欢迎登录，请使用您的企业账号</div>`;
+  const wrapperOpen = isPublic
+    ? publicWrapperOpen
+    : isDialog
+      ? `    <Drawer${drawerTitle}${headerActionsJsx ? ` extra={<Space size={4}>${headerActionsJsx}\n    </Space>}` : ''} open={open} onClose={onClose} width={Math.min(window.innerWidth * 0.78, 1200)} destroyOnClose>`
+      : `    <Card style={{ margin: '0 auto', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,21,41,0.06)' }}>\n      ${cardHeader}`;
+  const wrapperClose = isPublic ? `      </Card>\n    </div>` : isDialog ? `    </Drawer>` : `    </Card>`;
 
   // 页面渲染挂载了 dialog 组件时，Card 与 Drawer 是兄弟 JSX → 用 Fragment 包裹
   const returnInner = dialogRenders
@@ -1281,14 +1366,14 @@ function collectNavBindings(v: ViewNode): BindingNode[] {
 }
 
 /** ViewElement → JSX（table/column/button/form/input/repeat/text/detail + 第三方 component） */
-function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = [], onCloseExpr?: string, refetchExpr?: string, formId?: string): string {
+function genElement(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, states: string[] = [], onCloseExpr?: string, refetchExpr?: string, formId?: string, authSuccess?: string): string {
   switch (el.type) {
     case 'table':
       return genTable(app, el, queryVars, states, refetchExpr);
     case 'button':
       return genButton(app, el, queryVars, { row: false, states, refetch: refetchExpr, inDialog: Boolean(onCloseExpr) });
     case 'form':
-      return genForm(app, el, queryVars, onCloseExpr, refetchExpr, formId);
+      return genForm(app, el, queryVars, onCloseExpr, refetchExpr, formId, authSuccess);
     case 'input':
       return genInput(el);
     case 'repeat':
@@ -1577,8 +1662,10 @@ function collectAntdComponents(app: AppNode, v: ViewNode): string[] {
   })();
   if (listHasEnumItem) found.add('Tag');
   // 顶部右上角动作区：页面级按钮/表单提交按钮 → Space；动作数超出折叠阈值 → Dropdown「更多」
-  const topButtons = v.elements.filter((el) => el.type === 'button');
-  if (topButtons.length > 0 || collectFormStateLines(app, v).length > 0) found.add('Space');
+  // M11：@public 登录/注册页无动作区（全屏卡片）→ 不收动作区组件
+  const isPublicForm = Boolean(app.auth) && isPublicView(v);
+  const topButtons = isPublicForm ? [] : v.elements.filter((el) => el.type === 'button');
+  if ((topButtons.length > 0 || collectFormStateLines(app, v).length > 0) && !isPublicForm) found.add('Space');
   if (foldButtonsPlan(topButtons, 3).folded.length > 0) found.add('Dropdown');
   // 详情只读子表（detail 内 repeat）→ Table（genDetail 隐含产物）
   const hasDetailRepeat = (() => {
@@ -2341,7 +2428,7 @@ function needsDayjs(app: AppNode, v: ViewNode): boolean {
 }
 
 /** form submit={useMutation('x')} → 表单 + 输入（state 已在 pageFile 顶部提升，此处只出 JSX） */
-function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, onCloseExpr?: string, refetchExpr?: string, formId?: string): string {
+function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, string>, onCloseExpr?: string, refetchExpr?: string, formId?: string, authSuccess?: string): string {
   const mutB = el.bindings.find((b) => b.name === 'useMutation');
   if (!mutB) {
     // form 无 submit 绑定：不生成 onSubmit（不能引用不存在的 mutation）
@@ -2399,15 +2486,21 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
     if (attr === 'true') return `<span style={{ color: '#ff4d4f' }}>*</span>`;
     return RequiredStar(app, retEnt, f);
   };
+  // M11：公开页（登录/注册）表单单列全宽（普通表单维持双列栅格）
+  const colSpan = authSuccess ? 24 : 12;
   const inputEls = inputs
     .map((i) => {
       const f = String(i.props.field ?? '');
       if (i.props['derive'] !== undefined) {
         // G2：derive 计算态——渲染层由依赖字段直接计算（readOnly；依赖集=表达式字段状态）
         const dExpr = exprToJs(app, i.props['derive'] as Expr, bodyStruct);
-        return `      <Col span={12}><div style={{ marginBottom: 16 }}><div style={{ marginBottom: 4, fontSize: 13, fontWeight: 500, color: '#262626' }}>${String(i.props.label ?? f)}</div><div style={{ width: '100%' }}><Input readOnly style={{ width: '100%' }} value={String(${dExpr})} /></div></div></Col>`;
+        return `      <Col span={${colSpan}}><div style={{ marginBottom: 16 }}><div style={{ marginBottom: 4, fontSize: 13, fontWeight: 500, color: '#262626' }}>${String(i.props.label ?? f)}</div><div style={{ width: '100%' }}><Input readOnly style={{ width: '100%' }} value={String(${dExpr})} /></div></div></Col>`;
       }
       let jsx = formInputJsx(app, bodyStruct, f);
+      // M11：type="password" → 密码框（遮蔽输入，登录/注册用）
+      if (String(i.props['type'] ?? '') === 'password') {
+        jsx = `<Input.Password placeholder="${String(i.props.label ?? f)}" value={${f}} onChange={(e) => set${cap(f)}(e.target.value)} autoComplete="new-password" />`;
+      }
       // 外键字段 → 引用实体下拉（仅 @ref 声明才出下拉；零推断）
       const fkRef = formFkSelectOf(app, el, bodyStruct, f);
       if (fkRef) {
@@ -2429,7 +2522,7 @@ function genForm(app: AppNode, el: ViewElementNode, queryVars: Map<string, strin
                 `onChange={async (v) => { const raw = v == null ? '' : String(v); set${cap(f)}(raw); try { const r = await api.${carry}(Number(raw)); ${fills} } catch { /* 拉档失败静默，保留手输 */ } }}`,
               );
       }
-      return `      <Col span={12}><div style={{ marginBottom: 16 }}><div style={{ marginBottom: 4, fontSize: 13, fontWeight: 500, color: '#262626' }}>${String(i.props.label ?? f)}${starFor(i, f)}</div><div style={{ width: '100%' }}>${jsx}</div></div></Col>`;
+      return `      <Col span={${colSpan}}><div style={{ marginBottom: 16 }}><div style={{ marginBottom: 4, fontSize: 13, fontWeight: 500, color: '#262626' }}>${String(i.props.label ?? f)}${starFor(i, f)}</div><div style={{ width: '100%' }}>${jsx}</div></div></Col>`;
     })
     .join('\n');
   const repeatEls = repeats
@@ -2537,7 +2630,13 @@ ${cellDefs},
   const innerBtn = el.children.find((c) => c.type === 'button');
   const autoLabel = innerBtn ? String(innerBtn.props.text ?? '提交') : '提交';
   // 提交链：必填拦截 → mutate → 弹窗关闭（父层刷新）/ 非弹窗刷新主查询
+  // M11：登录/注册页 → 成功后写会话/跳转（authSuccess；登录用到返回值 d，注册不需要则省参免 noUnusedLocals）
   const afterMutate = onCloseExpr ? `.then(() => ${onCloseExpr}())` : refetchExpr ? `.then(() => ${refetchExpr})` : '';
+  const successChain = authSuccess
+    ? authSuccess.includes('d?.')
+      ? `.then((d) => { ${authSuccess} })`
+      : `.then(() => { ${authSuccess} })`
+    : '';
   // 抽屉表单：id 供右上角动作区的提交按钮用 form 属性关联；页脚不再重复放保存按钮
   const formOpenTag = formId ? `<form id="${formId}" onSubmit=` : `<form onSubmit=`;
   const footer = formId
@@ -2545,7 +2644,7 @@ ${cellDefs},
     : `\n  <div style={{ textAlign: 'right', marginTop: 8 }}>
     <Button type="primary" htmlType="submit">${autoLabel}</Button>
   </div>`;
-  return `${formOpenTag}{(e) => { e.preventDefault(); ${reqCheck} ${varname}.mutate(${bodyObj})${afterMutate}; }}>
+  return `${formOpenTag}{(e) => { e.preventDefault(); ${reqCheck} ${varname}.mutate(${bodyObj})${successChain}${afterMutate}; }}>
   <Row gutter={16}>\n${inputEls}\n  </Row>
   ${repeatEls}${summaryEls ? '\n' + summaryEls : ''}${footer}
 </form>`;
@@ -2912,8 +3011,13 @@ function detailItemEntityOf(app: AppNode, detailLogicTarget: string | undefined,
 // ---------- App.tsx：路由表 ----------
 
 function routerFile(app: AppNode): GeneratedFile {
+  const displayTitle = app.title ?? cap(app.name);
   // dialog 页面（右侧抽屉）不进路由/菜单：由列表页 openDialog 挂载
-  const routed = app.views.filter((v) => v.viewKind !== 'dialog');
+  const routedAll = app.views.filter((v) => v.viewKind !== 'dialog');
+  // M11：@public 页（登录/注册）→ 独立路由（布局外全屏），不进菜单
+  const routed = app.auth ? routedAll.filter((v) => !isPublicView(v)) : routedAll;
+  const publicViews = app.auth ? routedAll.filter((v) => isPublicView(v)) : [];
+  const auth = app.auth;
   // 详情页（路由带参数 /:id）只进路由不进菜单/首页：由列表行 navigate 进入
   const isDetail = (v: ViewNode): boolean => hasRouteParam(v.elements) || routeParamPages(app).has(v.name);
   const listViews = routed.filter((v) => !isDetail(v));
@@ -2921,7 +3025,8 @@ function routerFile(app: AppNode): GeneratedFile {
     .map((v) => {
       const hasRoute = isDetail(v);
       const path = routePathOf(v) + (hasRoute ? '/:id' : '');
-      return `  <Route path="${path}" element={<${cap(v.name)} />} />`;
+      const element = auth ? `<RequireAuth><${cap(v.name)} /></RequireAuth>` : `<${cap(v.name)} />`;
+      return `  <Route path="${path}" element={${element}} />`;
     })
   // 根路径重定向到第一个列表页（dialog/详情不作为首页）
   const firstView = listViews[0];
@@ -2980,12 +3085,36 @@ function routerFile(app: AppNode): GeneratedFile {
     ])
     .join('\n');
   const imports = routed.map((v) => `import ${cap(v.name)} from './pages/${v.name}';`).join('\n');
-  const navImport = firstRoute ? "import { Navigate } from 'react-router-dom';\n" : '';
+  const publicImports = publicViews.map((v) => `import ${cap(v.name)} from './pages/${v.name}';`).join('\n');
+  const navImport = '';
   const redirect = firstRoute ? `  <Route path="/" element={<Navigate to={HOME_ROUTE} replace />} />\n` : '';
+  // M11：公开路由（登录/注册，布局外全屏）+ 受保护路由包 RequireAuth；顶栏用户区 + 401/退出由 auth.ts 承接
+  const loginPath = auth ? routePathOf({ name: auth.loginPage, viewKind: 'page', elements: [] }) : '/login';
+  const registerPath = auth ? routePathOf({ name: auth.registerPage, viewKind: 'page', elements: [] }) : '/register';
+  const publicRoutes = publicViews
+    .map((v) => `      <Route path="${routePathOf(v)}" element={<AlreadyAuth><${cap(v.name)} /></AlreadyAuth>} />`)
+    .join('\n');
+  const authImports = auth
+    ? `import { Avatar, Dropdown } from 'antd';
+import { DownOutlined, LogoutOutlined } from '@ant-design/icons';
+import { getToken, clearAuth, currentUser } from './auth';
+// M11 鉴权守卫：未登录 → 登录页；已登录访问登录/注册 → 首页
+function RequireAuth({ children }: { children: JSX.Element }) {
+  if (!getToken()) return <Navigate to="${loginPath}" replace />;
+  return children;
+}
+function AlreadyAuth({ children }: { children: JSX.Element }) {
+  if (getToken()) return <Navigate to={HOME_ROUTE} replace />;
+  return children;
+}
+`
+    : '';
+  const publicRoutePaths = publicViews.map((v) => routePathOf(v));
   const content = `// 自动生成：页面路由 + 管理端布局（TDSL page）
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
 ${imports}
+${publicImports ? publicImports + '\n' : ''}${authImports}
 
 const { Header, Sider, Content } = Layout;
 
@@ -3000,10 +3129,26 @@ ${pageModuleJs}
 // 首页：第一个列表页（门户文件声明在前 → 默认落门户）
 const FIRST_ROUTES: string[] = [${firstRoutes}];
 const HOME_ROUTE = FIRST_ROUTES[0] ?? '/';
+${auth ? `const PUBLIC_PATHS: string[] = [${publicRoutePaths.map((p) => `'${p}'`).join(', ')}];` : ''}
 
 export default function App() {
   const nav = useNavigate();
-  const base = '/' + (useLocation().pathname.split('/')[1] ?? '');
+  const loc = useLocation();
+  const base = '/' + (loc.pathname.split('/')[1] ?? '');
+${
+  auth
+    ? `  // 公开页（登录/注册）：布局外全屏渲染
+  if (PUBLIC_PATHS.includes(base)) {
+    return (
+      <Routes>
+${publicRoutes}
+        <Route path="*" element={<Navigate to="${publicRoutePaths[0] ?? loginPath}" replace />} />
+      </Routes>
+    );
+  }
+  const user = currentUser();`
+    : ''
+}
   const current = PAGE_MODULE[base] ?? MODULES[0]?.key ?? '';
   const mod = MODULES.find((m) => m.key === current);
   // 左侧菜单 = 模块直属页面 + 分组子菜单（@menu('模块/分组')）
@@ -3011,30 +3156,42 @@ export default function App() {
   const openKeys = pages.filter((p) => p.children && p.children.length > 0).map((p) => p.key);
   return (
     <Layout style={{ height: '100vh' }}>
-      <Header style={{ background: '#001529', display: 'flex', alignItems: 'center', paddingInline: 24, gap: 32 }}>
-        <span style={{ color: '#fff', fontWeight: 600, fontSize: 16, whiteSpace: 'nowrap' }}>${cap(app.name)} 管理系统</span>
+      <Header style={{ height: 48, lineHeight: '48px', background: '#fff', display: 'flex', alignItems: 'center', paddingInline: 16, gap: 24, borderBottom: '1px solid #f0f0f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+          <div style={{ width: 26, height: 26, borderRadius: 6, background: 'linear-gradient(135deg, #1677ff, #69b1ff)', color: '#fff', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>${cap(app.name).charAt(0).toUpperCase()}</div>
+          <span style={{ color: 'rgba(0, 0, 0, 0.88)', fontWeight: 600, fontSize: 15 }}>${displayTitle}</span>
+        </div>
         <Menu
-          theme="dark"
           mode="horizontal"
           selectedKeys={[current]}
           items={MODULES.map((m) => ({ key: m.key, label: m.label }))}
           onClick={({ key }) => { const m = MODULES.find((x) => x.key === String(key)); const first = m?.pages[0]?.key ?? m?.groups[0]?.children?.[0]?.key; if (first) nav(first); }}
-          style={{ flex: 1, minWidth: 0, background: 'transparent', borderBottom: 'none' }}
+          style={{ flex: 1, minWidth: 0, background: 'transparent', borderBottom: 'none', lineHeight: '46px' }}
         />
+${
+  auth
+    ? `        <Dropdown menu={{ items: [{ key: 'logout', icon: <LogoutOutlined />, label: '退出登录' }], onClick: ({ key }) => { if (key === 'logout') { clearAuth(); nav('${loginPath}'); } } }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 10px', borderRadius: 6, transition: 'background 0.2s' }} onClick={(e) => e.preventDefault()}>
+            <Avatar size={26} style={{ background: 'linear-gradient(135deg, #1677ff, #69b1ff)', fontSize: 13, fontWeight: 600 }}>{(user ?? 'U').charAt(0).toUpperCase()}</Avatar>
+            <span style={{ color: 'rgba(0, 0, 0, 0.88)', fontSize: 13 }}>{user}</span>
+            <DownOutlined style={{ color: '#8c8c8c', fontSize: 10 }} />
+          </div>
+        </Dropdown>`
+    : ''
+}
       </Header>
-      <Layout style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
-        <Sider width={216} style={{ background: '#001529' }} collapsible collapsedWidth={64}>
+      <Layout style={{ height: 'calc(100vh - 48px)', overflow: 'hidden' }}>
+        <Sider width={216} style={{ background: '#fff', borderInlineEnd: '1px solid #f0f0f0' }}>
           <Menu
-            theme="dark"
             mode="inline"
             selectedKeys={[base]}
             defaultOpenKeys={openKeys}
             items={pages}
             onClick={({ key }) => { const k = String(key); if (k.startsWith('/')) nav(k); }}
-            style={{ height: '100%', overflow: 'auto', borderInlineEnd: 'none' }}
+            style={{ height: '100%', overflow: 'auto', borderInlineEnd: 'none', paddingBlock: 8 }}
           />
         </Sider>
-        <Content style={{ height: '100%', padding: 24, background: '#f5f5f5', overflow: 'auto' }}>
+        <Content style={{ height: '100%', padding: 16, background: '#f5f6f8', overflow: 'auto' }}>
           <Routes>
 ${redirect}${routes}
           </Routes>

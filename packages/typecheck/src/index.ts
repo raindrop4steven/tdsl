@@ -48,6 +48,11 @@ export function diagLayerOf(code: string): number {
     case 'CALL-ARITY':
     case 'MEMBER-UNKNOWN':
     case 'RETURN-TYPE':
+    case 'AUTH-USER':
+    case 'AUTH-FIELD':
+    case 'AUTH-PAGE':
+      return DIAG_LAYERS.TYPE;
+    case 'AUTH-UNIQUE':
       return DIAG_LAYERS.TYPE;
     case 'FOREACH-CONTAINER':
     case 'INTERFACE-LOGICREF':
@@ -352,6 +357,9 @@ export function check(app: AppNode, opts: CheckOptions = {}): CheckResult {
   for (const v of app.views) {
     checkView(app, v.elements, diagnostics, ownerPath, exposedLogics);
   }
+
+  // 5.5 @auth 鉴权声明校验（M11）：无 @auth 整体跳过（护栏：既有应用零新诊断）
+  checkAuth(app, diagnostics, ownerPath);
 
   // 6. 文件定位（M7 多文件工程）：按诊断 path 反查所属顶层声明节点的来源文件
   const files = fileMapOf(app);
@@ -1388,6 +1396,63 @@ function knownFrontendIdent(app: AppNode, name: string): boolean {
   if (resolveEntity(app, name)) return true;
   if (app.enums.some((en) => en.name === name)) return true;
   return false;
+}
+
+/** M11 鉴权声明校验（dev/51 §1.3）：@auth 指向实体/字段/页面存在性与类型；无 @auth 零诊断 */
+function checkAuth(
+  app: AppNode,
+  diagnostics: Diagnostic[],
+  ownerPath: (n: BaseNode) => string,
+): void {
+  const auth = app.auth;
+  if (!auth) return;
+  const authPath = 'app.auth';
+  const userEnt = auth.userPath ? resolve(app, auth.userPath) : undefined;
+  const ent = userEnt?.kind === 'Entity' ? (userEnt as EntityNode) : undefined;
+  if (!ent) {
+    diagnostics.push({
+      path: authPath,
+      message: `@auth 用户实体 '${auth.user}' 不存在`,
+      severity: 'error',
+      code: 'AUTH-USER',
+      suggestion: `补 entity ${auth.user} 声明，或修正 @auth(user: '...') 指向已声明实体`,
+    });
+    return; // 实体缺失时字段校验必然级联误报，就此打住
+  }
+  for (const [role, prop] of [['username', auth.usernameProp], ['password', auth.passwordProp]] as const) {
+    const f = ent.properties.find((p) => p.name === prop);
+    if (!f || f.type.kind !== 'primitive' || f.type.builtin !== 'String') {
+      diagnostics.push({
+        path: `${authPath}.${prop}`,
+        message: `@auth ${role} 字段 '${prop}' 必须是实体 ${auth.user} 的 String 字段`,
+        severity: 'error',
+        code: 'AUTH-FIELD',
+        suggestion: `实体 ${auth.user} 声明 ${prop}: String; 并同步 @auth(${role}: '${prop}')`,
+      });
+    }
+  }
+  const usernameField = ent.properties.find((p) => p.name === auth.usernameProp);
+  if (usernameField && !usernameField.unique) {
+    diagnostics.push({
+      path: `${authPath}.${auth.usernameProp}`,
+      message: `建议为 @auth 用户名字段加 @unique（重复注册将无法在前置拦截）`,
+      severity: 'warning',
+      code: 'AUTH-UNIQUE',
+      suggestion: `${auth.usernameProp}: String @unique;`,
+    });
+  }
+  for (const [role, pageName] of [['登录页', auth.loginPage], ['注册页', auth.registerPage]] as const) {
+    const v = app.views.find((x) => x.name === pageName);
+    if (!v || !v.annotations?.some((a) => a.name === 'public')) {
+      diagnostics.push({
+        path: `${authPath}.${role === '登录页' ? 'loginPage' : 'registerPage'}`,
+        message: `@auth ${role} '${pageName}' 不存在或未标 @public`,
+        severity: 'error',
+        code: 'AUTH-PAGE',
+        suggestion: `@public\n@title('...')\npage ${pageName} { ... }`,
+      });
+    }
+  }
 }
 
 function checkFormSemantics(

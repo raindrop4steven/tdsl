@@ -30,6 +30,8 @@ export interface FfiClass {
   alias: string;
   /** 该类是否默认前端可用（个别成员日后可覆盖） */
   frontend?: boolean;
+  /** 平台内置域（如 Auth）：成员模板全限定自洽，import 收集必须跳过（类不存在于产物包） */
+  internal?: boolean;
   members: FfiMethod[];
 }
 
@@ -87,12 +89,23 @@ const LIST_MEMBERS: FfiMethod[] = [
   { name: 'get', params: ['Integer'], ret: 'Object', java: '{recv}.get({0})', js: '{recv}[{0}]' },
 ];
 
+/**
+ * 平台鉴权域（M11，dev/51 §2.2）：密码哈希的平台自有原语（backend-only）。
+ * 地位同 String.trim —— 平台自宿主能力，非第三方坐标（无 maven 字段 → 不触发 pom 注入）；
+ * java 模板指向生成器产出的 ${pkg}.support.PasswordUtil（codegen-java 在 app.auth 存在时生成）。
+ */
+const AUTH_MEMBERS: FfiMethod[] = [
+  { name: 'hash', static: true, params: ['String', 'String'], ret: 'String', java: '__PKG__.support.PasswordUtil.hash({0}, {1})' },
+  { name: 'matches', static: true, params: ['String', 'String', 'String'], ret: 'Boolean', java: '__PKG__.support.PasswordUtil.matches({0}, {1}, {2})' },
+];
+
 export const FFI_CORE: FfiClass[] = [
   { class: 'java.lang.String', alias: 'String', frontend: true, members: STRING_MEMBERS },
   { class: 'java.math.BigDecimal', alias: 'Decimal', members: DECIMAL_MEMBERS },
   { class: 'java.time.LocalDate', alias: 'Date', members: DATE_MEMBERS },
   { class: 'java.time.LocalDateTime', alias: 'DateTime', members: DATETIME_MEMBERS },
   { class: 'java.util.List', alias: 'List', frontend: true, members: LIST_MEMBERS },
+  { class: 'tdsl.auth.Auth', alias: 'Auth', internal: true, members: AUTH_MEMBERS },
 ];
 
 /** 依赖声明坐标（java: g:a:v；npm: name@range 的规整形式） */

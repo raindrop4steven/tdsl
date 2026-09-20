@@ -37,10 +37,10 @@ npm run gen
 
 echo
 echo "──────────────────────────────────────────────"
-echo " 2/5  启动后端（Spring Boot + H2 内存库，:${BACKEND_PORT}）"
+echo " 2/5  启动后端（Spring Boot + MySQL erp，:${BACKEND_PORT}）"
 echo "──────────────────────────────────────────────"
 free_port "$BACKEND_PORT"
-(cd generated/java && mvn -q spring-boot:run > /tmp/yudao-backend.log 2>&1 &)
+(TDSL_BACKEND_PORT="$BACKEND_PORT" npm run backend > /tmp/yudao-backend.log 2>&1 &)
 for i in $(seq 1 90); do
   sleep 2
   code="$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://localhost:${BACKEND_PORT}/healthz" 2>/dev/null || echo 000)"
@@ -50,7 +50,7 @@ done
 
 echo
 echo "──────────────────────────────────────────────"
-echo " 3/5  灌演示数据（产品/库存/采购/销售/CRM 全链路）"
+echo " 3/5  灌演示数据（先登录管理员，再产品/库存/采购/销售/CRM 全链路）"
 echo "──────────────────────────────────────────────"
 npm run seed -- "http://localhost:${BACKEND_PORT}"
 
@@ -71,12 +71,14 @@ echo "────────────────────────�
 echo " 5/5  演示环境就绪 🎉"
 echo "──────────────────────────────────────────────"
 echo "  前端：http://localhost:${FRONTEND_PORT}      （门户/看板 → 列表 → 详情抽屉 → 审批联动）"
-echo "  后端：http://localhost:${BACKEND_PORT}       （REST API；H2 内存库，重启需重新灌数）"
+echo "  后端：http://localhost:${BACKEND_PORT}       （REST API；MySQL 库 erp，数据持久化，重启不丢）"
 echo "  日志：/tmp/yudao-backend.log  /tmp/yudao-frontend.log"
 echo "  停止：npm run stop"
 echo
 echo "  演示动线建议："
+echo "   0) 浏览器打开即到登录页 → 先「注册」一个账号（或用 seed 预置管理员 admin/123456）登录"
 echo "   1) 经营总览（指标卡/轮播/列表）→ 采购入库列表"
 echo "   2) 未审批入库行只剩「审批」→ 点审批 → 库存/流水/订单回写（打开订单详情看 inCount）"
 echo "   3) 销售出库审批：库存不足会被拦截并回滚（业务错误弹窗）"
 echo "   4) 客户列表：公海客户「领取」/ 已锁定客户「编辑」置灰 + 操作成功提示"
+echo "   5) 右上角当前用户 + 退出 → 退出后访问任意页面被守卫拦回登录页"

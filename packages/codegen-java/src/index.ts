@@ -19,7 +19,7 @@ import {
   type StructureNode,
   type VarScope,
 } from '@tdsl/core';
-import { cap, javaType, typeNameFromPath } from './type-map';
+import { cap, javaType, typeNameFromPath, sqlType } from './type-map';
 
 /** app 名转包名：com.<name>；必须为合法 Java 标识符（M7 app 名参数化后防御） */
 function pkgOf(app: AppNode): string {
@@ -286,6 +286,7 @@ export function generateJava(app: AppNode, opts: GenerateJavaOptions = {}): Gene
   const querySpecs = collectQuerySpecs(app);
 
   files.push(...scaffoldFiles(app, opts.libs ?? []));
+  files.push(...schemaFiles(app));
   // 枚举类（实体/结构体/Controller 可能引用，先于实体生成）
   for (const en of app.enums) {
     files.push(enumFile(pkg, en));
@@ -308,6 +309,8 @@ export function generateJava(app: AppNode, opts: GenerateJavaOptions = {}): Gene
   }
   files.push(tdslErrorFile(pkg));
   files.push(tdslAdviceFile(pkg));
+  // M11 鉴权（dev/49-51）：@auth 声明存在才生成鉴权层（AuthToken/拦截器/密码工具/拦截器注册）
+  files.push(...authFiles(app));
   return files;
 }
 
@@ -427,6 +430,42 @@ ${gettersSetters}
 
 // ---------- 工程脚手架 ----------
 
+/**
+ * 建库底稿 db/schema.sql：逐实体 CREATE TABLE。
+ * 交付用途（DBA 建库/审表/文档）：约束与运行时 Hibernate ddl-auto 逐列一致——
+ * @pk → NOT NULL PRIMARY KEY、@nullable 列写 NULL、其余不写 NOT NULL（对齐 F11 注解口径，避免两套表结构分叉）；
+ * 非标量列（List/实体引用，实体属性本不应有）跳过。方言写 H2/MySQL 公共子集；自增由 Hibernate IDENTITY 运行时托管。
+ */
+function schemaFiles(app: AppNode): GeneratedFile[] {
+  const enumNames = app.enums.map((e) => e.name);
+  const parts: string[] = [
+    `-- TDSL schema（建库底稿）：由 TDSL 实体声明生成；与运行时 Hibernate 注解口径逐列一致。`,
+    `-- @pk → PRIMARY KEY；@nullable 列写 NULL（其余未显式 NOT NULL，与 @Column 口径一致）；枚举列 VARCHAR（EnumType.STRING）。`,
+    `-- 方言：H2/MySQL 公共子集。`,
+  ];
+  for (const ds of app.datasources) {
+    for (const ent of ds.entities) {
+      const table = ent.table ?? ent.name.toLowerCase();
+      const name = SQL_RESERVED.has(table) ? `"${table}"` : table;
+      const cols: string[] = [];
+      for (const p of ent.properties) {
+        const sql = sqlType(p.type, enumNames);
+        if (sql === undefined) continue;
+        const frag = `  ${p.name} ${sql}${p.nullable === true ? ' NULL' : ''}${p.primary ? ' NOT NULL PRIMARY KEY' : ''}`;
+        cols.push(frag);
+      }
+      parts.push(`\n-- ${ds.name} · ${ent.name}`);
+      parts.push(`CREATE TABLE IF NOT EXISTS ${name} (\n${cols.join(',\n')}\n);`);
+    }
+  }
+  // M11 鉴权令牌表（框架产物，不对应 TDSL entity）
+  if (app.auth?.userPath) {
+    parts.push(`\n-- 鉴权 · AuthToken（框架层）`);
+    parts.push(`CREATE TABLE IF NOT EXISTS auth_token (\n  id BIGINT NOT NULL PRIMARY KEY,\n  token VARCHAR(64) NOT NULL,\n  userId BIGINT NOT NULL,\n  expiresAt TIMESTAMP NOT NULL\n);`);
+  }
+  return [{ path: 'src/main/resources/db/schema.sql', content: parts.join('\n') + '\n' }];
+}
+
 function scaffoldFiles(app: AppNode, libs: LoadedCatalog[]): GeneratedFile[] {
   const pkg = pkgOf(app);
 
@@ -504,6 +543,11 @@ function scaffoldFiles(app: AppNode, libs: LoadedCatalog[]): GeneratedFile[] {
       <artifactId>h2</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>runtime</scope>
+    </dependency>
 ${serviceDeps}
 ${declaredDeps}
   </dependencies>
@@ -559,12 +603,14 @@ public class HealthController {
   port: \${TDSL_BACKEND_PORT:8080}
 spring:
   datasource:
-    url: jdbc:h2:mem:${app.name}
-    driver-class-name: org.h2.Driver
+    # 默认 H2 内存库（零安装）；设 TDSL_DB_URL 即可切任意库（如 MySQL，驱动已随 pom 提供）
+    url: \${TDSL_DB_URL:jdbc:h2:mem:${app.name}}
+    username: \${TDSL_DB_USER:sa}
+    password: \${TDSL_DB_PASSWORD:}
   jpa:
     hibernate:
       ddl-auto: update
-`,
+# 建库底稿见 db/schema.sql（DBA 审表/交付建库用；开发态表结构由 Hibernate ddl-auto 托管）`,
     },
   ];
 }
@@ -1079,6 +1125,19 @@ function serviceFile(app: AppNode, logic: LogicNode, cat: EffectiveCatalog): Gen
 
   const returnType = logic.returns[0] ? javaType(logic.returns[0].type) : 'void';
 
+  // M11 鉴权（dev/51 §2.2）：login 逻辑（POST /api/auth/* 绑定 + 返回含 token/userId 的 struct）
+  // → 生成「公开包装 + 私有内层」，包装里签发 token 并回填（TDSL 书写面无 token 概念）
+  const authLogin = authLoginInfoOf(app, logic);
+  const authRepoField = authLogin
+    ? `  private final AuthTokenRepository authTokenRepository;`
+    : '';
+  const authRepoCtor = authLogin
+    ? `${ctorParams ? ', ' : ''}AuthTokenRepository authTokenRepository`
+    : '';
+  const authRepoAssign = authLogin
+    ? `    this.authTokenRepository = authTokenRepository;\n`
+    : '';
+
   // 写操作（save/delete）→ 方法加 @Transactional
   const transactional = hasWriteOps(logic) ? '@Transactional\n  ' : '';
   const transactionalImport = hasWriteOps(logic)
@@ -1098,7 +1157,7 @@ function serviceFile(app: AppNode, logic: LogicNode, cat: EffectiveCatalog): Gen
   const imports = [
     'import org.springframework.stereotype.Service;',
     ...(transactionalImport ? [transactionalImport.trim()] : []),
-    ...(usedEntities.size > 0 ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
+    ...(usedEntities.size > 0 || authLogin ? [`import ${pkg}.entity.*;`, `import ${pkg}.repository.*;`] : []),
     ...(app.enums.length > 0 ? [`import ${pkg}.enums.*;`] : []),
     // FFI 目录类 import（logic 体使用的目录类全限定——第三方依赖产物类须显式 import）
     ...(importsForFfiCollect(collectFfiExprsOfLogic(logic), cat)),
@@ -1124,13 +1183,26 @@ ${imports}
 ${serviceApiImport}
 @Service
 public class ${className} {
-${repoFields}${serviceFields ? `\n${serviceFields}` : ''}${logicFields ? `\n${logicFields}` : ''}
+${repoFields}${serviceFields ? `\n${serviceFields}` : ''}${logicFields ? `\n${logicFields}` : ''}${authRepoField ? `\n${authRepoField}` : ''}
 
-  public ${className}(${ctorParams}) {
-${ctorAssign}
+  public ${className}(${ctorParams}${authRepoCtor}) {
+${ctorAssign}${authRepoAssign}
   }
 
-  ${transactional}public ${returnType} ${logic.name}(${methodParams}) {
+  ${transactional}public ${returnType} ${logic.name}(${methodParams}) {${
+    authLogin
+      ? `
+    ${returnType} __result = ${logic.name}Inner(${logic.params.map((p) => p.name).join(', ')});
+    // M11 鉴权：登录成功 → 签发不透明 token 入库并回填（框架注入，TDSL 无感）
+    String __token = java.util.UUID.randomUUID().toString().replace("-", "");
+    authTokenRepository.save(new ${pkg}.entity.AuthToken(__token, __result.getUserId(), java.time.LocalDateTime.now().plusDays(7)));
+    __result.setToken(__token);
+    return __result;
+  }
+
+  private ${returnType} ${logic.name}Inner(${methodParams}) {`
+      : ''
+  }
 ${body}
   }
 }
@@ -1139,6 +1211,34 @@ ${body}
     path: `src/main/java/${pkg.replaceAll('.', '/')}/service/${className}.java`,
     content,
   };
+}
+
+/**
+ * M11：判定某 logic 是否「登录逻辑」→ 需要注入 token 签发。
+ * 显式口径（零推断）：app.auth 存在 && 该 logic 被 POST 且路径以 /api/auth/ 开头的端点绑定
+ * && 返回类型是 struct 且含 token 与 userId 字段（注册返回实体不命中）。
+ */
+function authLoginInfoOf(app: AppNode, logic: LogicNode): boolean {
+  const auth = app.auth;
+  if (!auth?.userPath) return false;
+  const isAuthEndpoint = app.interfaces.some((itf) =>
+    itf.endpoints.some(
+      (ep) => ep.method === 'POST' && ep.path.startsWith('/api/auth/') && ep.logicRef?.split('.').pop() === logic.name,
+    ),
+  );
+  if (!isAuthEndpoint) return false;
+  const ret = logic.returns[0]?.type;
+  if (!ret || ret.kind !== 'reference') return false;
+  const struct = app.structures.find((s) => resolveEntityNameOf(app, ret.path) === s.name);
+  if (!struct) return false;
+  const fields = new Set(struct.properties.map((p) => p.name));
+  return fields.has('token') && fields.has('userId');
+}
+
+/** TypeRef nodePath → 短名（struct 名比对用） */
+function resolveEntityNameOf(app: AppNode, path: string): string | null {
+  const short = path.split('.').pop();
+  return short ?? null;
 }
 
 /** logic 是否含写操作（.save() / .delete() 调用）→ 需要事务 */
@@ -1772,7 +1872,8 @@ function genExpr(
         if (km?.java) {
           let out = km.java;
           e.args.forEach((a, i) => { out = out.replaceAll(`{${i}}`, genExpr(app, a, entities, vars)); });
-          return out.replaceAll('{recv}', '');
+          // __PKG__：平台域模板指向生成器产物 support 类（如 Auth.hash → ${pkg}.support.PasswordUtil）
+          return out.replaceAll('{recv}', '').replaceAll('__PKG__', pkgOf(app));
         }
       }
       // logic 间调用：genContractNo() → genContractNoService.genContractNo(...)（服务字段由 collectUsedLogics 注入）
@@ -1934,8 +2035,182 @@ public class GlobalAdvice {
   };
 }
 
-/** logic 表达式树内的 FFI 类全限定名收集（内核五域 + 依赖产物类）——service import 共用 */
-function collectFfiClassesInExpr(e: Expr, out: Set<string>, cat: EffectiveCatalog): void {
+// ---------- M11 鉴权层（dev/49-51）：@auth 声明存在才生成；无声明零产出（护栏） ----------
+
+/** 鉴权层五件套：AuthToken 实体 + Repository + PasswordUtil + AuthInterceptor + WebMvcConfig */
+function authFiles(app: AppNode): GeneratedFile[] {
+  const auth = app.auth;
+  if (!auth?.userPath) return [];
+  const pkg = pkgOf(app);
+  const pathBase = `src/main/java/${pkg.replaceAll('.', '/')}`;
+
+  const authTokenEntity: GeneratedFile = {
+    path: `${pathBase}/entity/AuthToken.java`,
+    content: `package ${pkg}.entity;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+
+/** M11 鉴权令牌（框架产物，不对应 TDSL entity）：不透明 token → 用户 + 过期时间 */
+@Entity
+@Table(name = "auth_token")
+public class AuthToken {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(unique = true, nullable = false, length = 64)
+  private String token;
+
+  @Column(nullable = false)
+  private Long userId;
+
+  @Column(nullable = false)
+  private LocalDateTime expiresAt;
+
+  public AuthToken() {
+  }
+
+  public AuthToken(String token, Long userId, LocalDateTime expiresAt) {
+    this.token = token;
+    this.userId = userId;
+    this.expiresAt = expiresAt;
+  }
+
+  public Long getId() { return id; }
+
+  public String getToken() { return token; }
+
+  public Long getUserId() { return userId; }
+
+  public LocalDateTime getExpiresAt() { return expiresAt; }
+}
+`,
+  };
+
+  const authTokenRepository: GeneratedFile = {
+    path: `${pathBase}/repository/AuthTokenRepository.java`,
+    content: `package ${pkg}.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import ${pkg}.entity.AuthToken;
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+/** M11 鉴权令牌仓储（框架产物）：按 token 查 + 过期惰性清理 */
+public interface AuthTokenRepository extends JpaRepository<AuthToken, Long> {
+  Optional<AuthToken> findByToken(String token);
+  long deleteByExpiresAtBefore(LocalDateTime time);
+}
+`,
+  };
+
+  const passwordUtil: GeneratedFile = {
+    path: `${pathBase}/support/PasswordUtil.java`,
+    content: `package ${pkg}.support;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
+
+/** M11 密码哈希（框架产物）：SHA-256(raw + ':' + salt) → Base64；盐 = 用户名。零第三方依赖 */
+public final class PasswordUtil {
+
+  private PasswordUtil() {
+  }
+
+  public static String hash(String raw, String salt) {
+    try {
+      MessageDigest md = MessageDigest.getInstance("SHA-256");
+      byte[] digest = md.digest((raw + ":" + salt).getBytes(StandardCharsets.UTF_8));
+      return Base64.getEncoder().encodeToString(digest);
+    } catch (Exception e) {
+      throw new IllegalStateException("password hash failed", e);
+    }
+  }
+
+  public static boolean matches(String raw, String stored, String salt) {
+    return hash(raw, salt).equals(stored);
+  }
+}
+`,
+  };
+
+  const authInterceptor: GeneratedFile = {
+    path: `${pathBase}/support/AuthInterceptor.java`,
+    content: `package ${pkg}.support;
+
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
+import ${pkg}.entity.AuthToken;
+import ${pkg}.repository.AuthTokenRepository;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.time.LocalDateTime;
+
+/** M11 后端鉴权横切（框架产物）：放行名单外一律校验 Bearer token，无效/过期 → 401 */
+@Component
+public class AuthInterceptor implements HandlerInterceptor {
+
+  private final AuthTokenRepository authTokens;
+
+  public AuthInterceptor(AuthTokenRepository authTokens) {
+    this.authTokens = authTokens;
+  }
+
+  @Override
+  public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+    String auth = request.getHeader("Authorization");
+    String token = auth != null && auth.startsWith("Bearer ") ? auth.substring("Bearer ".length()) : null;
+    if (token != null && !token.isEmpty()) {
+      AuthToken t = authTokens.findByToken(token).orElse(null);
+      if (t != null && t.getExpiresAt().isAfter(LocalDateTime.now())) {
+        request.setAttribute("currentUser", t.getUserId());
+        return true;
+      }
+    }
+    response.setStatus(401);
+    response.setContentType("application/json;charset=UTF-8");
+    response.getWriter().write("{\\"message\\":\\"未登录或登录已过期\\"}");
+    return false;
+  }
+}
+`,
+  };
+
+  const webMvcConfig: GeneratedFile = {
+    path: `${pathBase}/support/WebMvcConfig.java`,
+    content: `package ${pkg}.support;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+/** M11 拦截器注册（框架产物）：/healthz 与 /api/auth/** 放行，其余全鉴权 */
+@Configuration
+public class WebMvcConfig implements WebMvcConfigurer {
+
+  private final AuthInterceptor authInterceptor;
+
+  public WebMvcConfig(AuthInterceptor authInterceptor) {
+    this.authInterceptor = authInterceptor;
+  }
+
+  @Override
+  public void addInterceptors(InterceptorRegistry registry) {
+    registry.addInterceptor(authInterceptor)
+        .addPathPatterns("/api/**")
+        .excludePathPatterns("/healthz", "/api/auth/**", "/error");
+  }
+}
+`,
+  };
+
+  return [authTokenEntity, authTokenRepository, passwordUtil, authInterceptor, webMvcConfig];
+}
+
+/** logic 表达式树内的 FFI 类全限定名收集（内核五域 + 依赖产物类）——service import 共用 */function collectFfiClassesInExpr(e: Expr, out: Set<string>, cat: EffectiveCatalog): void {
   if (e.kind === 'Call' && e.callee.kind === 'Member') {
     if (e.callee.obj.kind === 'Ident') {
       const cls = cat.byAlias(e.callee.obj.name);
@@ -1974,5 +2249,7 @@ function collectFfiExprsOfLogic(l: LogicNode): Expr[] {
 function importsForFfiCollect(exprs: Expr[], cat: EffectiveCatalog): string[] {
   const cls = new Set<string>();
   for (const e of exprs) collectFfiClassesInExpr(e, cls, cat);
-  return [...cls].map((c) => `import ${c};`);
+  return [...cls]
+    .filter((c) => !FFI_CORE.some((k) => k.class === c && k.internal))
+    .map((c) => `import ${c};`);
 }
