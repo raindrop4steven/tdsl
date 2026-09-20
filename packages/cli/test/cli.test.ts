@@ -223,3 +223,128 @@ describe('cli dev/32 libs 装载与 bundle-jar 产物头', () => {
     expect(parsed.classes[0].class).toBe('com.alibaba.fastjson2.JSON');
   });
 });
+
+describe('cli check-spec（spec.yaml × tdsl 五维对照）', () => {
+  const SPEC = `system:
+  id: demo
+  name: 演示系统
+  description: 最小 spec
+data:
+  enums:
+    - id: DocStatus
+      name: 单据状态
+      items:
+        - { key: UNAUDIT, label: 未审批 }
+  entities:
+    - id: Product
+      name: 产品
+      fields:
+        - { id: id, name: 主键, type: Integer, required: true }
+        - { id: name, name: 名称, type: String, required: true }
+modules:
+  - id: product
+    name: 产品管理
+    functions:
+      - id: product-crud
+        name: 产品维护
+        pages:
+          - id: productList
+            name: 产品列表
+            kind: list
+            entity: Product
+            query: queryProducts
+            columns: [name]
+            search: [name]
+            buttons:
+              - { id: add, name: 新增产品, scope: page, action: { type: openDialog, target: productForm } }
+              - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteProduct } }
+          - id: productForm
+            name: 产品编辑
+            kind: dialog-form
+            entity: Product
+            fields: [name]
+            buttons:
+              - { id: save, name: 保存, scope: page, action: { type: logic, target: saveProduct } }
+`;
+  const TDSL = `@datasource('defaultDS')
+
+entity Product {
+  id: Integer @pk;
+  name: String;
+}
+
+enum DocStatus { UNAUDIT('未审批') }
+
+struct ProductInput {
+  name: String;
+}
+
+@export
+function queryProducts(): List<Product> {
+  return Product.all;
+}
+
+@export
+function saveProduct(input: ProductInput): Product {
+  const p = new Product();
+  p.name = input.name;
+  p.save();
+  return p;
+}
+
+@export
+function deleteProduct(id: Integer): Boolean {
+  Product.get(id).delete();
+  return true;
+}
+
+interface ProductApi {
+  GET '/api/products' -> queryProducts
+}
+
+@title('产品列表')
+page productList {
+  <input field="name" label="名称" />
+  <table dataSource={useQuery('queryProducts')}>
+    <column field="name" title="名称" />
+    <button text="删除" action={useMutation('deleteProduct', row.id)} />
+  </table>
+  <button text="新增产品" action={openDialog('productForm')} />
+}
+
+@title('产品编辑')
+dialog productForm {
+  <form submit={useMutation('saveProduct')}>
+    <input field="name" label="名称" />
+    <button text="保存" />
+  </form>
+}
+`;
+
+  it('全量覆盖：exit 0 + 覆盖率 100%', () => {
+    const dir = makeDir({ 'spec.yaml': SPEC, 'tdsl/app.tdsl': TDSL });
+    const r = run(['check-spec', dir]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('五维对照零缺口');
+    expect(r.stdout).toContain('覆盖率: 100.0%');
+  });
+
+  it('缺按钮：exit 1 + 缺口清单点名', () => {
+    const dir = makeDir({ 'spec.yaml': SPEC, 'tdsl/app.tdsl': TDSL.replace(`    <button text="删除" action={useMutation('deleteProduct', row.id)} />\n`, '') });
+    const r = run(['check-spec', dir]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain('缺口清单');
+    expect(r.stdout).toContain('按钮「删除」缺失');
+  });
+
+  it('spec 格式错误：exit 2 + 定位到字段', () => {
+    const dir = makeDir({ 'spec.yaml': 'system: 1\ndata: 2\nmodules: 3\n', 'tdsl/app.tdsl': TDSL });
+    const r = run(['check-spec', dir]);
+    expect(r.code).toBe(2);
+    expect(r.stdout).toContain('spec 读取失败');
+  });
+
+  it('help 含 check-spec 命令', () => {
+    expect(HELP).toContain('check-spec');
+  });
+});

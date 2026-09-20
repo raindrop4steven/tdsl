@@ -1,0 +1,264 @@
+// 芋道 ERP · 产品管理：分类/单位/产品 查询·保存·删除 + 接口 + 页面
+
+// ---- 产品分类 ----
+
+@export
+function queryErpProductCategory(name: String, status: ProductStatus): List<ProductCategory> {
+  return ProductCategory.where(name like '%' + name.trim() + '%', status = status).orderBy(sort asc);
+}
+
+@export
+@ok('保存成功')
+function saveErpProductCategory(input: ProductCategoryInput): ProductCategory {
+  const c = new ProductCategory();
+  if (input.id !== null && input.id > 0) {
+    const c = ProductCategory.get(input.id);
+  }
+  c.parentId = input.parentId;
+  c.name = input.name;
+  c.code = input.code;
+  c.sort = input.sort;
+  c.status = input.status;
+  c.save();
+  return c;
+}
+
+@export
+@ok('删除成功')
+function deleteErpProductCategory(id: Integer): Boolean {
+  const c = ProductCategory.get(id);
+  c.delete();
+  return true;
+}
+
+// ---- 产品单位 ----
+
+@export
+function queryErpProductUnit(name: String): List<ProductUnit> {
+  return ProductUnit.where(name like '%' + name.trim() + '%');
+}
+
+@export
+@ok('保存成功')
+function saveErpProductUnit(input: ProductUnitInput): ProductUnit {
+  const u = new ProductUnit();
+  if (input.id !== null && input.id > 0) {
+    const u = ProductUnit.get(input.id);
+  }
+  u.name = input.name;
+  u.status = input.status;
+  u.save();
+  return u;
+}
+
+@export
+@ok('删除成功')
+function deleteErpProductUnit(id: Integer): Boolean {
+  const u = ProductUnit.get(id);
+  u.delete();
+  return true;
+}
+
+// ---- 产品 ----
+
+@export
+function queryErpProduct(name: String, categoryId: Integer, status: ProductStatus): List<Product> {
+  return Product.where(name like '%' + name.trim() + '%', categoryId = categoryId, status = status);
+}
+
+@export
+@ok('保存成功')
+function saveErpProduct(input: ProductInput): Product {
+  const p = new Product();
+  if (input.id !== null && input.id > 0) {
+    const p = Product.get(input.id);
+  }
+  p.name = input.name;
+  p.barCode = input.barCode;
+  p.categoryId = input.categoryId;
+  p.unitId = input.unitId;
+  p.standard = input.standard;
+  p.expiryDay = input.expiryDay;
+  p.weight = input.weight;
+  p.purchasePrice = input.purchasePrice;
+  p.salePrice = input.salePrice;
+  p.minPrice = input.minPrice;
+  p.status = input.status;
+  p.remark = input.remark;
+  p.save();
+  return p;
+}
+
+@export
+@ok('删除成功')
+function deleteErpProduct(id: Integer): Boolean {
+  const p = Product.get(id);
+  p.delete();
+  return true;
+}
+
+interface ProductApi {
+  GET    '/api/erp/product-categories'  -> queryErpProductCategory
+  POST   '/api/erp/product-categories'  -> saveErpProductCategory
+  DELETE '/api/erp/product-categories/{id}' -> deleteErpProductCategory
+  GET    '/api/erp/product-units'       -> queryErpProductUnit
+  POST   '/api/erp/product-units'       -> saveErpProductUnit
+  DELETE '/api/erp/product-units/{id}'  -> deleteErpProductUnit
+  GET    '/api/erp/products'            -> queryErpProduct
+  GET    '/api/erp/products/{id}'       -> getErpProduct
+  POST   '/api/erp/products'            -> saveErpProduct
+  DELETE '/api/erp/products/{id}'       -> deleteErpProduct
+  GET    '/api/erp/suppliers'           -> queryErpSupplier
+  POST   '/api/erp/suppliers'           -> saveErpSupplier
+  DELETE '/api/erp/suppliers/{id}'      -> deleteErpSupplier
+}
+
+// ---- 供应商 ----
+
+@export
+function queryErpSupplier(name: String, status: ProductStatus): List<Supplier> {
+  return Supplier.where(name like '%' + name.trim() + '%', status = status).orderBy(id asc);
+}
+
+@export
+@ok('保存成功')
+function saveErpSupplier(input: SupplierInput): Supplier {
+  const s = new Supplier();
+  if (input.id !== null && input.id > 0) {
+    const s = Supplier.get(input.id);
+  }
+  s.name = input.name;
+  s.mobile = input.mobile;
+  s.telephone = input.telephone;
+  s.fax = input.fax;
+  s.email = input.email;
+  s.areaId = input.areaId;
+  s.detailAddress = input.detailAddress;
+  s.remark = input.remark;
+  s.status = input.status;
+  s.save();
+  return s;
+}
+
+@export
+@ok('删除成功')
+function deleteErpSupplier(id: Integer): Boolean {
+  const s = Supplier.get(id);
+  s.delete();
+  return true;
+}
+
+// ---- 页面 ----
+
+@title('产品分类列表')
+@menu('产品管理')
+page erpProductCategoryList {
+  <input field="name" label="分类名称" />
+  <input field="status" label="启用状态" />
+  <table dataSource={useQuery('queryErpProductCategory')}>
+    <column field="name" title="分类名称" />
+    <column field="code" title="分类编码" />
+    <column field="sort" title="排序" />
+    <column field="status" title="启用状态" />
+    <button text="编辑" action={openDialog('erpProductCategoryForm', row)} />
+    <button text="删除" action={useMutation('deleteErpProductCategory', row.id)} />
+  </table>
+  <button text="新增分类" action={openDialog('erpProductCategoryForm')} />
+}
+
+@title('产品分类编辑')
+@menu('产品管理')
+dialog erpProductCategoryForm {
+  <form submit={useMutation('saveErpProductCategory')}>
+    <input field="parentId" label="父分类" />
+    <input field="name" label="分类名称" />
+    <input field="code" label="分类编码" />
+    <input field="sort" label="排序" />
+    <input field="status" label="启用状态" />
+    <button text="保存" />
+  </form>
+}
+
+@title('产品单位列表')
+@menu('产品管理')
+page erpProductUnitList {
+  <input field="name" label="单位名称" />
+  <table dataSource={useQuery('queryErpProductUnit')}>
+    <column field="name" title="单位名称" />
+    <column field="status" title="启用状态" />
+    <button text="编辑" action={openDialog('erpProductUnitForm', row)} />
+    <button text="删除" action={useMutation('deleteErpProductUnit', row.id)} />
+  </table>
+  <button text="新增单位" action={openDialog('erpProductUnitForm')} />
+}
+
+@title('产品单位编辑')
+@menu('产品管理')
+dialog erpProductUnitForm {
+  <form submit={useMutation('saveErpProductUnit')}>
+    <input field="name" label="单位名称" />
+    <input field="status" label="启用状态" />
+    <button text="保存" />
+  </form>
+}
+
+@title('产品列表')
+@menu('产品管理')
+page erpProductList {
+  <input field="name" label="产品名称" />
+  <input field="categoryId" label="产品分类" />
+  <input field="status" label="启用状态" />
+  <table dataSource={useQuery('queryErpProduct')}>
+    <column field="name" title="产品名称" />
+    <column field="barCode" title="条形码" />
+    <column field="categoryId" title="产品分类" />
+    <column field="unitId" title="产品单位" />
+    <column field="standard" title="规格型号" />
+    <column field="purchasePrice" title="采购价" />
+    <column field="salePrice" title="销售价" />
+    <column field="status" title="启用状态" />
+    <button text="编辑" action={openDialog('erpProductForm', row)} />
+    <button text="删除" action={useMutation('deleteErpProduct', row.id)} />
+    <button text="详情" action={openDialog('erpProductDetail', row)} />
+  </table>
+  <button text="新增产品" action={openDialog('erpProductForm')} />
+}
+
+@title('产品编辑')
+@menu('产品管理')
+dialog erpProductForm {
+  <form submit={useMutation('saveErpProduct')}>
+    <input field="name" label="产品名称" />
+    <input field="barCode" label="条形码" />
+    <input field="categoryId" label="产品分类" />
+    <input field="unitId" label="产品单位" />
+    <input field="standard" label="规格型号" />
+    <input field="expiryDay" label="保质期天数" />
+    <input field="weight" label="重量" />
+    <input field="purchasePrice" label="采购价" />
+    <input field="salePrice" label="销售价" />
+    <input field="minPrice" label="最低售价" />
+    <input field="status" label="启用状态" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}
+
+@export
+function getErpProduct(id: Integer): Product {
+  return Product.get(id);
+}
+
+@title('产品详情')
+@menu('产品管理')
+dialog erpProductDetail {
+  <detail dataSource={useQuery('getErpProduct', initial.id)}>
+    <text field="name" title="产品名称" />
+    <text field="barCode" title="条形码" />
+    <text field="salePrice" title="销售价" />
+    <text field="purchasePrice" title="采购价" />
+    <text field="standard" title="规格" />
+    <text field="remark" title="备注" />
+  </detail>
+  <button text="编辑" action={openDialog('erpProductForm', row)} />
+}

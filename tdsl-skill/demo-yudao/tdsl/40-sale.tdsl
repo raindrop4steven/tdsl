@@ -1,0 +1,831 @@
+// 芋道 ERP · 销售管理：销售订单/销售出库/销售退货/销售收款（主子表 + 审批/反审批流转 + 详情）
+
+// ---- 销售订单 ----
+
+@export
+function queryErpSaleOrder(no: String, status: DocStatus, customerId: Integer): List<SaleOrder> {
+  return SaleOrder.where(no like '%' + no.trim() + '%', status = status, customerId = customerId).orderBy(id desc);
+}
+
+@export
+@ok('保存成功')
+function saveErpSaleOrder(input: SaleOrderInput): SaleOrder {
+  const b = new SaleOrder();
+  if (input.id !== null && input.id > 0) {
+    const b = SaleOrder.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.orderTime = input.orderTime;
+  b.customerId = input.customerId;
+  b.accountId = input.accountId;
+  b.saleUserId = input.saleUserId;
+  b.discountPercent = input.discountPercent;
+  b.discountPrice = input.discountPrice;
+  b.depositPrice = input.depositPrice;
+  b.fileUrl = input.fileUrl;
+  b.remark = input.remark;
+  b.totalCount = 0;
+  b.totalProductPrice = 0;
+  b.totalPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of SaleOrderItem.where(orderId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new SaleOrderItem();
+      item.orderId = b.id;
+      item.productId = it.productId;
+      item.productUnitId = it.productUnitId;
+      item.productPrice = it.productPrice;
+      item.count = it.count;
+      item.totalPrice = it.productPrice * it.count;
+      item.taxPercent = it.taxPercent;
+      item.remark = it.remark;
+      item.save();
+      b.totalCount = b.totalCount + it.count;
+      b.totalProductPrice = b.totalProductPrice + it.productPrice * it.count;
+    }
+    b.totalPrice = b.totalProductPrice - b.discountPrice;
+    b.save();
+  }
+  return b;
+}
+
+@export
+@ok('删除成功')
+function deleteErpSaleOrder(id: Integer): Boolean {
+  const b = SaleOrder.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批订单不可删除';
+  }
+  for (const it of SaleOrderItem.where(orderId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+@ok('审批完成')
+function auditErpSaleOrder(id: Integer): Boolean {
+  const b = SaleOrder.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批订单可审批';
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+@ok('已反审批')
+function deauditErpSaleOrder(id: Integer): Boolean {
+  const b = SaleOrder.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批订单可反审批';
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+// ---- 销售出库 ----
+
+@export
+function queryErpSaleOut(no: String, status: DocStatus, customerId: Integer): List<SaleOut> {
+  return SaleOut.where(no like '%' + no.trim() + '%', status = status, customerId = customerId).orderBy(id desc);
+}
+
+@export
+@ok('保存成功')
+function saveErpSaleOut(input: SaleOutInput): SaleOut {
+  const b = new SaleOut();
+  if (input.id !== null && input.id > 0) {
+    const b = SaleOut.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.outTime = input.outTime;
+  b.customerId = input.customerId;
+  b.accountId = input.accountId;
+  b.saleUserId = input.saleUserId;
+  b.orderId = input.orderId;
+  b.orderNo = input.orderNo;
+  b.otherPrice = input.otherPrice;
+  b.fileUrl = input.fileUrl;
+  b.remark = input.remark;
+  b.totalCount = 0;
+  b.totalProductPrice = 0;
+  b.totalPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of SaleOutItem.where(outId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new SaleOutItem();
+      item.outId = b.id;
+      item.warehouseId = it.warehouseId;
+      item.productId = it.productId;
+      item.productUnitId = it.productUnitId;
+      item.productPrice = it.productPrice;
+      item.count = it.count;
+      item.totalPrice = it.productPrice * it.count;
+      item.taxPercent = it.taxPercent;
+      item.remark = it.remark;
+      item.save();
+      b.totalCount = b.totalCount + it.count;
+      b.totalProductPrice = b.totalProductPrice + it.productPrice * it.count;
+    }
+    b.discountPrice = 0;
+    b.totalPrice = b.totalProductPrice - b.discountPrice + b.otherPrice;
+    b.save();
+  }
+  return b;
+}
+
+@export
+@ok('删除成功')
+function deleteErpSaleOut(id: Integer): Boolean {
+  const b = SaleOut.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批出库单不可删除';
+  }
+  for (const it of SaleOutItem.where(outId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+@ok('审批完成')
+function auditErpSaleOut(id: Integer): Boolean {
+  const b = SaleOut.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批出库单可审批';
+  }
+  // 库存联动：校验后逐明细出库（不足抛错回滚）
+  for (const it of SaleOutItem.where(outId = id)) {
+    applyStock(it.productId, it.warehouseId, 0 - it.count, StockRecordBizType.SALE_OUT, id, b.no);
+  }
+  // 回写来源销售订单：明细已出库数 + 订单累计；累计到总量 → 订单完成
+  if (b.orderId !== null) {
+    const order = SaleOrder.get(b.orderId);
+    for (const it of SaleOutItem.where(outId = id)) {
+      const oi = SaleOrderItem.where(orderId = b.orderId, productId = it.productId);
+      for (const o of oi) {
+        if (o.outCount === null) {
+          o.outCount = it.count;
+        } else {
+          o.outCount = o.outCount + it.count;
+        }
+        o.save();
+      }
+      if (order.outCount === null) {
+        order.outCount = it.count;
+      } else {
+        order.outCount = order.outCount + it.count;
+      }
+    }
+    if (order.totalCount !== null && order.outCount >= order.totalCount) {
+      order.status = DocStatus.AUDITED;
+    }
+    order.save();
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+@ok('已反审批')
+function deauditErpSaleOut(id: Integer): Boolean {
+  const b = SaleOut.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批出库单可反审批';
+  }
+  for (const it of SaleOutItem.where(outId = id)) {
+    applyStock(it.productId, it.warehouseId, it.count, StockRecordBizType.SALE_OUT_CANCEL, id, b.no);
+  }
+  if (b.orderId !== null) {
+    const order = SaleOrder.get(b.orderId);
+    for (const it of SaleOutItem.where(outId = id)) {
+      for (const o of SaleOrderItem.where(orderId = b.orderId, productId = it.productId)) {
+        if (o.outCount !== null) {
+          o.outCount = o.outCount - it.count;
+        }
+        o.save();
+      }
+      if (order.outCount !== null) {
+        order.outCount = order.outCount - it.count;
+      }
+    }
+    order.status = DocStatus.UNAUDIT;
+    order.save();
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+// ---- 销售退货 ----
+
+@export
+function queryErpSaleReturn(no: String, status: DocStatus, customerId: Integer): List<SaleReturn> {
+  return SaleReturn.where(no like '%' + no.trim() + '%', status = status, customerId = customerId).orderBy(id desc);
+}
+
+@export
+@ok('保存成功')
+function saveErpSaleReturn(input: SaleReturnInput): SaleReturn {
+  const b = new SaleReturn();
+  if (input.id !== null && input.id > 0) {
+    const b = SaleReturn.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.returnTime = input.returnTime;
+  b.customerId = input.customerId;
+  b.accountId = input.accountId;
+  b.saleUserId = input.saleUserId;
+  b.orderId = input.orderId;
+  b.orderNo = input.orderNo;
+  b.otherPrice = input.otherPrice;
+  b.fileUrl = input.fileUrl;
+  b.remark = input.remark;
+  b.totalCount = 0;
+  b.totalProductPrice = 0;
+  b.totalPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of SaleReturnItem.where(returnId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new SaleReturnItem();
+      item.returnId = b.id;
+      item.warehouseId = it.warehouseId;
+      item.productId = it.productId;
+      item.productUnitId = it.productUnitId;
+      item.productPrice = it.productPrice;
+      item.count = it.count;
+      item.totalPrice = it.productPrice * it.count;
+      item.taxPercent = it.taxPercent;
+      item.remark = it.remark;
+      item.save();
+      b.totalCount = b.totalCount + it.count;
+      b.totalProductPrice = b.totalProductPrice + it.productPrice * it.count;
+    }
+    b.discountPrice = 0;
+    b.totalPrice = b.totalProductPrice - b.discountPrice + b.otherPrice;
+    b.save();
+  }
+  return b;
+}
+
+@export
+@ok('删除成功')
+function deleteErpSaleReturn(id: Integer): Boolean {
+  const b = SaleReturn.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批退货单不可删除';
+  }
+  for (const it of SaleReturnItem.where(returnId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+@ok('审批完成')
+function auditErpSaleReturn(id: Integer): Boolean {
+  const b = SaleReturn.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批退货单可审批';
+  }
+  // 库存联动：销售退货入库
+  for (const it of SaleReturnItem.where(returnId = id)) {
+    applyStock(it.productId, it.warehouseId, it.count, StockRecordBizType.SALE_RETURN, id, b.no);
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+@ok('已反审批')
+function deauditErpSaleReturn(id: Integer): Boolean {
+  const b = SaleReturn.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批退货单可反审批';
+  }
+  for (const it of SaleReturnItem.where(returnId = id)) {
+    applyStock(it.productId, it.warehouseId, 0 - it.count, StockRecordBizType.SALE_RETURN_CANCEL, id, b.no);
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+// ---- 销售收款 ----
+
+@export
+function queryErpSaleReceipt(no: String, status: DocStatus, customerId: Integer): List<FinanceReceipt> {
+  return FinanceReceipt.where(no like '%' + no.trim() + '%', status = status, customerId = customerId).orderBy(id desc);
+}
+
+@export
+@ok('保存成功')
+function saveErpSaleReceipt(input: FinanceReceiptInput): FinanceReceipt {
+  const b = new FinanceReceipt();
+  if (input.id !== null && input.id > 0) {
+    const b = FinanceReceipt.get(input.id);
+  }
+  b.no = input.no;
+  b.status = DocStatus.UNAUDIT;
+  b.receiptTime = input.receiptTime;
+  b.customerId = input.customerId;
+  b.accountId = input.accountId;
+  b.financeUserId = input.financeUserId;
+  b.discountPrice = input.discountPrice;
+  b.remark = input.remark;
+  b.totalPrice = 0;
+  b.receiptPrice = 0;
+  b.save();
+  if (input.items.count > 0) {
+    for (const ol of FinanceReceiptItem.where(receiptId = b.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new FinanceReceiptItem();
+      item.receiptId = b.id;
+      item.bizType = it.bizType;
+      item.bizId = it.bizId;
+      item.bizNo = it.bizNo;
+      item.totalPrice = it.totalPrice;
+      item.receiptedPrice = it.receiptedPrice;
+      item.receiptPrice = it.receiptPrice;
+      item.remark = it.remark;
+      item.save();
+      b.totalPrice = b.totalPrice + it.totalPrice;
+      b.receiptPrice = b.receiptPrice + it.receiptPrice;
+    }
+    b.save();
+  }
+  return b;
+}
+
+@export
+@ok('删除成功')
+function deleteErpSaleReceipt(id: Integer): Boolean {
+  const b = FinanceReceipt.get(id);
+  if (b.status === DocStatus.AUDITED) {
+    throw '已审批收款单不可删除';
+  }
+  for (const it of FinanceReceiptItem.where(receiptId = id)) {
+    it.delete();
+  }
+  b.delete();
+  return true;
+}
+
+@export
+@ok('审批完成')
+function auditErpSaleReceipt(id: Integer): Boolean {
+  const b = FinanceReceipt.get(id);
+  if (b.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批收款单可审批';
+  }
+  // 核销：按明细关联单号回写出库单已收金额
+  for (const it of FinanceReceiptItem.where(receiptId = id)) {
+    for (const got of SaleOut.where(no = it.bizNo)) {
+      if (got.receiptPrice === null) {
+        got.receiptPrice = it.receiptPrice;
+      } else {
+        got.receiptPrice = got.receiptPrice + it.receiptPrice;
+      }
+      got.save();
+    }
+  }
+  b.status = DocStatus.AUDITED;
+  b.save();
+  return true;
+}
+
+@export
+@ok('已反审批')
+function deauditErpSaleReceipt(id: Integer): Boolean {
+  const b = FinanceReceipt.get(id);
+  if (b.status !== DocStatus.AUDITED) {
+    throw '仅已审批收款单可反审批';
+  }
+  for (const it of FinanceReceiptItem.where(receiptId = id)) {
+    for (const got of SaleOut.where(no = it.bizNo)) {
+      if (got.receiptPrice !== null) {
+        got.receiptPrice = got.receiptPrice - it.receiptPrice;
+      }
+      got.save();
+    }
+  }
+  b.status = DocStatus.UNAUDIT;
+  b.save();
+  return true;
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpSaleOrderItems(orderId: Integer): List<SaleOrderItem> {
+  return SaleOrderItem.where(orderId = orderId);
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpSaleReturnItems(returnId: Integer): List<SaleReturnItem> {
+  return SaleReturnItem.where(returnId = returnId);
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpSaleReceiptItems(receiptId: Integer): List<FinanceReceiptItem> {
+  return FinanceReceiptItem.where(receiptId = receiptId);
+}
+
+interface SaleApi {
+  GET    '/api/erp/sale-orders/{orderId}/items' -> queryErpSaleOrderItems
+  GET    '/api/erp/sale-returns/{returnId}/items' -> queryErpSaleReturnItems
+  GET    '/api/erp/sale-receipts/{receiptId}/items' -> queryErpSaleReceiptItems
+  GET    '/api/erp/sale-orders'             -> queryErpSaleOrder
+  GET    '/api/erp/sale-orders/{id}'        -> getErpSaleOrder
+  POST   '/api/erp/sale-orders'             -> saveErpSaleOrder
+  DELETE '/api/erp/sale-orders/{id}'        -> deleteErpSaleOrder
+  POST   '/api/erp/sale-orders/{id}/audit'  -> auditErpSaleOrder
+  POST   '/api/erp/sale-orders/{id}/deaudit' -> deauditErpSaleOrder
+  GET    '/api/erp/sale-outs'               -> queryErpSaleOut
+  GET    '/api/erp/sale-outs/{id}/detail'   -> getErpSaleOutDetail
+  POST   '/api/erp/sale-outs'               -> saveErpSaleOut
+  DELETE '/api/erp/sale-outs/{id}'          -> deleteErpSaleOut
+  POST   '/api/erp/sale-outs/{id}/audit'    -> auditErpSaleOut
+  POST   '/api/erp/sale-outs/{id}/deaudit'  -> deauditErpSaleOut
+  GET    '/api/erp/sale-returns'            -> queryErpSaleReturn
+  GET    '/api/erp/sale-returns/{id}'       -> getErpSaleReturn
+  POST   '/api/erp/sale-returns'            -> saveErpSaleReturn
+  DELETE '/api/erp/sale-returns/{id}'       -> deleteErpSaleReturn
+  POST   '/api/erp/sale-returns/{id}/audit' -> auditErpSaleReturn
+  POST   '/api/erp/sale-returns/{id}/deaudit' -> deauditErpSaleReturn
+  GET    '/api/erp/sale-receipts'           -> queryErpSaleReceipt
+  GET    '/api/erp/sale-receipts/{id}'      -> getErpSaleReceipt
+  POST   '/api/erp/sale-receipts'           -> saveErpSaleReceipt
+  DELETE '/api/erp/sale-receipts/{id}'      -> deleteErpSaleReceipt
+  POST   '/api/erp/sale-receipts/{id}/audit' -> auditErpSaleReceipt
+  POST   '/api/erp/sale-receipts/{id}/deaudit' -> deauditErpSaleReceipt
+}
+
+// ---- 页面 ----
+
+@title('销售订单列表')
+@menu('销售管理')
+page erpSaleOrderList {
+  <input field="no" label="销售单号" />
+  <input field="status" label="单据状态" />
+  <input field="customerId" label="客户" />
+  <table dataSource={useQuery('queryErpSaleOrder')}>
+    <column field="no" title="销售单号" />
+    <column field="status" title="单据状态" />
+    <column field="orderTime" title="下单时间" />
+    <column field="customerId" title="客户" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="depositPrice" title="定金金额" />
+    <button text="编辑" action={openDialog('erpSaleOrderForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
+    <button text="删除" action={useMutation('deleteErpSaleOrder', row.id)} />
+    <button text="审批" action={useMutation('auditErpSaleOrder', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpSaleOrder', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
+    <button text="详情" action={openDialog('erpSaleOrderDetail', row)} />
+  </table>
+  <button text="新增销售订单" action={openDialog('erpSaleOrderForm')} />
+}
+
+@title('销售订单编辑')
+@menu('销售管理')
+dialog erpSaleOrderForm {
+  <form submit={useMutation('saveErpSaleOrder')}>
+    <input field="no" label="销售单号" />
+    <input field="orderTime" label="下单时间" />
+    <input field="customerId" label="客户" />
+    <input field="accountId" label="结算账户" />
+    <input field="saleUserId" label="销售员" />
+    <input field="discountPercent" label="优惠率" />
+    <input field="discountPrice" label="优惠金额" />
+    <input field="depositPrice" label="定金金额" />
+    <input field="fileUrl" label="附件" />
+    <input field="remark" label="备注" />
+    <repeat field="items" dataSource={useQuery('queryErpSaleOrderItems', initial.id)}>
+      <input field="productId" label="产品" />
+      <input field="productUnitId" label="产品单位" />
+      <input field="productPrice" label="产品单价" />
+      <input field="count" label="数量" />
+      <input field="taxPercent" label="税率" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@export
+function getErpSaleOrder(id: Integer): SaleOrder {
+  return SaleOrder.get(id);
+}
+
+@title('销售订单详情')
+@menu('销售管理')
+dialog erpSaleOrderDetail {
+  <detail dataSource={useQuery('getErpSaleOrder', initial.id)}>
+    <text field="no" title="销售单号" />
+    <text field="orderTime" title="下单时间" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="totalCount" title="总数量" />
+    <text field="depositPrice" title="定金" />
+    <text field="remark" title="备注" />
+  </detail>
+  <button text="编辑" action={openDialog('erpSaleOrderForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpSaleOrder', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpSaleOrder', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
+}
+
+@title('销售出库列表')
+@menu('销售管理')
+page erpSaleOutList {
+  <input field="no" label="出库单号" />
+  <input field="status" label="单据状态" />
+  <input field="customerId" label="客户" />
+  <table dataSource={useQuery('queryErpSaleOut')}>
+    <column field="no" title="出库单号" />
+    <column field="status" title="单据状态" />
+    <column field="outTime" title="出库时间" />
+    <column field="customerId" title="客户" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="receiptPrice" title="已收金额" />
+    <button text="编辑" action={openDialog('erpSaleOutForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
+    <button text="删除" action={useMutation('deleteErpSaleOut', row.id)} />
+    <button text="审批" action={useMutation('auditErpSaleOut', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpSaleOut', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
+    <button text="详情" action={openDialog('erpSaleOutDetail', row)} />
+  </table>
+  <button text="新增出库单" action={openDialog('erpSaleOutForm')} />
+}
+
+@title('销售出库编辑')
+@menu('销售管理')
+dialog erpSaleOutForm {
+  <form submit={useMutation('saveErpSaleOut')}>
+    <input field="no" label="出库单号" />
+    <input field="outTime" label="出库时间" />
+    <input field="customerId" label="客户" />
+    <input field="accountId" label="结算账户" />
+    <input field="saleUserId" label="销售员" />
+    <input field="orderId" label="关联销售订单" />
+    <input field="orderNo" label="关联单号" />
+    <input field="otherPrice" label="其它费用" />
+    <input field="fileUrl" label="附件" />
+    <input field="remark" label="备注" />
+    <repeat field="items" dataSource={useQuery('getErpSaleOutDetail', initial.id)}>
+      <input field="warehouseId" label="仓库" />
+      <input field="productId" label="产品" />
+      <input field="productUnitId" label="产品单位" />
+      <input field="productPrice" label="产品单价" />
+      <input field="count" label="数量" />
+      <input field="taxPercent" label="税率" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+// 详情 DTO 扁平化（主表字段 + items）：详情抽屉可直接把 row 传给编辑表单做预填
+struct SaleOutDetail {
+  id: Integer;
+  no: String;
+  status: DocStatus;
+  outTime: DateTime;
+  customerId: Integer;
+  accountId: Integer;
+  saleUserId: Integer;
+  orderId: Integer;
+  orderNo: String;
+  otherPrice: Decimal;
+  fileUrl: String;
+  totalPrice: Decimal;
+  receiptPrice: Decimal;
+  remark: String;
+  items: List<SaleOutItem>;
+}
+
+@export
+function getErpSaleOutDetail(id: Integer): SaleOutDetail {
+  const b = SaleOut.get(id);
+  const d = new SaleOutDetail();
+  d.id = b.id;
+  d.no = b.no;
+  d.status = b.status;
+  d.outTime = b.outTime;
+  d.customerId = b.customerId;
+  d.accountId = b.accountId;
+  d.saleUserId = b.saleUserId;
+  d.orderId = b.orderId;
+  d.orderNo = b.orderNo;
+  d.otherPrice = b.otherPrice;
+  d.fileUrl = b.fileUrl;
+  d.totalPrice = b.totalPrice;
+  d.receiptPrice = b.receiptPrice;
+  d.remark = b.remark;
+  d.items = SaleOutItem.where(outId = id);
+  return d;
+}
+
+@title('销售出库详情')
+@menu('销售管理')
+dialog erpSaleOutDetail {
+  <detail dataSource={useQuery('getErpSaleOutDetail', initial.id)}>
+    <text field="no" title="出库单号" />
+    <text field="outTime" title="出库时间" />
+    <text field="orderNo" title="关联单号" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="receiptPrice" title="已收金额" />
+    <text field="remark" title="备注" />
+    <repeat field="items" title="出库明细">
+      <column field="productId" title="产品" />
+      <column field="warehouseId" title="仓库" />
+      <column field="productUnitId" title="单位" />
+      <column field="productPrice" title="单价" />
+      <column field="count" title="数量" />
+      <column field="taxPercent" title="税率" />
+    </repeat>
+  </detail>
+  <button text="编辑" action={openDialog('erpSaleOutForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpSaleOut', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpSaleOut', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
+}
+
+@title('销售退货列表')
+@menu('销售管理')
+page erpSaleReturnList {
+  <input field="no" label="退货单号" />
+  <input field="status" label="单据状态" />
+  <input field="customerId" label="客户" />
+  <table dataSource={useQuery('queryErpSaleReturn')}>
+    <column field="no" title="退货单号" />
+    <column field="status" title="单据状态" />
+    <column field="returnTime" title="退货时间" />
+    <column field="customerId" title="客户" />
+    <column field="totalPrice" title="优惠后金额" />
+    <column field="refundPrice" title="退款金额" />
+    <button text="编辑" action={openDialog('erpSaleReturnForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
+    <button text="删除" action={useMutation('deleteErpSaleReturn', row.id)} />
+    <button text="审批" action={useMutation('auditErpSaleReturn', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpSaleReturn', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
+    <button text="详情" action={openDialog('erpSaleReturnDetail', row)} />
+  </table>
+  <button text="新增退货单" action={openDialog('erpSaleReturnForm')} />
+}
+
+@title('销售退货编辑')
+@menu('销售管理')
+dialog erpSaleReturnForm {
+  <form submit={useMutation('saveErpSaleReturn')}>
+    <input field="no" label="退货单号" />
+    <input field="returnTime" label="退货时间" />
+    <input field="customerId" label="客户" />
+    <input field="accountId" label="结算账户" />
+    <input field="saleUserId" label="销售员" />
+    <input field="orderId" label="关联销售订单" />
+    <input field="orderNo" label="关联单号" />
+    <input field="otherPrice" label="其它费用" />
+    <input field="fileUrl" label="附件" />
+    <input field="remark" label="备注" />
+    <repeat field="items" dataSource={useQuery('queryErpSaleReturnItems', initial.id)}>
+      <input field="warehouseId" label="仓库" />
+      <input field="productId" label="产品" />
+      <input field="productUnitId" label="产品单位" />
+      <input field="productPrice" label="产品单价" />
+      <input field="count" label="数量" />
+      <input field="taxPercent" label="税率" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@export
+function getErpSaleReturn(id: Integer): SaleReturn {
+  return SaleReturn.get(id);
+}
+
+@title('销售退货详情')
+@menu('销售管理')
+dialog erpSaleReturnDetail {
+  <detail dataSource={useQuery('getErpSaleReturn', initial.id)}>
+    <text field="no" title="退货单号" />
+    <text field="returnTime" title="退货时间" />
+    <text field="orderNo" title="关联单号" />
+    <text field="totalPrice" title="优惠后金额" />
+    <text field="refundPrice" title="退款金额" />
+    <text field="remark" title="备注" />
+  </detail>
+  <button text="编辑" action={openDialog('erpSaleReturnForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpSaleReturn', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpSaleReturn', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
+}
+
+@title('销售收款单列表')
+@menu('销售管理')
+page erpSaleReceiptList {
+  <input field="no" label="收款单号" />
+  <input field="status" label="单据状态" />
+  <input field="customerId" label="客户" />
+  <table dataSource={useQuery('queryErpSaleReceipt')}>
+    <column field="no" title="收款单号" />
+    <column field="status" title="单据状态" />
+    <column field="receiptTime" title="收款时间" />
+    <column field="customerId" title="客户" />
+    <column field="accountId" title="结算账户" />
+    <column field="totalPrice" title="应收金额" />
+    <column field="receiptPrice" title="实收金额" />
+    <button text="编辑" action={openDialog('erpSaleReceiptForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />
+    <button text="删除" action={useMutation('deleteErpSaleReceipt', row.id)} />
+    <button text="审批" action={useMutation('auditErpSaleReceipt', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />
+    <button text="反审批" action={useMutation('deauditErpSaleReceipt', row.id)}
+            visible={row.status === DocStatus.AUDITED} />
+    <button text="详情" action={openDialog('erpSaleReceiptDetail', row)} />
+  </table>
+  <button text="新增收款单" action={openDialog('erpSaleReceiptForm')} />
+}
+
+@title('销售收款编辑')
+@menu('销售管理')
+dialog erpSaleReceiptForm {
+  <form submit={useMutation('saveErpSaleReceipt')}>
+    <input field="no" label="收款单号" />
+    <input field="receiptTime" label="收款时间" />
+    <input field="customerId" label="客户" />
+    <input field="accountId" label="结算账户" />
+    <input field="financeUserId" label="财务人员" />
+    <input field="discountPrice" label="优惠金额" />
+    <input field="remark" label="备注" />
+    <repeat field="items" dataSource={useQuery('queryErpSaleReceiptItems', initial.id)}>
+      <input field="bizType" label="核销业务类型" />
+      <input field="bizId" label="关联业务单" />
+      <input field="bizNo" label="关联单号" />
+      <input field="totalPrice" label="应收金额" />
+      <input field="receiptedPrice" label="已收金额" />
+      <input field="receiptPrice" label="本次收款" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
+
+@export
+function getErpSaleReceipt(id: Integer): FinanceReceipt {
+  return FinanceReceipt.get(id);
+}
+
+@title('销售收款详情')
+@menu('销售管理')
+dialog erpSaleReceiptDetail {
+  <detail dataSource={useQuery('getErpSaleReceipt', initial.id)}>
+    <text field="no" title="收款单号" />
+    <text field="receiptTime" title="收款时间" />
+    <text field="totalPrice" title="应收金额" />
+    <text field="receiptPrice" title="实收金额" />
+    <text field="remark" title="备注" />
+  </detail>
+  <button text="编辑" action={openDialog('erpSaleReceiptForm', row)}
+          disabled={row.status === DocStatus.AUDITED} />
+  <button text="审批" action={useMutation('auditErpSaleReceipt', row.id)}
+          visible={row.status === DocStatus.UNAUDIT} />
+  <button text="反审批" action={useMutation('deauditErpSaleReceipt', row.id)}
+          visible={row.status === DocStatus.AUDITED} />
+}

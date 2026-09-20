@@ -19,6 +19,7 @@
     "slice:multi": "npm run slice -w todo-multi",
     "eval": "npm run eval -w @tdsl/eval",
     "pack:compiler": "node scripts/pack-compiler.mjs",
+    "pack:dist": "node scripts/pack-dist.mjs",
     "demo:yudao": "npm run demo -w yudao"
   }
 }

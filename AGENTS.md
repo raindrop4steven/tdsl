@@ -51,8 +51,9 @@ todo.tdsl ──parse──▶ Typed AST ──typecheck──▶ codegen-java �
 ```bash
 npm test              # 九包 vitest（272 个用例）
 npm run typecheck     # 九包 tsc --noEmit
-npm run tdsl           # CLI：npm run tdsl -- check examples/todo-multi/tdsl（parse/check/generate/build/bundle-jar）
-npm run pack:compiler  # 打包编译器为独立 npm 包（npm-dist/*.tgz，压缩 JS 无源码）
+npm run tdsl           # CLI：npm run tdsl -- check examples/todo-multi/tdsl（parse/check/generate/build/bundle-jar/check-spec）
+npm run pack:compiler  # 打包编译器为独立 npm 包（单包 @tdsl/cli 自包含：内联全部 @tdsl/*+js-yaml，npm-dist/tdsl-cli-*.tgz，压缩 JS 无源码、零依赖）
+npm run pack:dist      # 一体化交付包：编译器单 tarball + tdsl-skill/ + 安装说明 → npm-dist/bundle/ + tdsl-bundle.zip
 npm run demo:yudao     # yudao 一键演示：生成双端 → 起前后端 → 灌数（http://localhost:5173）
 npm run slice         # 端到端：todo.tdsl → parse → typecheck → 双端 codegen → mvn compile + vite build
 npm run slice:multi   # M7 多文件端到端：todo-multi 5 个功能域分片 → parseProject → 对拍单文件 → 双端 build

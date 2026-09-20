@@ -3,7 +3,10 @@
  * 零新增依赖：argv 手写解析（4 命令、参数≤3 个）。
  */
 import { runBuild, runBundleJar, runCheck, runGenerate, runParse, type CommandResult } from './commands';
+import { runCheckSpec } from './check-spec';
 import { CliError, resolveInput, sanitizeAppName } from './input';
+
+export { runCheckSpec };
 
 export const HELP = `tdsl — TDSL 命令行工具
 
@@ -14,6 +17,7 @@ export const HELP = `tdsl — TDSL 命令行工具
   check      parse + typecheck，打印诊断（有 error 退出码 1）
   generate   生成 Java/React 代码并写盘
   build      generate + mvn compile + vite build（双端真实构建）
+  check-spec <工程目录>  spec.yaml × tdsl/ 覆盖度五维对照（缺口退出码 1，可进 CI）
   bundle-jar <jar> -o <json>  将 Java jar 扫描为依赖产物 JSON（离线；javap 反射；坐标自动取 pom.properties，--coord 可覆盖）
   help       命令帮助
 
@@ -44,6 +48,11 @@ export function run(argv: string[]): CliResult {
     // bundle-jar 特殊输入：target = jar 文件（不走 tdsl 输入解析）
     if (cmd === 'bundle-jar') {
       return runBundleJar(target, out, { coord, classes: classes?.split(',') });
+    }
+
+    // check-spec 特殊输入：target = 工程目录（含 spec.yaml + tdsl/，不走 tdsl 输入解析）
+    if (cmd === 'check-spec') {
+      return runCheckSpec(target);
     }
 
     const input = resolveInput(target, name);

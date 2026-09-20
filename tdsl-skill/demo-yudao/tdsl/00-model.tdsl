@@ -1,0 +1,788 @@
+// 芋道 ERP/CRM · 数据模型：枚举 + 实体 + 输入结构（来自 examples/yudao/spec.yaml data 节，逐字段对照）
+
+@datasource('yudaoDS')
+
+// ---- 枚举（数据字典） ----
+
+enum ProductStatus { ENABLE('开启', 'green'), DISABLE('禁用', 'red') }
+
+enum DocStatus { UNAUDIT('未审批', 'orange'), AUDITED('已审批', 'green') }
+
+enum StockRecordBizType {
+  PURCHASE_IN('采购入库'), PURCHASE_IN_CANCEL('采购入库取消'),
+  PURCHASE_RETURN('采购退货出库'), PURCHASE_RETURN_CANCEL('采购退货取消'),
+  SALE_OUT('销售出库'), SALE_OUT_CANCEL('销售出库取消'),
+  SALE_RETURN('销售退货入库'), SALE_RETURN_CANCEL('销售退货取消'),
+  STOCK_IN('其它入库'), STOCK_IN_CANCEL('其它入库取消'),
+  STOCK_OUT('其它出库'), STOCK_OUT_CANCEL('其它出库取消'),
+  TRANSFER_OUT('调拨转出'), TRANSFER_IN('调拨转入'), TRANSFER_CANCEL('调拨取消')
+}
+
+enum PurchaseBizType { PURCHASE_ORDER('采购订单'), PURCHASE_IN('采购入库'), PURCHASE_RETURN('采购退货') }
+
+enum SaleBizType { SALE_ORDER('销售订单'), SALE_OUT('销售出库'), SALE_RETURN('销售退货') }
+
+enum FollowUpStatus { FOLLOWED('已跟进', 'green'), UNFOLLOWED('未跟进', 'orange') }
+
+enum DealStatus { DEALED('已成交', 'green'), UNDEALED('未成交', 'orange') }
+
+enum LockStatus { UNLOCKED('未锁定', 'blue'), LOCKED('已锁定', 'red') }
+
+enum TransformStatus { UNTRANSFORMED('未转化', 'orange'), TRANSFORMED('已转化', 'green') }
+
+enum BusinessEndStatus { WIN('赢单', 'green'), LOSE('输单', 'red'), INVALID('无效', 'default') }
+
+enum CrmAuditStatus { UNSUBMIT('未提交', 'default'), UNDER_REVIEW('审批中', 'orange'), APPROVED('审批通过', 'green'), REJECTED('审批驳回', 'red'), CANCEL('已取消', 'default') }
+
+enum ReturnType { BANK('银行转账', 'blue'), WECHAT('微信', 'green'), ALIPAY('支付宝', 'blue'), CASH('现金', 'gold'), OTHER('其他', 'default') }
+
+enum Sex { MALE('男', 'blue'), FEMALE('女', 'magenta'), OTHER('其他', 'default') }
+
+// ---- 实体（ERP · 产品管理 / 库存 / 采购 / 销售 / 财务 + CRM） ----
+
+entity ProductCategory {
+  id: Integer @pk;
+  parentId: Integer @nullable @ref(ProductCategory);
+  name: String;
+  code: String @nullable;
+  sort: Integer @nullable;
+  status: ProductStatus;
+}
+
+entity ProductUnit {
+  id: Integer @pk;
+  name: String;
+  status: ProductStatus;
+}
+
+entity Product {
+  id: Integer @pk;
+  name: String;
+  barCode: String @nullable;
+  categoryId: Integer @ref(ProductCategory);
+  unitId: Integer @ref(ProductUnit);
+  status: ProductStatus;
+  standard: String @nullable;
+  expiryDay: Integer @nullable;
+  weight: Decimal @nullable;
+  purchasePrice: Decimal;
+  salePrice: Decimal;
+  minPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity SourceDict { id: Integer @pk; name: String; }
+
+entity IndustryDict { id: Integer @pk; name: String; }
+
+entity AreaDict { id: Integer @pk; name: String; }
+
+// 负责人/销售员/财务人员等人员字段统一引用此表（@ref display 取昵称）
+entity SystemUser {
+  id: Integer @pk;
+  username: String;
+  nickname: String;
+}
+
+entity Supplier {
+  id: Integer @pk;
+  name: String;
+  mobile: String @nullable;
+  telephone: String @nullable;
+  fax: String @nullable;
+  email: String @nullable;
+  areaId: Integer @nullable @ref(AreaDict);
+  detailAddress: String @nullable;
+  remark: String @nullable;
+  status: ProductStatus;
+}
+
+entity Customer {
+  id: Integer @pk;
+  name: String;
+  mobile: String @nullable;
+  telephone: String @nullable;
+  areaId: Integer @nullable @ref(AreaDict);
+  detailAddress: String @nullable;
+  remark: String @nullable;
+  status: ProductStatus;
+}
+
+entity Warehouse {
+  id: Integer @pk;
+  name: String;
+  address: String @nullable;
+  sort: Integer @nullable;
+  principal: String @nullable;
+  warehousePrice: Decimal @nullable;
+  truckagePrice: Decimal @nullable;
+  remark: String @nullable;
+  status: ProductStatus;
+  defaultStatus: Integer;
+}
+
+entity Stock {
+  id: Integer @pk;
+  productId: Integer @ref(Product);
+  warehouseId: Integer @ref(Warehouse);
+  count: Decimal;
+}
+
+entity StockRecord {
+  id: Integer @pk;
+  productId: Integer @ref(Product);
+  warehouseId: Integer @ref(Warehouse);
+  count: Decimal;
+  totalCount: Decimal @nullable;
+  bizType: StockRecordBizType;
+  bizId: Integer @nullable;
+  bizItemId: Integer @nullable;
+  bizNo: String @nullable;
+}
+
+entity StockCheck {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  checkTime: DateTime;
+  warehouseId: Integer @ref(Warehouse);
+  remark: String @nullable;
+}
+
+entity StockCheckItem {
+  id: Integer @pk;
+  checkId: Integer;
+  productId: Integer @ref(Product);
+  productUnitId: Integer @nullable @ref(ProductUnit);
+  count: Decimal;
+  systemCount: Decimal;
+  diffCount: Decimal;
+  remark: String @nullable;
+}
+
+entity PurchaseOrder {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  orderTime: DateTime;
+  supplierId: Integer @ref(Supplier);
+  accountId: Integer @nullable @ref(FinanceAccount);
+  totalCount: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  totalProductPrice: Decimal @nullable;
+  totalTaxPrice: Decimal @nullable;
+  discountPercent: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  depositPrice: Decimal @nullable;
+  fileUrl: String @nullable;
+  remark: String @nullable;
+  inCount: Decimal @nullable;
+  returnCount: Decimal @nullable;
+}
+
+entity PurchaseOrderItem {
+  id: Integer @pk;
+  orderId: Integer;
+  productId: Integer @ref(Product);
+  productUnitId: Integer @nullable @ref(ProductUnit);
+  productPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+  taxPercent: Decimal @nullable;
+  taxPrice: Decimal @nullable;
+  remark: String @nullable;
+  inCount: Decimal @nullable;
+  returnCount: Decimal @nullable;
+}
+
+entity PurchaseIn {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  inTime: DateTime;
+  supplierId: Integer @ref(Supplier);
+  accountId: Integer @nullable @ref(FinanceAccount);
+  orderId: Integer @nullable;
+  orderNo: String @nullable;
+  totalCount: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  totalProductPrice: Decimal @nullable;
+  totalTaxPrice: Decimal @nullable;
+  discountPercent: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  otherPrice: Decimal @nullable;
+  paymentPrice: Decimal @nullable;
+  fileUrl: String @nullable;
+  remark: String @nullable;
+}
+
+entity PurchaseInItem {
+  id: Integer @pk;
+  inId: Integer;
+  orderItemId: Integer @nullable;
+  warehouseId: Integer @ref(Warehouse);
+  productId: Integer @ref(Product);
+  productUnitId: Integer @nullable @ref(ProductUnit);
+  productPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+  taxPercent: Decimal @nullable;
+  taxPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity PurchaseReturn {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  returnTime: DateTime;
+  supplierId: Integer @ref(Supplier);
+  accountId: Integer @nullable @ref(FinanceAccount);
+  orderId: Integer @nullable;
+  orderNo: String @nullable;
+  totalCount: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  totalProductPrice: Decimal @nullable;
+  totalTaxPrice: Decimal @nullable;
+  discountPercent: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  otherPrice: Decimal @nullable;
+  refundPrice: Decimal @nullable;
+  fileUrl: String @nullable;
+  remark: String @nullable;
+}
+
+entity PurchaseReturnItem {
+  id: Integer @pk;
+  returnId: Integer;
+  orderItemId: Integer @nullable;
+  warehouseId: Integer @ref(Warehouse);
+  productId: Integer @ref(Product);
+  productUnitId: Integer @nullable @ref(ProductUnit);
+  productPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+  taxPercent: Decimal @nullable;
+  taxPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity SaleOrder {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  orderTime: DateTime;
+  customerId: Integer @ref(Customer);
+  accountId: Integer @nullable @ref(FinanceAccount);
+  saleUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  totalCount: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  totalProductPrice: Decimal @nullable;
+  totalTaxPrice: Decimal @nullable;
+  discountPercent: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  depositPrice: Decimal @nullable;
+  fileUrl: String @nullable;
+  remark: String @nullable;
+  outCount: Decimal @nullable;
+  returnCount: Decimal @nullable;
+}
+
+entity SaleOrderItem {
+  id: Integer @pk;
+  orderId: Integer;
+  productId: Integer @ref(Product);
+  productUnitId: Integer @nullable @ref(ProductUnit);
+  productPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+  taxPercent: Decimal @nullable;
+  taxPrice: Decimal @nullable;
+  remark: String @nullable;
+  outCount: Decimal @nullable;
+  returnCount: Decimal @nullable;
+}
+
+entity SaleOut {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  outTime: DateTime;
+  customerId: Integer @ref(Customer);
+  accountId: Integer @nullable @ref(FinanceAccount);
+  saleUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  orderId: Integer @nullable;
+  orderNo: String @nullable;
+  totalCount: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  totalProductPrice: Decimal @nullable;
+  totalTaxPrice: Decimal @nullable;
+  discountPercent: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  otherPrice: Decimal @nullable;
+  receiptPrice: Decimal @nullable;
+  fileUrl: String @nullable;
+  remark: String @nullable;
+}
+
+entity SaleOutItem {
+  id: Integer @pk;
+  outId: Integer;
+  warehouseId: Integer @ref(Warehouse);
+  productId: Integer @ref(Product);
+  productUnitId: Integer @nullable @ref(ProductUnit);
+  productPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+  taxPercent: Decimal @nullable;
+  taxPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity SaleReturn {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  returnTime: DateTime;
+  customerId: Integer @ref(Customer);
+  accountId: Integer @nullable @ref(FinanceAccount);
+  saleUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  orderId: Integer @nullable;
+  orderNo: String @nullable;
+  totalCount: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  totalProductPrice: Decimal @nullable;
+  totalTaxPrice: Decimal @nullable;
+  discountPercent: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  otherPrice: Decimal @nullable;
+  refundPrice: Decimal @nullable;
+  fileUrl: String @nullable;
+  remark: String @nullable;
+}
+
+entity SaleReturnItem {
+  id: Integer @pk;
+  returnId: Integer;
+  warehouseId: Integer @ref(Warehouse);
+  productId: Integer @ref(Product);
+  productUnitId: Integer @nullable @ref(ProductUnit);
+  productPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+  taxPercent: Decimal @nullable;
+  taxPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity FinanceAccount {
+  id: Integer @pk;
+  name: String;
+  no: String @nullable;
+  sort: Integer @nullable;
+  defaultStatus: Integer;
+  remark: String @nullable;
+  status: ProductStatus;
+}
+
+entity FinancePayment {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  paymentTime: DateTime;
+  supplierId: Integer;
+  accountId: Integer;
+  financeUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  totalPrice: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  paymentPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity FinancePaymentItem {
+  id: Integer @pk;
+  paymentId: Integer;
+  bizType: PurchaseBizType;
+  bizId: Integer @nullable;
+  bizNo: String @nullable;
+  totalPrice: Decimal @nullable;
+  paidPrice: Decimal @nullable;
+  paymentPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity FinanceReceipt {
+  id: Integer @pk;
+  no: String;
+  status: DocStatus;
+  receiptTime: DateTime;
+  customerId: Integer;
+  accountId: Integer;
+  financeUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  totalPrice: Decimal @nullable;
+  discountPrice: Decimal @nullable;
+  receiptPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity FinanceReceiptItem {
+  id: Integer @pk;
+  receiptId: Integer;
+  bizType: SaleBizType;
+  bizId: Integer @nullable;
+  bizNo: String @nullable;
+  totalPrice: Decimal @nullable;
+  receiptedPrice: Decimal @nullable;
+  receiptPrice: Decimal @nullable;
+  remark: String @nullable;
+}
+
+entity CrmClue {
+  id: Integer @pk;
+  name: String;
+  ownerUserId: Integer @ref(SystemUser, display: 'nickname');
+  followUpStatus: FollowUpStatus;
+  contactLastTime: DateTime @nullable;
+  contactLastContent: String @nullable;
+  contactNextTime: DateTime @nullable;
+  nextFollowUpType: Integer @nullable;
+  lastFollowUpType: Integer @nullable;
+  transformStatus: TransformStatus;
+  customerId: Integer @nullable @ref(CrmCustomer);
+  mobile: String @nullable;
+  telephone: String @nullable;
+  qq: String @nullable;
+  wechat: String @nullable;
+  email: String @nullable;
+  areaId: Integer @nullable @ref(AreaDict);
+  detailAddress: String @nullable;
+  industryId: Integer @nullable @ref(IndustryDict);
+  level: Integer @nullable;
+  source: Integer @nullable @ref(SourceDict);
+  remark: String @nullable;
+}
+
+entity CrmCustomer {
+  id: Integer @pk;
+  name: String;
+  ownerUserId: Integer @ref(SystemUser, display: 'nickname');
+  ownerTime: DateTime @nullable;
+  lockStatus: LockStatus;
+  dealStatus: DealStatus;
+  followUpStatus: FollowUpStatus;
+  contactLastTime: DateTime @nullable;
+  contactLastContent: String @nullable;
+  contactNextTime: DateTime @nullable;
+  nextFollowUpType: Integer @nullable;
+  lastFollowUpType: Integer @nullable;
+  mobile: String @nullable;
+  telephone: String @nullable;
+  qq: String @nullable;
+  wechat: String @nullable;
+  email: String @nullable;
+  areaId: Integer @nullable @ref(AreaDict);
+  detailAddress: String @nullable;
+  industryId: Integer @nullable @ref(IndustryDict);
+  level: Integer @nullable;
+  source: Integer @nullable @ref(SourceDict);
+  remark: String @nullable;
+}
+
+entity CrmContact {
+  id: Integer @pk;
+  name: String;
+  customerId: Integer @ref(CrmCustomer);
+  ownerUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  mobile: String @nullable;
+  telephone: String @nullable;
+  email: String @nullable;
+  qq: String @nullable;
+  wechat: String @nullable;
+  areaId: Integer @nullable @ref(AreaDict);
+  detailAddress: String @nullable;
+  sex: Sex @nullable;
+  master: Integer @nullable;
+  parentId: Integer @nullable @ref(CrmContact);
+  post: String @nullable;
+  followUpStatus: FollowUpStatus @nullable;
+  contactLastTime: DateTime @nullable;
+  contactLastContent: String @nullable;
+  contactNextTime: DateTime @nullable;
+  nextFollowUpType: Integer @nullable;
+  lastFollowUpType: Integer @nullable;
+  remark: String @nullable;
+}
+
+entity CrmCustomerLimitConfig {
+  id: Integer @pk;
+  type: Integer;
+  userIds: String @nullable;
+  deptIds: String @nullable;
+  maxCount: Integer @nullable;
+  dealCountEnabled: Integer @nullable;
+}
+
+entity CrmCustomerPoolConfig {
+  id: Integer @pk;
+  enabled: Integer;
+  contactExpireDays: Integer @nullable;
+  dealExpireDays: Integer @nullable;
+  notifyEnabled: Integer @nullable;
+  notifyDays: Integer @nullable;
+}
+
+entity CrmBusinessStatusType {
+  id: Integer @pk;
+  name: String;
+  deptIds: String @nullable;
+}
+
+entity CrmBusinessStatus {
+  id: Integer @pk;
+  statusTypeId: Integer;
+  name: String;
+  percent: Integer @nullable;
+  sort: Integer @nullable;
+}
+
+entity CrmBusiness {
+  id: Integer @pk;
+  name: String;
+  customerId: Integer @ref(CrmCustomer);
+  ownerUserId: Integer @ref(SystemUser, display: 'nickname');
+  followUpStatus: FollowUpStatus;
+  statusTypeId: Integer @nullable @ref(CrmBusinessStatusType);
+  statusId: Integer @nullable @ref(CrmBusinessStatus);
+  endStatus: BusinessEndStatus @nullable;
+  dealTime: DateTime @nullable;
+  discountPercent: Decimal @nullable;
+  totalProductPrice: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  contactLastTime: DateTime @nullable;
+  contactNextTime: DateTime @nullable;
+  nextFollowUpType: Integer @nullable;
+  lastFollowUpType: Integer @nullable;
+  remark: String @nullable;
+}
+
+entity CrmBusinessProduct {
+  id: Integer @pk;
+  businessId: Integer;
+  productId: Integer @ref(CrmProduct);
+  productPrice: Decimal @nullable;
+  businessPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+}
+
+entity CrmContactBusiness {
+  id: Integer @pk;
+  contactId: Integer;
+  businessId: Integer;
+}
+
+entity CrmContract {
+  id: Integer @pk;
+  name: String;
+  no: String;
+  customerId: Integer @ref(CrmCustomer);
+  businessId: Integer @nullable @ref(CrmBusiness);
+  contactLastTime: DateTime @nullable;
+  ownerUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  processInstanceId: String @nullable;
+  auditStatus: CrmAuditStatus;
+  totalProductPrice: Decimal @nullable;
+  discountPercent: Decimal @nullable;
+  totalPrice: Decimal @nullable;
+  orderDate: DateTime @nullable;
+  startTime: DateTime @nullable;
+  endTime: DateTime @nullable;
+  signContactId: Integer @nullable;
+  signUserId: Integer @nullable;
+  remark: String @nullable;
+}
+
+entity CrmContractProduct {
+  id: Integer @pk;
+  contractId: Integer;
+  productId: Integer @ref(CrmProduct);
+  productPrice: Decimal @nullable;
+  contractPrice: Decimal;
+  count: Decimal;
+  totalPrice: Decimal @nullable;
+}
+
+entity CrmContractConfig {
+  id: Integer @pk;
+  notifyEnabled: Integer @nullable;
+  notifyDays: Integer @nullable;
+}
+
+entity CrmReceivable {
+  id: Integer @pk;
+  no: String;
+  customerId: Integer @ref(CrmCustomer);
+  contractId: Integer @nullable @ref(CrmContract);
+  planId: Integer @nullable;
+  ownerUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  auditStatus: CrmAuditStatus;
+  processInstanceId: String @nullable;
+  price: Decimal;
+  returnTime: DateTime;
+  returnType: ReturnType;
+  remark: String @nullable;
+}
+
+entity CrmReceivablePlan {
+  id: Integer @pk;
+  period: Integer @nullable;
+  customerId: Integer @ref(CrmCustomer);
+  contractId: Integer @nullable @ref(CrmContract);
+  ownerUserId: Integer @nullable @ref(SystemUser, display: 'nickname');
+  receivableId: Integer @nullable @ref(CrmReceivable, display: 'no');
+  returnTime: DateTime @nullable;
+  returnType: ReturnType @nullable;
+  price: Decimal;
+  remindDays: Integer @nullable;
+  remindTime: DateTime @nullable;
+  remark: String @nullable;
+}
+
+entity CrmProductCategory {
+  id: Integer @pk;
+  parentId: Integer @nullable @ref(CrmProductCategory);
+  name: String;
+  code: String @nullable;
+  sort: Integer @nullable;
+  status: ProductStatus;
+}
+
+entity CrmProduct {
+  id: Integer @pk;
+  name: String;
+  code: String @nullable;
+  categoryId: Integer @nullable @ref(CrmProductCategory);
+  unit: String @nullable;
+  price: Decimal;
+  status: ProductStatus;
+  description: String @nullable;
+  remark: String @nullable;
+}
+
+entity CrmFollowUpRecord {
+  id: Integer @pk;
+  content: String;
+  nextTime: DateTime @nullable;
+  nextFollowUpType: Integer @nullable;
+  bizType: Integer;
+  bizId: Integer;
+  parentId: Integer @nullable;
+}
+
+entity CrmTodo {
+  id: Integer @pk;
+  wakeUpTime: DateTime @nullable;
+  name: String;
+  bizType: Integer @nullable;
+  bizId: Integer @nullable;
+  completed: Integer;
+  status: Integer @nullable;
+}
+
+// ---- 输入结构（DTO，与表单/子表字段对齐） ----
+
+struct ProductCategoryInput { id: Integer; parentId: Integer @ref(ProductCategory); name: String; code: String; sort: Integer; status: ProductStatus; }
+
+struct ProductUnitInput { id: Integer; name: String; status: ProductStatus; }
+
+struct ProductInput { id: Integer; name: String; barCode: String; categoryId: Integer @ref(ProductCategory); unitId: Integer @ref(ProductUnit); standard: String; expiryDay: Integer; weight: Decimal; purchasePrice: Decimal; salePrice: Decimal; minPrice: Decimal; status: ProductStatus; remark: String; }
+
+struct SupplierInput { id: Integer; name: String; mobile: String; telephone: String; fax: String; email: String; areaId: Integer @ref(AreaDict); detailAddress: String; remark: String; status: ProductStatus; }
+
+struct WarehouseInput { id: Integer; name: String; address: String; sort: Integer; principal: String; warehousePrice: Decimal; truckagePrice: Decimal; status: ProductStatus; defaultStatus: Integer; remark: String; }
+
+struct StockRecordInput { productId: Integer @ref(Product); warehouseId: Integer @ref(Warehouse); count: Decimal; }
+
+struct StockCheckInput { id: Integer; no: String; checkTime: DateTime; warehouseId: Integer @ref(Warehouse); remark: String; items: List<StockCheckItemInput>; }
+
+struct StockCheckItemInput { productId: Integer @ref(Product); productUnitId: Integer @ref(ProductUnit); count: Decimal; systemCount: Decimal; diffCount: Decimal; remark: String; }
+
+struct PurchaseOrderInput { id: Integer; no: String; orderTime: DateTime; supplierId: Integer @ref(Supplier); accountId: Integer @ref(FinanceAccount); discountPercent: Decimal; discountPrice: Decimal; depositPrice: Decimal; fileUrl: String; remark: String; items: List<PurchaseOrderItemInput>; }
+
+struct PurchaseOrderItemInput { productId: Integer @ref(Product); productUnitId: Integer @ref(ProductUnit); productPrice: Decimal; count: Decimal; taxPercent: Decimal; remark: String; }
+
+struct PurchaseInInput { id: Integer; no: String; inTime: DateTime; supplierId: Integer @ref(Supplier); accountId: Integer @ref(FinanceAccount); orderId: Integer; orderNo: String; otherPrice: Decimal; fileUrl: String; remark: String; items: List<PurchaseInItemInput>; }
+
+struct PurchaseInItemInput { orderItemId: Integer; warehouseId: Integer @ref(Warehouse); productId: Integer @ref(Product); productUnitId: Integer @ref(ProductUnit); productPrice: Decimal; count: Decimal; taxPercent: Decimal; remark: String; }
+
+struct PurchaseReturnInput { id: Integer; no: String; returnTime: DateTime; supplierId: Integer @ref(Supplier); accountId: Integer @ref(FinanceAccount); orderId: Integer; orderNo: String; otherPrice: Decimal; fileUrl: String; remark: String; items: List<PurchaseReturnItemInput>; }
+
+struct PurchaseReturnItemInput { orderItemId: Integer; warehouseId: Integer @ref(Warehouse); productId: Integer @ref(Product); productUnitId: Integer @ref(ProductUnit); productPrice: Decimal; count: Decimal; taxPercent: Decimal; remark: String; }
+
+struct SaleOrderInput { id: Integer; no: String; orderTime: DateTime; customerId: Integer @ref(Customer); accountId: Integer @ref(FinanceAccount); saleUserId: Integer @ref(SystemUser, display: 'nickname'); discountPercent: Decimal; discountPrice: Decimal; depositPrice: Decimal; fileUrl: String; remark: String; items: List<SaleOrderItemInput>; }
+
+struct SaleOrderItemInput { productId: Integer @ref(Product); productUnitId: Integer @ref(ProductUnit); productPrice: Decimal; count: Decimal; taxPercent: Decimal; remark: String; }
+
+struct SaleOutInput { id: Integer; no: String; outTime: DateTime; customerId: Integer @ref(Customer); accountId: Integer @ref(FinanceAccount); saleUserId: Integer @ref(SystemUser, display: 'nickname'); orderId: Integer; orderNo: String; otherPrice: Decimal; fileUrl: String; remark: String; items: List<SaleOutItemInput>; }
+
+struct SaleOutItemInput { warehouseId: Integer @ref(Warehouse); productId: Integer @ref(Product); productUnitId: Integer @ref(ProductUnit); productPrice: Decimal; count: Decimal; taxPercent: Decimal; remark: String; }
+
+struct SaleReturnInput { id: Integer; no: String; returnTime: DateTime; customerId: Integer @ref(Customer); accountId: Integer @ref(FinanceAccount); saleUserId: Integer @ref(SystemUser, display: 'nickname'); orderId: Integer; orderNo: String; otherPrice: Decimal; fileUrl: String; remark: String; items: List<SaleReturnItemInput>; }
+
+struct SaleReturnItemInput { warehouseId: Integer @ref(Warehouse); productId: Integer @ref(Product); productUnitId: Integer @ref(ProductUnit); productPrice: Decimal; count: Decimal; taxPercent: Decimal; remark: String; }
+
+struct FinanceAccountInput { id: Integer; name: String; no: String; sort: Integer; defaultStatus: Integer; status: ProductStatus; remark: String; }
+
+struct FinancePaymentInput { id: Integer; no: String; paymentTime: DateTime; supplierId: Integer @ref(Supplier); accountId: Integer @ref(FinanceAccount); financeUserId: Integer @ref(SystemUser, display: 'nickname'); discountPrice: Decimal; remark: String; items: List<FinancePaymentItemInput>; }
+
+struct FinancePaymentItemInput { bizType: PurchaseBizType; bizId: Integer; bizNo: String; totalPrice: Decimal; paidPrice: Decimal; paymentPrice: Decimal; remark: String; }
+
+struct FinanceReceiptInput { id: Integer; no: String; receiptTime: DateTime; customerId: Integer @ref(Customer); accountId: Integer @ref(FinanceAccount); financeUserId: Integer @ref(SystemUser, display: 'nickname'); discountPrice: Decimal; remark: String; items: List<FinanceReceiptItemInput>; }
+
+struct FinanceReceiptItemInput { bizType: SaleBizType; bizId: Integer; bizNo: String; totalPrice: Decimal; receiptedPrice: Decimal; receiptPrice: Decimal; remark: String; }
+
+struct CrmClueInput { id: Integer; name: String; ownerUserId: Integer @ref(SystemUser, display: 'nickname'); mobile: String; telephone: String; qq: String; wechat: String; email: String; areaId: Integer @ref(AreaDict); detailAddress: String; industryId: Integer @ref(IndustryDict); level: Integer; source: Integer @ref(SourceDict); remark: String; }
+
+struct CrmCustomerInput { id: Integer; name: String; ownerUserId: Integer @ref(SystemUser, display: 'nickname'); mobile: String; telephone: String; qq: String; wechat: String; email: String; areaId: Integer @ref(AreaDict); detailAddress: String; industryId: Integer @ref(IndustryDict); level: Integer; source: Integer @ref(SourceDict); remark: String; }
+
+struct CrmContactInput { id: Integer; name: String; customerId: Integer @ref(CrmCustomer); ownerUserId: Integer @ref(SystemUser, display: 'nickname'); post: String; sex: Sex; master: Integer; parentId: Integer; mobile: String; telephone: String; email: String; qq: String; wechat: String; areaId: Integer @ref(AreaDict); detailAddress: String; remark: String; }
+
+struct CrmCustomerPoolConfigInput { id: Integer; enabled: Integer; contactExpireDays: Integer; dealExpireDays: Integer; notifyEnabled: Integer; notifyDays: Integer; }
+
+struct CrmCustomerLimitConfigInput { id: Integer; type: Integer; userIds: String; deptIds: String; maxCount: Integer; dealCountEnabled: Integer; }
+
+struct CrmBusinessStatusTypeInput { id: Integer; name: String; deptIds: String; }
+
+struct CrmBusinessStatusInput { id: Integer; statusTypeId: Integer; name: String; percent: Integer; sort: Integer; }
+
+struct CrmBusinessInput { id: Integer; name: String; customerId: Integer @ref(CrmCustomer); ownerUserId: Integer @ref(SystemUser, display: 'nickname'); statusTypeId: Integer @ref(CrmBusinessStatusType); statusId: Integer @ref(CrmBusinessStatus); discountPercent: Decimal; remark: String; products: List<CrmBusinessProductInput>; }
+
+struct CrmBusinessProductInput { productId: Integer @ref(CrmProduct); productPrice: Decimal; businessPrice: Decimal; count: Decimal; }
+
+struct CrmBusinessStageInput { statusTypeId: Integer @ref(CrmBusinessStatusType); statusId: Integer @ref(CrmBusinessStatus); }
+
+struct CrmContractInput { id: Integer; name: String; no: String; customerId: Integer @ref(CrmCustomer); businessId: Integer @ref(CrmBusiness); ownerUserId: Integer @ref(SystemUser, display: 'nickname'); orderDate: DateTime; startTime: DateTime; endTime: DateTime; signContactId: Integer @ref(CrmContact); signUserId: Integer @ref(SystemUser, display: 'nickname'); discountPercent: Decimal; remark: String; products: List<CrmContractProductInput>; }
+
+struct CrmContractProductInput { productId: Integer @ref(CrmProduct); productPrice: Decimal; contractPrice: Decimal; count: Decimal; }
+
+struct CrmContractConfigInput { id: Integer; notifyEnabled: Integer; notifyDays: Integer; }
+
+struct CrmReceivablePlanInput { id: Integer; period: Integer; contractId: Integer @ref(CrmContract); customerId: Integer @ref(CrmCustomer); ownerUserId: Integer @ref(SystemUser, display: 'nickname'); returnTime: DateTime; returnType: ReturnType; price: Decimal; remindDays: Integer; remark: String; }
+
+struct CrmReceivableInput { id: Integer; no: String; customerId: Integer @ref(CrmCustomer); contractId: Integer @ref(CrmContract); planId: Integer; ownerUserId: Integer @ref(SystemUser, display: 'nickname'); price: Decimal; returnTime: DateTime; returnType: ReturnType; remark: String; }
+
+struct CrmProductCategoryInput { id: Integer; parentId: Integer; name: String; code: String; sort: Integer; status: ProductStatus; }
+
+struct CrmProductInput { id: Integer; name: String; code: String; categoryId: Integer @ref(CrmProductCategory); unit: String; price: Decimal; status: ProductStatus; description: String; remark: String; }
+
+struct CrmFollowUpRecordInput { id: Integer; content: String; nextTime: DateTime; nextFollowUpType: Integer; bizType: Integer; bizId: Integer; }
+
+struct CrmTodoInput { id: Integer; name: String; wakeUpTime: DateTime; bizType: Integer; bizId: Integer; }
+
+struct SystemUserInput { id: Integer; username: String; nickname: String; }
+
+struct SourceDictInput { id: Integer; name: String; }
+
+struct IndustryDictInput { id: Integer; name: String; }
+
+struct AreaDictInput { id: Integer; name: String; }

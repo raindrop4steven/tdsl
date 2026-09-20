@@ -11,6 +11,34 @@ export function typeNameFromPath(path: string): string {
   return seg ?? path;
 }
 
+/** TypeRef → SQL 列类型（schema.sql 建库底稿；与 javaType 逐一对应：Integer→Long 列=BIGINT，Decimal→DECIMAL(19,2)）。
+ * 非标量（List/实体引用等，实体属性本不应出现）返回 undefined → 列跳过。 */
+export function sqlType(tr: TypeRef, enumNames: string[]): string | undefined {
+  switch (tr.kind) {
+    case 'primitive':
+      switch (tr.builtin) {
+        case 'Boolean': return 'BOOLEAN';
+        case 'Integer': return 'BIGINT';
+        case 'Decimal': return 'DECIMAL(19,2)';
+        case 'String': return 'VARCHAR(255)';
+        case 'Date': return 'DATE';
+        case 'Time': return 'TIME';
+        case 'DateTime': return 'TIMESTAMP';
+      }
+      break;
+    case 'reference':
+      if (enumNames.includes(typeNameFromPath(tr.path))) return 'VARCHAR(255)';
+      return undefined;
+    case 'generic':
+      return undefined;
+    case 'db':
+      return 'DECIMAL(19,2)';
+  }
+  // 判别联合穷尽：理论不可达
+  const _never: never = tr;
+  return _never;
+}
+
 /** TypeRef → Java 类型（全限定，避免 import 管理） */
 export function javaType(tr: TypeRef): string {
   switch (tr.kind) {

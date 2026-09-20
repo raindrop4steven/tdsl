@@ -1,26 +1,23 @@
 /**
- * 把编译器打包成可独立安装的 npm 包（发布产物 = 编译+压缩后的 JS，**不含 TS 源码**）
- * 用法：npm run pack:compiler    （仓库根执行；产物在 npm-dist/*.tgz）
+ * 把编译器打包成**一个自包含 npm 包**（发布产物 = 编译+压缩后的 JS，**不含 TS 源码**）
+ * 用法：npm run pack:compiler    （仓库根执行；产物在 npm-dist/tdsl-cli-*.tgz）
  *
  * 说明：
- *  - 仓库内开发流程不变（packages/* 以 TS 源为 main，tsx 直跑，测试 import src）；
- *  - 本脚本为「对外发布」单独做一次构建：esbuild bundle + minify（无 sourcemap）→ npm-dist/stage/<pkg>/dist/index.js，
- *    再改写 package.json（main/exports/bin 指向 dist、去掉 tsx 运行时依赖）后 npm pack；
+ *  - 只发 @tdsl/cli 一个包：esbuild 把 core/parser/typecheck/codegen-java/codegen-react 与 js-yaml
+ *    全量内联（node 内置模块除外）→ 安装零依赖、不存在"多包同装"问题；
+ *  - packages/* 的分层是**开发期结构**（workspaces 复用/单测/类型边界），不进交付面；
+ *  - 本脚本为「对外发布」单独构建：minify（无 sourcemap）→ 改写 package.json（bin 指 dist、清空 deps）后 npm pack；
  *  - 这是提高复制门槛（去源码/压缩/去 sourcemap），**不是加密**：JS 仍可被逆向阅读。
- *    真正的护城河是语义设计 + 文档 + 服务形态（packages/server 的在线编译），法务侧靠 LICENSE（专有许可）。
+ *    真正的护城河是语义设计 + 文档 + 服务形态，法务侧靠 LICENSE（专有许可）。
  */
 import { build } from 'esbuild';
-import { mkdirSync, rmSync, writeFileSync, readFileSync, copyFileSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const OUT = join(ROOT, 'npm-dist');
-const STAGE = join(OUT, 'stage');
-
-const PKGS = ['core', 'parser', 'typecheck', 'codegen-java', 'codegen-react', 'cli'];
-/** 其它编译包保持 external（安装后从 node_modules 解析），避免重复打包 */
-const EXTERNAL = PKGS.map((p) => `@tdsl/${p}`);
+const STAGE = join(OUT, 'stage-cli');
 
 const LICENSE = `专有软件许可（Proprietary License）
 
@@ -31,91 +28,76 @@ Copyright (c) TDSL Project. All rights reserved.
 `;
 
 rmSync(OUT, { recursive: true, force: true });
-mkdirSync(STAGE, { recursive: true });
+mkdirSync(join(STAGE, 'dist'), { recursive: true });
 
-for (const p of PKGS) {
-  const pkgDir = join(ROOT, 'packages', p);
-  const src = join(pkgDir, 'package.json');
-  if (!existsSync(src)) throw new Error(`缺少 packages/${p}/package.json`);
-  const meta = JSON.parse(readFileSync(src, 'utf8'));
-  const outDir = join(STAGE, p);
-  mkdirSync(join(outDir, 'dist'), { recursive: true });
+const cliDir = join(ROOT, 'packages', 'cli');
+const meta = JSON.parse(readFileSync(join(cliDir, 'package.json'), 'utf8'));
 
-  // 1) bundle 压缩（ESM / node18；@tdsl/* 外部化）
-  await build({
-    entryPoints: [join(pkgDir, 'src/index.ts')],
-    outfile: join(outDir, 'dist/index.js'),
-    bundle: true,
-    format: 'esm',
-    platform: 'node',
-    target: 'node18',
-    minify: true,
-    sourcemap: false,
-    legalComments: 'none',
-    external: EXTERNAL,
-    logLevel: 'warning',
-  });
+// 1) bundle 压缩：@tdsl/* 与 js-yaml 全部内联（node: 内置自动外部化），ESM / node18
+await build({
+  entryPoints: [join(cliDir, 'src/index.ts')],
+  outfile: join(STAGE, 'dist/index.js'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node18',
+  minify: true,
+  sourcemap: false,
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+console.log('  ✓ cli dist/index.js（全量内联，minified，无源码）');
 
-  // 2) 改写为发布用 package.json（指向 dist；去掉 tsx 运行时依赖）
-  const deps = { ...(meta.dependencies ?? {}) };
-  if (p === 'cli') delete deps.tsx;
-  const publishMeta = {
-    name: meta.name,
-    version: meta.version,
-    description: meta.description,
-    license: 'UNLICENSED',
-    type: 'module',
-    main: './dist/index.js',
-    exports: { '.': './dist/index.js' },
-    ...(p === 'cli' ? { bin: { tdsl: './dist/cli.js' }, files: ['dist', 'LICENSE'] } : { files: ['dist', 'LICENSE'] }),
-    ...(Object.keys(deps).length > 0 ? { dependencies: deps } : {}),
-  };
-  writeFileSync(join(outDir, 'package.json'), JSON.stringify(publishMeta, null, 2) + '\n', 'utf8');
-  writeFileSync(join(outDir, 'LICENSE'), LICENSE, 'utf8');
+// 2) 发布用 package.json：bin 指 dist、**零依赖**（一切已内联）
+const publishMeta = {
+  name: meta.name,
+  version: meta.version,
+  description: meta.description,
+  license: 'UNLICENSED',
+  type: 'module',
+  main: './dist/index.js',
+  exports: { '.': './dist/index.js' },
+  bin: { tdsl: './dist/cli.js' },
+  files: ['dist', 'LICENSE'],
+  engines: { node: '>=18' },
+};
+writeFileSync(join(STAGE, 'package.json'), JSON.stringify(publishMeta, null, 2) + '\n', 'utf8');
+writeFileSync(join(STAGE, 'LICENSE'), LICENSE, 'utf8');
 
-  // 3) CLI 入口（无 tsx：直接 import dist）
-  if (p === 'cli') {
-    await build({
-      stdin: {
-        contents: `import { main } from './index.js';\nmain(process.argv.slice(2));\n`,
-        resolveDir: join(outDir, 'dist'),
-        loader: 'ts',
-      },
-      outfile: join(outDir, 'dist/cli.js'),
-      bundle: true,
-      format: 'esm',
-      platform: 'node',
-      target: 'node18',
-      minify: true,
-      sourcemap: false,
-      banner: { js: '#!/usr/bin/env node' },
-      external: EXTERNAL,
-      logLevel: 'warning',
-    });
-  }
-  console.log(`  ✓ packages/${p} → dist（minified，无源码）`);
-}
+// 3) CLI 入口（bin）
+await build({
+  stdin: {
+    contents: `import { main } from './index.js';\nmain(process.argv.slice(2));\n`,
+    resolveDir: join(STAGE, 'dist'),
+    loader: 'ts',
+  },
+  outfile: join(STAGE, 'dist/cli.js'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node18',
+  minify: true,
+  sourcemap: false,
+  banner: { js: '#!/usr/bin/env node' },
+  logLevel: 'warning',
+});
 
-// 4) 打 tarball
-const tarballs = [];
-for (const p of PKGS) {
-  const out = execSync(`npm pack --silent --pack-destination "${OUT}"`, { cwd: join(STAGE, p) }).toString().trim().split('\n').pop();
-  tarballs.push(out);
-  console.log(`  ✓ ${out}`);
-}
+// 4) 打 tarball（唯一一个）
+const out = execSync(`npm pack --silent --pack-destination "${OUT}"`, { cwd: STAGE }).toString().trim().split('\n').pop();
+console.log(`  ✓ ${out}`);
 
 console.log(`
-打包完成（产物只含压缩 JS，不含 TS 源码）：${tarballs.map((t) => `npm-dist/${t}`).join(', ')}
+打包完成（单包自包含，产物只含压缩 JS，不含 TS 源码）：npm-dist/${out}
 
-新环境安装（不依赖本仓库目录结构）：
-  # 方式 A：本地 tarball（6 个一起装，npm 无法让 tarball 互相解析依赖）
-  npm i -D ${tarballs.map((t) => `./npm-dist/${t}`).join(' ')}
-
-  # 方式 B：发布到 registry/私服后
-  npm i -D @tdsl/cli
+安装：
+  # 全局（推荐，任意目录可用）
+  npm i -g npm-dist/${out}
+  # 或工程内（CI 锁版本）
+  npm i -D ./npm-dist/${out}
+  # 或发布到 registry/私服后：npm i -g @tdsl/cli
 
 安装后：
-  npx tdsl --help
-  npx tdsl check <tdsl目录>
-  npx tdsl generate <tdsl目录> --name myapp -o generated
+  tdsl --help
+  tdsl check <tdsl目录>
+  tdsl generate <tdsl目录> --name myapp -o generated
 `);

@@ -1,0 +1,384 @@
+// 芋道 ERP/CRM · 门户看板（dev/46-48）：统计指标（条件聚合）+ 轮播 + 进度 + 只读列表
+// 说明：@role 语法已支持（语言面保留），外壳暂不做角色切换——门户面向全员展示
+
+// ---- 统计逻辑（C1 条件聚合：where(...).aggregate(...)） ----
+
+@export
+function countErpPurchaseOrder(): Integer {
+  return PurchaseOrder.aggregate(count());
+}
+
+@export
+function countErpPurchaseInPending(): Integer {
+  return PurchaseIn.where(status = DocStatus.UNAUDIT).aggregate(count());
+}
+
+@export
+function sumErpStockCount(): Decimal {
+  return Stock.aggregate(sum(count));
+}
+
+@export
+function sumErpSaleAmount(): Decimal {
+  return SaleOrder.aggregate(sum(totalPrice));
+}
+
+@export
+function countErpSaleOutPending(): Integer {
+  return SaleOut.where(status = DocStatus.UNAUDIT).aggregate(count());
+}
+
+@export
+function sumErpSaleOutReceipt(): Decimal {
+  return SaleOut.aggregate(sum(receiptPrice));
+}
+
+@export
+function countErpProduct(): Integer {
+  return Product.aggregate(count());
+}
+
+@export
+function countErpWarehouse(): Integer {
+  return Warehouse.aggregate(count());
+}
+
+@export
+function sumErpPurchaseAmount(): Decimal {
+  return PurchaseOrder.aggregate(sum(totalPrice));
+}
+
+@export
+function countErpPurchaseReturnPending(): Integer {
+  return PurchaseReturn.where(status = DocStatus.UNAUDIT).aggregate(count());
+}
+
+@export
+function countCrmClue(): Integer {
+  return CrmClue.aggregate(count());
+}
+
+@export
+function countCrmCustomer(): Integer {
+  return CrmCustomer.aggregate(count());
+}
+
+@export
+function countCrmBusiness(): Integer {
+  return CrmBusiness.aggregate(count());
+}
+
+@export
+function countCrmContract(): Integer {
+  return CrmContract.aggregate(count());
+}
+
+@export
+function countCrmReceivablePending(): Integer {
+  return CrmReceivable.where(auditStatus = CrmAuditStatus.UNSUBMIT).aggregate(count());
+}
+
+@export
+function countCrmCustomerLocked(): Integer {
+  return CrmCustomer.where(lockStatus = LockStatus.LOCKED).aggregate(count());
+}
+
+interface PortalApi {
+  GET '/api/portal/stats/purchase-orders'   -> countErpPurchaseOrder
+  GET '/api/portal/stats/purchase-in-pending' -> countErpPurchaseInPending
+  GET '/api/portal/stats/purchase-return-pending' -> countErpPurchaseReturnPending
+  GET '/api/portal/stats/purchase-amount'   -> sumErpPurchaseAmount
+  GET '/api/portal/stats/stock-count'       -> sumErpStockCount
+  GET '/api/portal/stats/sale-amount'       -> sumErpSaleAmount
+  GET '/api/portal/stats/sale-out-pending'  -> countErpSaleOutPending
+  GET '/api/portal/stats/sale-out-receipt'  -> sumErpSaleOutReceipt
+  GET '/api/portal/stats/product-count'     -> countErpProduct
+  GET '/api/portal/stats/warehouse-count'   -> countErpWarehouse
+  GET '/api/portal/stats/crm-clues'         -> countCrmClue
+  GET '/api/portal/stats/crm-customers'     -> countCrmCustomer
+  GET '/api/portal/stats/crm-customers-locked' -> countCrmCustomerLocked
+  GET '/api/portal/stats/crm-businesses'    -> countCrmBusiness
+  GET '/api/portal/stats/crm-contracts'     -> countCrmContract
+  GET '/api/portal/stats/crm-receivable-pending' -> countCrmReceivablePending
+}
+
+// ---- 经营总览 ----
+
+@title('经营总览') @menu('门户')
+page bossDashboard {
+  <carousel autoplay={true}>
+    <item title="九月采购节" text="办公设备采购满 10 万返 5%，截止 9/30" />
+    <item title="库存盘点通知" text="请于 9/30 前完成华东一号仓盘点" />
+    <item title="新品上架" text="联想拯救者 Y9000P 已入库，欢迎下单" />
+  </carousel>
+  <row>
+    <col span={6}><statistic title="销售订单金额" suffix="元" color="blue" dataSource={useQuery('sumErpSaleAmount')} /></col>
+    <col span={6}><statistic title="采购订单金额" suffix="元" color="green" dataSource={useQuery('sumErpPurchaseAmount')} /></col>
+    <col span={6}><statistic title="库存总量" suffix="件" color="orange" dataSource={useQuery('sumErpStockCount')} /></col>
+    <col span={6}><statistic title="在售产品" suffix="款" color="purple" dataSource={useQuery('countErpProduct')} /></col>
+  </row>
+  <row>
+    <col span={6}><statistic title="采购订单数" suffix="单" color="cyan" dataSource={useQuery('countErpPurchaseOrder')} /></col>
+    <col span={6}><statistic title="待审批入库" suffix="单" color="red" dataSource={useQuery('countErpPurchaseInPending')} /></col>
+    <col span={6}><statistic title="待审批出库" suffix="单" color="magenta" dataSource={useQuery('countErpSaleOutPending')} /></col>
+    <col span={6}><statistic title="已收金额" suffix="元" color="gold" dataSource={useQuery('sumErpSaleOutReceipt')} /></col>
+  </row>
+  <row>
+    <col span={8}><progress title="年度销售目标完成率" percent={72} color="blue" /></col>
+    <col span={8}><progress title="采购及时到货率" percent={88} color="green" /></col>
+    <col span={8}><progress title="库存周转达成率" percent={64} color="orange" /></col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpPurchaseIn')} title="近期入库">
+        <item primary={true} field="no" title="入库单号" />
+        <item field="inTime" title="入库时间" />
+        <item extra={true} field="totalPrice" title="金额" color="green" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpSaleOrder')} title="近期销售">
+        <item primary={true} field="no" title="销售单号" />
+        <item field="orderTime" title="下单时间" />
+        <item extra={true} field="totalPrice" title="金额" color="blue" />
+      </list>
+    </col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpStockRecord')} title="库存变动动态">
+        <item primary={true} field="bizNo" title="来源单号" />
+        <item field="count" title="变动量" />
+        <item extra={true} field="totalCount" title="结存" color="orange" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryCrmClue')} title="最新线索">
+        <item primary={true} field="name" title="线索名称" />
+        <item field="mobile" title="手机" />
+        <item extra={true} field="followUpStatus" title="跟进" color="purple" />
+      </list>
+    </col>
+  </row>
+}
+
+// ---- 采购门户 ----
+
+@title('采购门户') @menu('门户')
+page purchasePortal {
+  <carousel autoplay={true}>
+    <item title="供应商结算提醒" text="华科数码本月对账单已生成，请及时核对" />
+    <item title="采购小贴士" text="入库单审批后自动回写采购订单入库数量" />
+    <item title="到货通知" text="未来办公 300 箱复印纸已到华东一号仓" />
+  </carousel>
+  <row>
+    <col span={6}><statistic title="采购订单数" suffix="单" color="green" dataSource={useQuery('countErpPurchaseOrder')} /></col>
+    <col span={6}><statistic title="采购金额" suffix="元" color="blue" dataSource={useQuery('sumErpPurchaseAmount')} /></col>
+    <col span={6}><statistic title="待审批入库" suffix="单" color="red" dataSource={useQuery('countErpPurchaseInPending')} /></col>
+    <col span={6}><statistic title="待审批退货" suffix="单" color="orange" dataSource={useQuery('countErpPurchaseReturnPending')} /></col>
+  </row>
+  <row>
+    <col span={8}><progress title="本月采购计划完成率" percent={81} color="green" /></col>
+    <col span={8}><progress title="订单到货及时率" percent={93} color="blue" /></col>
+    <col span={8}><progress title="退货率（目标 <5%）" percent={12} color="orange" status="exception" /></col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpPurchaseIn')} title="近期入库">
+        <item primary={true} field="no" title="入库单号" />
+        <item field="inTime" title="入库时间" />
+        <item extra={true} field="totalPrice" title="金额" color="green" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpPurchaseReturn')} title="近期退货">
+        <item primary={true} field="no" title="退货单号" />
+        <item field="returnTime" title="退货时间" />
+        <item extra={true} field="refundPrice" title="退款" color="red" />
+      </list>
+    </col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpPurchaseOrder')} title="采购订单">
+        <item primary={true} field="no" title="采购单号" />
+        <item field="orderTime" title="下单时间" />
+        <item extra={true} field="totalPrice" title="金额" color="blue" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpSupplier')} title="供应商名录">
+        <item primary={true} field="name" title="供应商" />
+        <item field="mobile" title="手机" />
+        <item extra={true} field="status" title="状态" color="green" />
+      </list>
+    </col>
+  </row>
+}
+
+// ---- 销售门户 ----
+
+@title('销售门户') @menu('门户')
+page salePortal {
+  <carousel autoplay={true}>
+    <item title="销售之星榜单" text="本月前三名将获得额外激励奖金" />
+    <item title="出库提醒" text="出库审批将自动扣减库存并回写订单" />
+    <item title="客户回访" text="本周有 3 位客户待回访" />
+  </carousel>
+  <row>
+    <col span={6}><statistic title="销售订单金额" suffix="元" color="blue" dataSource={useQuery('sumErpSaleAmount')} /></col>
+    <col span={6}><statistic title="已收金额" suffix="元" color="cyan" dataSource={useQuery('sumErpSaleOutReceipt')} /></col>
+    <col span={6}><statistic title="待审批出库" suffix="单" color="magenta" dataSource={useQuery('countErpSaleOutPending')} /></col>
+    <col span={6}><statistic title="CRM 客户" suffix="家" color="purple" dataSource={useQuery('countCrmCustomer')} /></col>
+  </row>
+  <row>
+    <col span={8}><progress title="回款完成率" percent={76} color="cyan" /></col>
+    <col span={8}><progress title="新客转化率" percent={45} color="blue" /></col>
+    <col span={8}><progress title="订单交付达成率" percent={89} color="green" /></col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpSaleOrder')} title="近期销售订单">
+        <item primary={true} field="no" title="销售单号" />
+        <item field="orderTime" title="下单时间" />
+        <item extra={true} field="totalPrice" title="金额" color="blue" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpSaleOut')} title="近期出库">
+        <item primary={true} field="no" title="出库单号" />
+        <item field="outTime" title="出库时间" />
+        <item extra={true} field="receiptPrice" title="已收" color="cyan" />
+      </list>
+    </col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryCrmCustomer')} title="我的客户">
+        <item primary={true} field="name" title="客户名称" />
+        <item field="mobile" title="手机" />
+        <item extra={true} field="lockStatus" title="锁定" color="orange" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryCrmBusiness')} title="近期商机">
+        <item primary={true} field="name" title="商机名称" />
+        <item field="totalPrice" title="金额" />
+        <item extra={true} field="endStatus" title="结果" color="purple" />
+      </list>
+    </col>
+  </row>
+}
+
+// ---- 库存门户 ----
+
+@title('库存门户') @menu('门户')
+page stockPortal {
+  <carousel autoplay={true}>
+    <item title="盘点任务" text="华东一号仓 9/25-9/30 盘点，请提前备料" />
+    <item title="安全库存提示" text="库存不足时出库审批将被拦截" />
+    <item title="仓库温湿度" text="各仓温湿度正常，无异常告警" />
+  </carousel>
+  <row>
+    <col span={6}><statistic title="库存总量" suffix="件" color="orange" dataSource={useQuery('sumErpStockCount')} /></col>
+    <col span={6}><statistic title="仓库数" suffix="个" color="blue" dataSource={useQuery('countErpWarehouse')} /></col>
+    <col span={6}><statistic title="待审批入库" suffix="单" color="red" dataSource={useQuery('countErpPurchaseInPending')} /></col>
+    <col span={6}><statistic title="待审批出库" suffix="单" color="magenta" dataSource={useQuery('countErpSaleOutPending')} /></col>
+  </row>
+  <row>
+    <col span={8}><progress title="盘点计划完成率" percent={68} color="orange" /></col>
+    <col span={8}><progress title="库位利用率" percent={82} color="blue" /></col>
+    <col span={8}><progress title="入库及时上架率" percent={95} color="green" /></col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpStockRecord')} title="近期库存变动">
+        <item primary={true} field="bizNo" title="来源单号" />
+        <item field="count" title="变动量" />
+        <item extra={true} field="totalCount" title="结存" color="orange" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpWarehouse')} title="仓库一览">
+        <item primary={true} field="name" title="仓库名称" />
+        <item field="principal" title="负责人" />
+        <item extra={true} field="status" title="状态" color="green" />
+      </list>
+    </col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpStock')} title="产品库存">
+        <item primary={true} field="productId" title="产品" />
+        <item field="warehouseId" title="仓库" />
+        <item extra={true} field="count" title="库存量" color="blue" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryErpStockCheck')} title="盘点单">
+        <item primary={true} field="no" title="盘点单号" />
+        <item field="checkTime" title="盘点时间" />
+        <item extra={true} field="status" title="状态" color="purple" />
+      </list>
+    </col>
+  </row>
+}
+
+// ---- CRM 门户 ----
+
+@title('CRM 门户') @menu('门户')
+page crmPortal {
+  <carousel autoplay={true}>
+    <item title="客户拜访提醒" text="本周有 3 位客户待回访，请及时跟进" />
+    <item title="商机复盘" text="前海智联 ERP 升级项目已赢单" />
+    <item title="回款及时率" text="逾期回款请在 CRM 门户跟进" />
+  </carousel>
+  <row>
+    <col span={6}><statistic title="线索数" suffix="条" color="purple" dataSource={useQuery('countCrmClue')} /></col>
+    <col span={6}><statistic title="客户数" suffix="家" color="blue" dataSource={useQuery('countCrmCustomer')} /></col>
+    <col span={6}><statistic title="锁定客户" suffix="家" color="orange" dataSource={useQuery('countCrmCustomerLocked')} /></col>
+    <col span={6}><statistic title="待审批回款" suffix="笔" color="red" dataSource={useQuery('countCrmReceivablePending')} /></col>
+  </row>
+  <row>
+    <col span={8}><statistic title="商机数" suffix="个" color="gold" dataSource={useQuery('countCrmBusiness')} /></col>
+    <col span={8}><statistic title="合同数" suffix="份" color="cyan" dataSource={useQuery('countCrmContract')} /></col>
+    <col span={8}><progress title="线索转化率" percent={53} color="purple" /></col>
+  </row>
+  <row>
+    <col span={8}><progress title="商机赢单率" percent={61} color="gold" /></col>
+    <col span={8}><progress title="回款及时率" percent={87} color="cyan" /></col>
+    <col span={8}><progress title="客户活跃率" percent={74} color="blue" /></col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryCrmClue')} title="近期线索">
+        <item primary={true} field="name" title="线索名称" />
+        <item field="mobile" title="手机" />
+        <item extra={true} field="followUpStatus" title="跟进" color="purple" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryCrmCustomer')} title="近期客户">
+        <item primary={true} field="name" title="客户名称" />
+        <item field="mobile" title="手机" />
+        <item extra={true} field="dealStatus" title="成交" color="blue" />
+      </list>
+    </col>
+  </row>
+  <row>
+    <col span={12}>
+      <list dataSource={useQuery('queryCrmBusiness')} title="近期商机">
+        <item primary={true} field="name" title="商机名称" />
+        <item field="totalPrice" title="金额" />
+        <item extra={true} field="endStatus" title="结果" color="gold" />
+      </list>
+    </col>
+    <col span={12}>
+      <list dataSource={useQuery('queryCrmReceivable')} title="回款单">
+        <item primary={true} field="no" title="回款编号" />
+        <item field="returnTime" title="回款时间" />
+        <item extra={true} field="price" title="金额" color="red" />
+      </list>
+    </col>
+  </row>
+}

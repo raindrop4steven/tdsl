@@ -1,0 +1,352 @@
+// 芋道 ERP · 库存管理：仓库/产品库存/库存明细（含其它出入库）/库存盘点
+
+// ---- 库存联动公共入口（dev/45 F3：单据审批/反审批调用；不足抛业务错误） ----
+// delta 为正=入库、为负=出库；自动建库存行、写变动流水（含结存快照）
+function applyStock(productId: Integer, warehouseId: Integer, delta: Decimal,
+                    bizType: StockRecordBizType, bizId: Integer, bizNo: String): Boolean {
+  const rows = Stock.where(productId = productId, warehouseId = warehouseId);
+  if (rows.count === 0) {
+    if (delta < 0) {
+      throw '库存不足';
+    }
+    const init = new Stock();
+    init.productId = productId;
+    init.warehouseId = warehouseId;
+    init.count = 0;
+    init.save();
+  }
+  for (const s of Stock.where(productId = productId, warehouseId = warehouseId)) {
+    const next = s.count + delta;
+    if (next < 0) {
+      throw '库存不足';
+    }
+    s.count = next;
+    s.save();
+    const rec = new StockRecord();
+    rec.productId = productId;
+    rec.warehouseId = warehouseId;
+    rec.count = delta;
+    rec.totalCount = next;
+    rec.bizType = bizType;
+    rec.bizId = bizId;
+    rec.bizNo = bizNo;
+    rec.save();
+  }
+  return true;
+}
+
+// ---- 仓库 ----
+
+@export
+function queryErpWarehouse(name: String, status: ProductStatus): List<Warehouse> {
+  return Warehouse.where(name like '%' + name.trim() + '%', status = status).orderBy(sort asc);
+}
+
+@export
+@ok('保存成功')
+function saveErpWarehouse(input: WarehouseInput): Warehouse {
+  const w = new Warehouse();
+  if (input.id !== null && input.id > 0) {
+    const w = Warehouse.get(input.id);
+  }
+  w.name = input.name;
+  w.address = input.address;
+  w.sort = input.sort;
+  w.principal = input.principal;
+  w.warehousePrice = input.warehousePrice;
+  w.truckagePrice = input.truckagePrice;
+  w.status = input.status;
+  w.defaultStatus = input.defaultStatus;
+  w.remark = input.remark;
+  w.save();
+  return w;
+}
+
+@export
+@ok('删除成功')
+function deleteErpWarehouse(id: Integer): Boolean {
+  const w = Warehouse.get(id);
+  w.delete();
+  return true;
+}
+
+// ---- 产品库存 ----
+
+@export
+function queryErpStock(productId: Integer, warehouseId: Integer): List<Stock> {
+  return Stock.where(productId = productId, warehouseId = warehouseId);
+}
+
+// ---- 库存明细 / 其它出入库 ----
+
+@export
+function queryErpStockRecord(productId: Integer, warehouseId: Integer, bizType: StockRecordBizType): List<StockRecord> {
+  return StockRecord.where(productId = productId, warehouseId = warehouseId, bizType = bizType).orderBy(id desc);
+}
+
+// 其它入库：写库存明细 + 联动产品库存（链式写，库存不存在则建档）
+@export
+@ok('保存成功')
+function saveErpStockIn(input: StockRecordInput): StockRecord {
+  const rec = new StockRecord();
+  rec.productId = input.productId;
+  rec.warehouseId = input.warehouseId;
+  rec.count = input.count;
+  rec.bizType = StockRecordBizType.STOCK_IN;
+  rec.bizId = 0;
+  rec.bizItemId = 0;
+  rec.bizNo = 'STOCK-IN';
+  const stocks = Stock.where(productId = input.productId, warehouseId = input.warehouseId);
+  for (const s of stocks) {
+    const total = s.count + input.count;
+    s.count = total;
+    s.save();
+    rec.totalCount = total;
+    rec.save();
+    return rec;
+  }
+  const s = new Stock();
+  s.productId = input.productId;
+  s.warehouseId = input.warehouseId;
+  s.count = input.count;
+  s.save();
+  rec.totalCount = input.count;
+  rec.save();
+  return rec;
+}
+
+// 其它出库：数量记负，联动扣减产品库存（不足报错）
+@export
+@ok('保存成功')
+function saveErpStockOut(input: StockRecordInput): StockRecord {
+  const stocks = Stock.where(productId = input.productId, warehouseId = input.warehouseId);
+  for (const s of stocks) {
+    if (s.count < input.count) {
+      throw '库存不足，无法出库';
+    }
+    s.count = s.count - input.count;
+    s.save();
+    const rec = new StockRecord();
+    rec.productId = input.productId;
+    rec.warehouseId = input.warehouseId;
+    rec.count = 0 - input.count;
+    rec.totalCount = s.count;
+    rec.bizType = StockRecordBizType.STOCK_OUT;
+    rec.bizId = 0;
+    rec.bizItemId = 0;
+    rec.bizNo = 'STOCK-OUT';
+    rec.save();
+    return rec;
+  }
+  throw '无该产品库存档案';
+}
+
+// ---- 库存盘点 ----
+
+@export
+function queryErpStockCheck(no: String, status: DocStatus): List<StockCheck> {
+  return StockCheck.where(no like '%' + no.trim() + '%', status = status);
+}
+
+@export
+@ok('保存成功')
+function saveErpStockCheck(input: StockCheckInput): StockCheck {
+  const c = new StockCheck();
+  if (input.id !== null && input.id > 0) {
+    const c = StockCheck.get(input.id);
+  }
+  c.no = input.no;
+  c.status = DocStatus.UNAUDIT;
+  c.checkTime = input.checkTime;
+  c.warehouseId = input.warehouseId;
+  c.remark = input.remark;
+  c.save();
+  if (input.items.count > 0) {
+    for (const ol of StockCheckItem.where(checkId = c.id)) {
+      ol.delete();
+    }
+    for (const it of input.items) {
+      const item = new StockCheckItem();
+      item.checkId = c.id;
+      item.productId = it.productId;
+      item.productUnitId = it.productUnitId;
+      item.count = it.count;
+      item.systemCount = it.systemCount;
+      item.diffCount = it.diffCount;
+      item.remark = it.remark;
+      item.save();
+    }
+  }
+  return c;
+}
+
+@export
+@ok('删除成功')
+function deleteErpStockCheck(id: Integer): Boolean {
+  const c = StockCheck.get(id);
+  for (const it of StockCheckItem.where(checkId = id)) {
+    it.delete();
+  }
+  c.delete();
+  return true;
+}
+
+@export
+@ok('审批完成')
+function auditErpStockCheck(id: Integer): Boolean {
+  const c = StockCheck.get(id);
+  if (c.status !== DocStatus.UNAUDIT) {
+    throw '仅未审批盘点单可审批';
+  }
+  c.status = DocStatus.AUDITED;
+  c.save();
+  return true;
+}
+
+// 表单明细数据源（列表 → 编辑时按主键带出明细）
+@export
+function queryErpStockCheckItems(checkId: Integer): List<StockCheckItem> {
+  return StockCheckItem.where(checkId = checkId);
+}
+
+interface StockApi {
+  GET    '/api/erp/stock-checks/{checkId}/items' -> queryErpStockCheckItems
+  GET    '/api/erp/warehouses'          -> queryErpWarehouse
+  POST   '/api/erp/warehouses'          -> saveErpWarehouse
+  DELETE '/api/erp/warehouses/{id}'     -> deleteErpWarehouse
+  GET    '/api/erp/stocks'              -> queryErpStock
+  GET    '/api/erp/stock-records'       -> queryErpStockRecord
+  POST   '/api/erp/stock-records/in'    -> saveErpStockIn
+  POST   '/api/erp/stock-records/out'   -> saveErpStockOut
+  GET    '/api/erp/stock-checks'        -> queryErpStockCheck
+  POST   '/api/erp/stock-checks'        -> saveErpStockCheck
+  DELETE '/api/erp/stock-checks/{id}'   -> deleteErpStockCheck
+  POST   '/api/erp/stock-checks/audit'  -> auditErpStockCheck
+}
+
+// ---- 页面 ----
+
+@title('仓库列表')
+@menu('库存管理')
+page erpWarehouseList {
+  <input field="name" label="仓库名称" />
+  <input field="status" label="启用状态" />
+  <table dataSource={useQuery('queryErpWarehouse')}>
+    <column field="name" title="仓库名称" />
+    <column field="address" title="仓库地址" />
+    <column field="principal" title="负责人" />
+    <column field="warehousePrice" title="仓库保管费" />
+    <column field="truckagePrice" title="搬运费" />
+    <column field="status" title="启用状态" />
+    <column field="defaultStatus" title="是否默认" />
+    <button text="编辑" action={openDialog('erpWarehouseForm', row)} />
+    <button text="删除" action={useMutation('deleteErpWarehouse', row.id)} />
+  </table>
+  <button text="新增仓库" action={openDialog('erpWarehouseForm')} />
+}
+
+@title('仓库编辑')
+@menu('库存管理')
+dialog erpWarehouseForm {
+  <form submit={useMutation('saveErpWarehouse')}>
+    <input field="name" label="仓库名称" />
+    <input field="address" label="仓库地址" />
+    <input field="sort" label="排序" />
+    <input field="principal" label="负责人" />
+    <input field="warehousePrice" label="仓库保管费" />
+    <input field="truckagePrice" label="搬运费" />
+    <input field="status" label="启用状态" />
+    <input field="defaultStatus" label="是否默认" />
+    <input field="remark" label="备注" />
+    <button text="保存" />
+  </form>
+}
+
+@title('产品库存列表')
+@menu('库存管理')
+page erpStockList {
+  <input field="productId" label="产品" />
+  <input field="warehouseId" label="仓库" />
+  <table dataSource={useQuery('queryErpStock')}>
+    <column field="productId" title="产品" />
+    <column field="warehouseId" title="仓库" />
+    <column field="count" title="库存数量" />
+  </table>
+}
+
+@title('库存变动明细')
+@menu('库存管理')
+page erpStockRecordList {
+  <input field="productId" label="产品" />
+  <input field="warehouseId" label="仓库" />
+  <input field="bizType" label="变动类型" />
+  <table dataSource={useQuery('queryErpStockRecord')}>
+    <column field="productId" title="产品" />
+    <column field="warehouseId" title="仓库" />
+    <column field="bizType" title="变动类型" />
+    <column field="bizNo" title="来源单号" />
+    <column field="count" title="变动数量" />
+    <column field="totalCount" title="变动后库存" />
+  </table>
+  <button text="其它入库" action={openDialog('erpStockInForm')} />
+  <button text="其它出库" action={openDialog('erpStockOutForm')} />
+}
+
+@title('其它入库')
+@menu('库存管理')
+dialog erpStockInForm {
+  <form submit={useMutation('saveErpStockIn')}>
+    <input field="productId" label="产品" />
+    <input field="warehouseId" label="仓库" />
+    <input field="count" label="数量" />
+    <button text="保存" />
+  </form>
+}
+
+@title('其它出库')
+@menu('库存管理')
+dialog erpStockOutForm {
+  <form submit={useMutation('saveErpStockOut')}>
+    <input field="productId" label="产品" />
+    <input field="warehouseId" label="仓库" />
+    <input field="count" label="数量" />
+    <button text="保存" />
+  </form>
+}
+
+@title('盘点单列表')
+@menu('库存管理')
+page erpStockCheckList {
+  <input field="no" label="盘点单号" />
+  <input field="status" label="单据状态" />
+  <table dataSource={useQuery('queryErpStockCheck')}>
+    <column field="no" title="盘点单号" />
+    <column field="status" title="单据状态" />
+    <column field="checkTime" title="盘点时间" />
+    <column field="warehouseId" title="仓库" />
+    <button text="编辑" action={openDialog('erpStockCheckForm', row)} />
+    <button text="删除" action={useMutation('deleteErpStockCheck', row.id)} />
+    <button text="审批" action={useMutation('auditErpStockCheck', row.id)} />
+  </table>
+  <button text="新增盘点单" action={openDialog('erpStockCheckForm')} />
+}
+
+@title('盘点单编辑')
+@menu('库存管理')
+dialog erpStockCheckForm {
+  <form submit={useMutation('saveErpStockCheck')}>
+    <input field="no" label="盘点单号" />
+    <input field="checkTime" label="盘点时间" />
+    <input field="warehouseId" label="仓库" />
+    <input field="remark" label="备注" />
+    <repeat field="items" dataSource={useQuery('queryErpStockCheckItems', initial.id)}>
+      <input field="productId" label="产品" />
+      <input field="productUnitId" label="产品单位" />
+      <input field="count" label="盘点数量" />
+      <input field="systemCount" label="系统库存" />
+      <input field="diffCount" label="差异数量" />
+      <input field="remark" label="备注" />
+    </repeat>
+    <button text="保存" />
+  </form>
+}
