@@ -1,5 +1,7 @@
 # few-shot：基础示例（单测锁定可编译）
 
+> [English](basics.en.md) · **中文**
+
 > 来源：`packages/llm/src/examples.ts`（示例矩阵）——每个都是 compile 全绿的完整 TDSL，作为单测常驻锁定（防示例腐烂）。照着抄就不会有低级语法错。
 > 进阶（企业范式）见同目录 `patterns-yudao.md`；完整工程参照 `../demo-yudao/`。
 

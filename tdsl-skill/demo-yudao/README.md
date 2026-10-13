@@ -1,5 +1,7 @@
 # demo：芋道 ERP/CRM（完整真工程参照）
 
+> [English](README.en.md) · **中文**
+
 > 来源 `examples/yudao/`：真实企业系统（芋道 ruoyi-vue-pro ERP/CRM 子集）复刻的 TDSL 工程。
 > **已验证**：`tdsl check` 0 问题、check-spec 覆盖 1091 项 100%、Java/React 双端 build 通过。
 > 想看"一个完整企业应用怎么组织 TDSL"，读这个。

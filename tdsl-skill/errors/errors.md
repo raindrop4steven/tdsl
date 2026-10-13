@@ -1,5 +1,7 @@
 # 错误速查与修复（tdsl check 诊断）
 
+> [English](errors.en.md) · **中文**
+
 > `tdsl check` 输出结构化诊断：`[severity] [code] message (file:line:col) + 改成: suggestion`。
 > 修复循环：读诊断 → 按 code 查下表 → 改 → **再 check**（全量齐报，一次可修多个）。
 > 原则：**error 必须清零；warning（DEP-2/3、FK-REF-NO-QUERY、NULLABLE-HINT）不阻断但要过目**。

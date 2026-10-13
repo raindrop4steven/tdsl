@@ -5,6 +5,8 @@ description: TDSL 语言完整语法参考（低代码 DSL，TS 词法面 + 领�
 
 # TDSL 语法（完整参考）
 
+> [English](SKILL.en.md) · **中文**
+
 > 核心：**书写面用 TS 词法**（`function/const/for-of`），**骨架声明用领域关键词**（`entity/page/interface`）。
 > 不是严格 TypeScript：`@pk`、`Order.where(...)` 是 TS 没有的；内置类型是领域类型（`Integer/Decimal`，**没有** `number/string`）。
 > **禁止清单**（最易写错）：三元 `?:`、模板字符串、`==`（一律 `===`）、箭头函数、`class`、`:=`、`for-in`、`logic`。legacy 词法已删除，写了就报语法错误。

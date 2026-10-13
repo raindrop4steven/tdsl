@@ -1,5 +1,7 @@
 # TDSL Skill 集（agent 知识包）
 
+> [English](README.en.md) · **中文**
+
 > 给 LLM/agent 写 TDSL 时看的完整知识包：语法参考、few-shot 示例、错误修复、真工程参照。
 > 配套编译裁判：`@tdsl/cli`（`tdsl check / generate / build`）。**写→check→修→再 check** 是最短闭环。
 >

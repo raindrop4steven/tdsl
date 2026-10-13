@@ -14,7 +14,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/raindrop4steven/tdsl/pulls)
 
-[快速开始](#-快速开始) · [交给 Agent](#-交给-coding-agent) · [命令行](#-命令行) · [文档](#-文档)
+[快速开始](#-快速开始) · [交给 Agent](#-交给-coding-agent) · [命令行](#-命令行) · [文档](#-文档) · [English](README.en.md)
 
 </div>
 

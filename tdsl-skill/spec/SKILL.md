@@ -5,6 +5,8 @@ description: TDSL 需求先行工作流（Spec 驱动开发，SDD）。Use when 
 
 # Spec 先行：需求 → Spec → TDSL → 对照
 
+> [English](SKILL.en.md) · **中文**
+
 > 接到需求**先写 spec（或改现有 spec），再写 TDSL**——这是本项目验证过的主线方法论
 > （jxc 进销存、yudao ERP 均按此交付，对照覆盖率 100%）。
 > 好处：① 需求结构化后遗漏显形；② spec 是和用户对齐的契约（改动先改 spec）；③ 对照器可自动验证"写了没漏"。

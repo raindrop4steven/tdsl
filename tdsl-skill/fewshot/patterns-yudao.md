@@ -1,5 +1,7 @@
 # few-shot：企业实战范式（节选自芋道 ERP/CRM）
 
+> [English](patterns-yudao.en.md) · **中文**
+
 > 来源：`examples/yudao/tdsl/*.tdsl`（8 分片编译通过、双端 build 成功、check-spec 100%）。
 > 这些是 yudao 实战沉淀的"怎么写才对"——LLM 写企业应用时优先照这些形态。
 > 完整上下文在 `../demo-yudao/`；`tdsl-skill/README.md` 讲分片组织。
