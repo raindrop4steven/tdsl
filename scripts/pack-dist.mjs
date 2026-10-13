@@ -45,7 +45,7 @@ const version = cliMeta.version;
 const readme = `# TDSL 交付包（编译器 + CLI + agent 知识包）v${version}
 
 > 一套离线交付物：TDSL 编译器与 CLI（\`tdsl\` 命令，单包自包含）+ 给大模型/agent 用的 TDSL 知识包（tdsl-skill）。
-> 产物只含压缩 JS，不含 TS 源码；许可证见包内 LICENSE（专有许可）。
+> 产物只含压缩 JS，不含 TS 源码；采用 Apache-2.0 许可（见仓库根 LICENSE）。
 
 ## 目录
 

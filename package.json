@@ -5,21 +5,16 @@
   "workspaces": [
     "packages/*",
     "examples/todo-app",
-    "examples/todo-multi",
-    "examples/jxc",
-    "examples/yudao"
+    "examples/todo-multi"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
     "playground": "npm run dev -w @tdsl/playground",
     "tdsl": "node packages/cli/bin/tdsl.mjs",
-    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit && tsc -p packages/playground --noEmit && tsc -p packages/cli --noEmit && tsc -p packages/server --noEmit && tsc -p packages/eval --noEmit",
-    "server": "npm run start -w @tdsl/server",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/parser --noEmit && tsc -p packages/typecheck --noEmit && tsc -p packages/codegen-java --noEmit && tsc -p packages/codegen-react --noEmit && tsc -p packages/llm --noEmit && tsc -p packages/playground --noEmit && tsc -p packages/cli --noEmit",
     "slice": "npm run slice -w todo-app",
     "slice:multi": "npm run slice -w todo-multi",
-    "eval": "npm run eval -w @tdsl/eval",
     "pack:compiler": "node scripts/pack-compiler.mjs",
-    "pack:dist": "node scripts/pack-dist.mjs",
-    "demo:yudao": "npm run demo -w yudao"
+    "pack:dist": "node scripts/pack-dist.mjs"
   }
 }
