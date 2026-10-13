@@ -1,16 +1,16 @@
-# few-shot: basics (unit-test-locked, compilable)
+# few-shot：基础示例（单测锁定可编译）
 
-> [中文](basics.md) · **English**
+> [English](basics.md) · **中文**
 
-> Source: `packages/llm/src/examples.ts` (the example matrix) — each is a complete TDSL that compiles green, permanently locked by unit tests (guards against example rot). Copy them and you won't hit low-level syntax errors.
-> Advanced (enterprise patterns) live in `patterns-yudao.en.md` in the same directory; a full project reference is in `../demo-yudao/`.
+> 来源：`packages/llm/src/examples.ts`（示例矩阵）——每个都是 compile 全绿的完整 TDSL，作为单测常驻锁定（防示例腐烂）。照着抄就不会有低级语法错。
+> 进阶（企业范式）见同目录 `patterns-yudao.zh.md`；完整工程参照 `../demo-yudao/`。
 
-## 1. CRUD single table (minimal full set)
+## 1. CRUD 单表（最小全套）
 
-The minimal full form of entity/struct/logic/interface/page (list + form + create/read/update/delete).
+实体/结构/逻辑/接口/页面 全套最小形态（列表 + 表单 + 增删改查）。
 
 ```ts
-// CRUD single table: minimal full form
+// CRUD 单表：全套最小形态
 @datasource('defaultDS')
 
 entity Todo {
@@ -34,13 +34,13 @@ function createTodo(input: TodoInput): Todo {
   const todo = new Todo();
   todo.title = input.title;
   todo.done = input.done;
-  todo.save();                        // instance methods: save() / delete()
+  todo.save();                        // 实例方法：save() / delete()
   return todo;
 }
 
 @export
 function updateDone(id: Integer, done: Boolean): Todo {
-  const todo = Todo.get(id);               // lookup by primary key
+  const todo = Todo.get(id);               // 主键查
   todo.done = done;
   todo.save();
   return todo;
@@ -65,25 +65,25 @@ page TodoList {
     <column field="id" />
     <column field="title" />
     <column field="done" />
-    <button text="Delete" action={useMutation('deleteTodo', row.id)} />
+    <button text="删除" action={useMutation('deleteTodo', row.id)} />
   </table>
-  <button text="New" action={navigate('TodoCreate')} />
+  <button text="新增" action={navigate('TodoCreate')} />
 }
 
 page TodoCreate {
   <form submit={useMutation('createTodo')}>
     <input field="title" />
-    <button text="Submit" />
+    <button text="提交" />
   </form>
 }
 ```
 
-## 2. Master-detail / foreign-key association (order)
+## 2. 主子表 / 外键关联（订单）
 
-Flat-table foreign keys, nested List structs, for-of line-item writes, Decimal arithmetic, transactions, a detail page + repeat form.
+扁平表外键、嵌套 List 结构、for-of 明细写入、Decimal 算术、事务、详情页 + repeat 表单。
 
 ```ts
-// Order (flat tables + FK association): OrderItem.orderId is an ordinary FK field
+// 订单（扁平表 + 外键关联）：OrderItem.orderId 是普通外键字段
 @datasource('defaultDS')
 
 entity Order {
@@ -103,7 +103,7 @@ entity OrderItem {
 
 struct OrderInput {
   customer: String;
-  items: List<OrderItemInput>;        // nested List struct
+  items: List<OrderItemInput>;        // 嵌套 List 结构
 }
 
 struct OrderItemInput {
@@ -125,7 +125,7 @@ function createOrder(input: OrderInput): Order {
   const order = new Order();
   order.customer = input.customer;
   order.total = 0;
-  order.save();                       // write logic is auto @Transactional
+  order.save();                       // 写操作 logic 自动 @Transactional
   for (const it of input.items) {
     const item = new OrderItem();
     item.orderId = order.id;
@@ -133,7 +133,7 @@ function createOrder(input: OrderInput): Order {
     item.price = it.price;
     item.qty = it.qty;
     item.save();
-    order.total = order.total + it.price * it.qty;   // Decimal arithmetic → BigDecimal
+    order.total = order.total + it.price * it.qty;   // Decimal 算术 → BigDecimal
   }
   order.save();
   return order;
@@ -144,7 +144,7 @@ function getOrderDetail(id: Integer): OrderDetail {
   const order = Order.get(id);
   const detail = new OrderDetail();
   detail.order = order;
-  detail.items = OrderItem.where(orderId = id);      // where single condition (field = value)
+  detail.items = OrderItem.where(orderId = id);      // where 单条件（字段 = 值）
   return detail;
 }
 
@@ -152,9 +152,9 @@ function getOrderDetail(id: Integer): OrderDetail {
 function deleteOrder(id: Integer): Boolean {
   const order = Order.get(id);
   for (const it of OrderItem.where(orderId = id)) {
-    it.delete();                      // delete line items first
+    it.delete();                      // 先删明细
   }
-  order.delete();                     // cascade-delete the master
+  order.delete();                     // 级联删除主表
   return true;
 }
 
@@ -175,21 +175,21 @@ page OrderList {
     <column field="id" />
     <column field="customer" />
     <column field="total" />
-    <button text="Detail" action={navigate('OrderDetail', row.id)} />
-    <button text="Delete" action={useMutation('deleteOrder', row.id)} />
+    <button text="详情" action={navigate('OrderDetail', row.id)} />
+    <button text="删除" action={useMutation('deleteOrder', row.id)} />
   </table>
-  <button text="New Order" action={navigate('OrderCreate')} />
+  <button text="新增订单" action={navigate('OrderCreate')} />
 }
 
 page OrderCreate {
   <form submit={useMutation('createOrder')}>
     <input field="customer" />
-    <repeat field="items">            // line-item row editing (items → OrderItemInput)
+    <repeat field="items">            // 明细行编辑（items → OrderItemInput）
       <input field="product" />
       <input field="price" />
       <input field="qty" />
     </repeat>
-    <button text="Submit" />
+    <button text="提交" />
   </form>
 }
 
@@ -201,12 +201,12 @@ page OrderDetail {
 }
 ```
 
-## 3. Query / report (compound where / chaining / aggregation)
+## 3. 查询报表（where 复合 / 链式 / 聚合）
 
-Compound where (like/in/&&/||), orderBy/page/limit, aggregation sum/count + groupBy, Page<T>/Map returns.
+where 复合（like/in/&&/||）、orderBy/page/limit、聚合 sum/count + groupBy、Page<T>/Map 返回。
 
 ```ts
-// Query/report: compound where conditions / chaining / aggregation
+// 查询报表：where 复合条件 / 链式 / 聚合
 @datasource('defaultDS')
 
 entity Order {
@@ -219,38 +219,38 @@ entity Order {
 @export
 function searchOrders(customer: String, minTotal: Decimal): List<Order> {
   return Order.where(customer like '%' + customer + '%', total >= minTotal);
-  //                            ↑ like operator (domain DSL, not TS)     ↑ comma = AND
+  //                            ↑ like 运算符（领域 DSL，非 TS）     ↑ 逗号 = AND
 }
 
 @export
 function topOrders(): List<Order> {
   return Order.where(total > 0).orderBy(total desc).limit(10);
-  //                            ↑ chaining: orderBy direction asc|desc, limit truncates rows
+  //                            ↑ 链式：orderBy 方向 asc|desc、limit 截条
 }
 
 @export
 function pageOrders(n: Integer, size: Integer): Page<Order> {
-  return Order.where(total > 0).orderBy(total desc).page(n, size);   // returns Page<Order>
+  return Order.where(total > 0).orderBy(total desc).page(n, size);   // 返回 Page<Order>
 }
 
 @export
 function orderStats(): Decimal {
-  return Order.aggregate(sum(total));          // aggregate: sum/avg/max/min/count
+  return Order.aggregate(sum(total));          // 聚合：sum/avg/max/min/count
 }
 
 @export
 function sumByCustomer(): List<Map<Object>> {
-  return Order.aggregate(sum(total)).groupBy(customer);   // grouped aggregation → List<Map<Object>>
+  return Order.aggregate(sum(total)).groupBy(customer);   // 分组聚合 → List<Map<Object>>
 }
 
 @export
 function statusCount(): List<Order> {
-  return Order.where(status in ['A', 'B']);    // in + array literal
+  return Order.where(status in ['A', 'B']);    // in + 数组字面量
 }
 
 @export
 function orQuery(): List<Order> {
-  return Order.where(total > 100 || status = 'C');   // || inside a condition (note: = means "equals", not assignment)
+  return Order.where(total > 100 || status = 'C');   // 条件内 || 组合（注意：= 是"等于"，非赋值）
 }
 
 interface OrderQueryApi {
@@ -262,13 +262,13 @@ interface OrderQueryApi {
 }
 ```
 
-## 4. External services / third-party components (service + dependency)
+## 4. 外部服务 / 三方组件（service + dependency）
 
-Declaring and calling service (dubbo/http); dependency npm as a first-class citizen (use third-party components directly in pages).
+service（dubbo/http）声明与调用、dependency npm 一等公民（页面直用三方组件）。
 
 ```ts
-// External capability integration: service (dubbo/http) + dependency as first-class
-// Local jar classes do NOT use service — declare dependency java + libs artifact, then call directly (dev/33)
+// 外部能力接入：service（dubbo/http）+ dependency 一等公民
+// 本地 jar 类不走 service——dependency java 声明 + libs 产物后 function 直调（dev/33）
 entity User {
   id: Integer @pk;
   name: String;
@@ -298,13 +298,13 @@ service ErpApi {
 
 @export
 function syncUser(id: Integer): User {
-  const user = userService.getUser(id);    // like a local method: receiver = lowerCamelCase of the service short name
+  const user = userService.getUser(id);    // 像调本地方法：接收者 = 服务短名的小驼峰
   return user;
 }
 
 @export
 function pullErpOrder(id: Integer): Order {
-  return erpApi.getOrder(id);         // http service → generates @FeignClient
+  return erpApi.getOrder(id);         // http 服务 → 生成 @FeignClient
 }
 
 interface OrderApi {
@@ -312,11 +312,11 @@ interface OrderApi {
   GET '/api/orders/stats' -> orderStats
 }
 
-dependency npm "echarts-for-react" import ECharts;   // npm first-class: default-exported component, use <ECharts /> directly in a page
+dependency npm "echarts-for-react" import ECharts;   // npm 一等公民：默认导出组件，页面直接 <ECharts />
 
 page Dashboard {
   <table dataSource={useQuery('listOrders')}> </table>
-  <ECharts dataSource={useQuery('orderStats')} />   // third-party component used directly; imports resolved from declarations
+  <ECharts dataSource={useQuery('orderStats')} />   // 三方组件直接用，import 由声明解析
 }
 
 @export
@@ -325,12 +325,12 @@ function orderStats(): Decimal {
 }
 ```
 
-## 5. Multiple data sources / namespaces
+## 5. 多数据源 / 命名空间
 
-Same-named entities across data sources, `dsName.Entity` qualified references, ambiguous short names erroring.
+跨数据源同名实体、dsName.Entity 限定名引用、歧义短名报错。
 
 ```ts
-// Multiple data sources: entity short names belong to a data-source scope; same name across sources is legal
+// 多数据源：实体短名归数据源作用域，跨源同名合法
 @datasource('erp')
 entity Order {
   id: Integer @pk;
@@ -344,18 +344,18 @@ entity Order {
 }
 
 struct Shipment {
-  erpOrder: erp.Order;                // qualified name dsName.EntityName (cross-source same-name must qualify)
+  erpOrder: erp.Order;                // 限定名 dsName.EntityName（跨源同名必须限定）
   crmOrder: crm.Order;
 }
 
 @export
 function mergeOrder(erpId: Integer, crmId: Integer): Shipment {
-  const e = erp.Order.get(erpId);          // static methods also support qualified names
+  const e = erp.Order.get(erpId);          // 静态方法同样支持限定名
   const c = crm.Order.get(crmId);
   const s = new Shipment();
   s.erpOrder = e;
   s.crmOrder = c;
   return s;
 }
-// Note: when you write just Order (unqualified) and the short name is ambiguous across data sources → a compile error tells you to qualify it.
+// 注意：只写 Order（无限定名）时，若短名跨数据源歧义 → 编译报错提示加限定名
 ```

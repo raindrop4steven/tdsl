@@ -1,6 +1,8 @@
 import { BRAND } from '../brand';
+import { LangToggle, useI18n } from '../i18n';
 
 export function Hero() {
+  const { t } = useI18n();
   return (
     <header className="masthead">
       <nav className="nav">
@@ -9,30 +11,33 @@ export function Hero() {
           <sup>{BRAND.fullName}</sup>
         </span>
         <div className="nav-links">
-          <a href="#start">快速开始</a>
+          <a href="#start">{t.nav.quickStart}</a>
           <a href={BRAND.docs} target="_blank" rel="noreferrer">
-            文档
+            {t.nav.docs}
           </a>
           <a href={BRAND.github} target="_blank" rel="noreferrer">
-            GitHub
+            {t.nav.github}
           </a>
+          <LangToggle />
         </div>
       </nav>
 
       <div className="hero-lead">
-        <span className="eyebrow">BUILT ON TYPESCRIPT · DESIGNED FOR LLM CODE GENERATION</span>
+        <span className="eyebrow">{t.hero.eyebrow}</span>
         <h1>
-          一份源码，
+          {t.hero.h1Line1}
           <br />
-          编译出 <em className="react">React</em> + <em className="java">Java</em> 双端
+          {t.hero.h1Line2Pre}
+          <em className="react">React</em> + <em className="java">Java</em>
+          {t.hero.h1Line2Post}
         </h1>
-        <p className="hero-sub">{BRAND.sub}</p>
+        <p className="hero-sub">{t.hero.sub}</p>
         <div className="hero-cta">
           <a className="btn solid" href="#start">
-            快速开始 →
+            {t.hero.ctaStart}
           </a>
           <a className="btn ghost" href={BRAND.github} target="_blank" rel="noreferrer">
-            Star on GitHub
+            {t.hero.ctaStar}
           </a>
         </div>
       </div>

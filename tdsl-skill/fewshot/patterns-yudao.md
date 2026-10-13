@@ -1,60 +1,60 @@
-# few-shot：企业实战范式（节选自芋道 ERP/CRM）
+# few-shot: enterprise patterns (excerpted from Yudao ERP/CRM)
 
-> [English](patterns-yudao.en.md) · **中文**
+> [中文](patterns-yudao.zh.md) · **English**
 
-> 来源：`examples/yudao/tdsl/*.tdsl`（8 分片编译通过、双端 build 成功、check-spec 100%）。
-> 这些是 yudao 实战沉淀的"怎么写才对"——LLM 写企业应用时优先照这些形态。
-> 完整上下文在 `../demo-yudao/`；`tdsl-skill/README.md` 讲分片组织。
+> Source: `examples/yudao/tdsl/*.tdsl` (8 shards compile, both targets build, check-spec 100%).
+> These are the "how to write it right" patterns distilled from real yudao work — prefer these shapes when an LLM writes an enterprise app.
+> Full context is in `../demo-yudao/`; `tdsl-skill/README.md` covers shard organization.
 
-## 1. 枚举带中文标签 + 标签颜色（00-model）
+## 1. Enums with labels + label colors (00-model)
 
 ```ts
-enum ProductStatus { ENABLE('开启', 'green'), DISABLE('禁用', 'red') }
-enum DocStatus { UNAUDIT('未审批', 'orange'), AUDITED('已审批', 'green') }
+enum ProductStatus { ENABLE('Enabled', 'green'), DISABLE('Disabled', 'red') }
+enum DocStatus { UNAUDIT('Unaudited', 'orange'), AUDITED('Audited', 'green') }
 enum StockRecordBizType {
-  PURCHASE_IN('采购入库'), PURCHASE_IN_CANCEL('采购入库取消'),
-  SALE_OUT('销售出库'), ...
+  PURCHASE_IN('Purchase in'), PURCHASE_IN_CANCEL('Purchase in (cancelled)'),
+  SALE_OUT('Sale out'), ...
 }
 ```
 
-- 显示标签 `KEY('中文')`；颜色 `KEY('中文', 'color')`（业务声明，生成器不猜语义）。
-- 实体字段直接引用枚举：`status: DocStatus;` → Java enum + 前端 Select/Tag。
+- Display label `KEY('label')`; color `KEY('label', 'color')` (declared by the business; the generator never guesses semantics).
+- An entity field references an enum directly: `status: DocStatus;` → Java enum + frontend Select/Tag.
 
-## 2. 显式外键 @ref + 下拉数据源（00-model / SystemUser 用法）
+## 2. Explicit foreign key @ref + dropdown source (00-model / SystemUser usage)
 
 ```ts
 categoryId: Integer @ref(ProductCategory);
 unitId: Integer @ref(ProductUnit);
 supplierId: Integer @ref(Supplier);
-ownerUserId: Integer @ref(SystemUser, display: 'nickname');   // 人员字段显式 display
+ownerUserId: Integer @ref(SystemUser, display: 'nickname');   // explicit display for a staff field
 productId: Integer @ref(Product);
-parentId: Integer @nullable @ref(ProductCategory);            // 自引用显式 @ref
+parentId: Integer @nullable @ref(ProductCategory);            // self-reference still needs explicit @ref
 ```
 
-配套：目标实体有 `query*` 返回 `List<该实体>` 当 option 源：
+Companion: the target entity has a `query*` returning `List<that entity>` as the option source:
 
 ```ts
 @export
 function querySimpleProduct(...): List<Product> { return Product.where(status = ProductStatus.ENABLE); }
 ```
 
-## 3. 共享业务入口（库存联动公共函数，20-stock）
+## 3. Shared business entry point (inventory-linkage helper, 20-stock)
 
-状态推进/写流水这类被多单据复用的逻辑，抽成**不带 @export 的普通 function**（业务内部共享），单据 logic 调用它：
+Logic reused across multiple documents — such as status transitions and writing stock movements — is extracted into an **ordinary function without @export** (business-internal sharing), and document logic calls it:
 
 ```ts
 function applyStock(productId: Integer, warehouseId: Integer, delta: Decimal,
                     bizType: StockRecordBizType, bizId: Integer, bizNo: String): Boolean {
   const rows = Stock.where(productId = productId, warehouseId = warehouseId);
   if (rows.count === 0) {
-    if (delta < 0) { throw '库存不足'; }
+    if (delta < 0) { throw 'Insufficient stock'; }
     const init = new Stock();
     init.productId = productId; init.warehouseId = warehouseId; init.count = 0;
     init.save();
   }
   for (const s of Stock.where(productId = productId, warehouseId = warehouseId)) {
     const next = s.count + delta;
-    if (next < 0) { throw '库存不足'; }
+    if (next < 0) { throw 'Insufficient stock'; }
     s.count = next;
     s.save();
     const rec = new StockRecord();
@@ -67,65 +67,65 @@ function applyStock(productId: Integer, warehouseId: Integer, delta: Decimal,
 }
 ```
 
-业务错误用 `throw '文案'`（→ HTTP 400，前端自动弹错误）；审批/反审批 logic 各调它一次。
+Business errors use `throw 'message'` (→ HTTP 400, the frontend auto-toasts the error); the approve/unapprove logic each call it once.
 
-## 4. @ok 操作反馈（10-product / 30-purchase）
+## 4. @ok operation feedback (10-product / 30-purchase)
 
-每个有界面的写操作声明业务反馈文案（**业务文案写 TDSL，生成器只搬运**）：
+Every write operation with UI declares its business feedback copy (**business copy lives in TDSL; the generator only transports it**):
 
 ```ts
-@export @ok('审批完成')
+@export @ok('Approved')
 function auditErpPurchaseOrder(id: Integer): Boolean { ... }
 
-@export @ok('已反审批')
+@export @ok('Unapproved')
 function deauditErpPurchaseOrder(id: Integer): Boolean { ... }
 ```
 
-失败路径由 `throw` 承载，前端自动弹；未标 `@ok` 的按钮成功统一提示「操作成功」。
+Failure paths are carried by `throw` and auto-toasted by the frontend; a button without `@ok` shows the default "Success" on success.
 
-## 5. 状态化按钮：visible / disabled 互斥动作（30-purchase）
+## 5. Stateful buttons: mutually exclusive visible / disabled actions (30-purchase)
 
 ```ts
 page erpPurchaseOrderList {
   <table dataSource={useQuery('queryErpPurchaseOrder')}>
-    <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)}
-            disabled={row.status === DocStatus.AUDITED} />          // 已审批置灰编辑
-    <button text="删除" action={useMutation('deleteErpPurchaseOrder', row.id)} />  // 自动二次确认
-    <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)}
-            visible={row.status === DocStatus.UNAUDIT} />           // 互斥：未审批才显示
-    <button text="反审批" action={useMutation('deauditErpPurchaseOrder', row.id)}
+    <button text="Edit" action={openDialog('erpPurchaseOrderForm', row)}
+            disabled={row.status === DocStatus.AUDITED} />          // disable editing once audited
+    <button text="Delete" action={useMutation('deleteErpPurchaseOrder', row.id)} />  // auto confirm
+    <button text="Approve" action={useMutation('auditErpPurchaseOrder', row.id)}
+            visible={row.status === DocStatus.UNAUDIT} />           // mutually exclusive: only when unaudited
+    <button text="Unapprove" action={useMutation('deauditErpPurchaseOrder', row.id)}
             visible={row.status === DocStatus.AUDITED} />
-    <button text="详情" action={openDialog('erpPurchaseOrderDetail', row)} />
+    <button text="Detail" action={openDialog('erpPurchaseOrderDetail', row)} />
   </table>
-  <button text="新增采购订单" action={openDialog('erpPurchaseOrderForm')} />   // 页面级按钮 → 右上角
+  <button text="New Purchase Order" action={openDialog('erpPurchaseOrderForm')} />   // page-level button → top right
 }
 ```
 
-条件为行上下文子集：`row.<字段>` 比较 + `DocStatus.MEMBER` + `&& / || / !`。
+The condition is a subset of row context: `row.<field>` comparisons + `DocStatus.MEMBER` + `&& / || / !`.
 
-## 6. 明细正文 repeat dataSource（列表直接编辑带明细，30-purchase）
+## 6. Line-item body with repeat dataSource (edit a list with line items directly, 30-purchase)
 
-主子表表单的 repeat 明细行独立取数（新增态不发请求、初始用 initial.items 兜底）：
+The repeat line-item rows of a master-detail form fetch independently (no request in create mode; falls back to initial.items initially):
 
 ```ts
 dialog erpPurchaseOrderForm {
   <form submit={useMutation('saveErpPurchaseOrder')}>
-    <input field="no" label="采购单号" />
-    <input field="supplierId" label="供应商" />
+    <input field="no" label="Purchase No" />
+    <input field="supplierId" label="Supplier" />
     <repeat field="items" dataSource={useQuery('queryErpPurchaseOrderItems', initial.id)}>
-      <input field="productId" label="产品" />
-      <input field="productUnitId" label="产品单位" />
-      <input field="productPrice" label="产品单价" />
-      <input field="count" label="数量" />
-      <input field="taxPercent" label="税率" />
-      <input field="remark" label="备注" />
+      <input field="productId" label="Product" />
+      <input field="productUnitId" label="Product Unit" />
+      <input field="productPrice" label="Unit Price" />
+      <input field="count" label="Qty" />
+      <input field="taxPercent" label="Tax %" />
+      <input field="remark" label="Remark" />
     </repeat>
-    <button text="保存" />
+    <button text="Save" />
   </form>
 }
 ```
 
-配套明细查询逻辑 + 端点：
+Companion line-item query logic + endpoint:
 
 ```ts
 @export
@@ -134,9 +134,9 @@ function queryErpPurchaseOrderItems(orderId: Integer): List<PurchaseOrderItem> {
 }
 ```
 
-## 7. 详情抽屉 + 内嵌按钮（30-purchase）
+## 7. Detail drawer + embedded buttons (30-purchase)
 
-详情用 dialog + `<detail dataSource={useQuery('getXxx', initial.id)}>`；详情内保留编辑/审批按钮（用 row）：
+Use a dialog + `<detail dataSource={useQuery('getXxx', initial.id)}>` for detail; keep edit/approve buttons inside the detail (using `row`):
 
 ```ts
 @export
@@ -144,36 +144,36 @@ function getErpPurchaseOrder(id: Integer): PurchaseOrder {
   return PurchaseOrder.get(id);
 }
 
-@title('采购订单详情') @menu('采购管理')
+@title('Purchase Order Detail') @menu('Purchasing')
 dialog erpPurchaseOrderDetail {
   <detail dataSource={useQuery('getErpPurchaseOrder', initial.id)}>
-    <text field="no" title="采购单号" />
-    <text field="orderTime" title="下单时间" />
-    <text field="totalPrice" title="优惠后金额" />
-    <text field="totalCount" title="总数量" />
-    <text field="remark" title="备注" />
+    <text field="no" title="Purchase No" />
+    <text field="orderTime" title="Order Time" />
+    <text field="totalPrice" title="Amount After Discount" />
+    <text field="totalCount" title="Total Qty" />
+    <text field="remark" title="Remark" />
   </detail>
-  <button text="编辑" action={openDialog('erpPurchaseOrderForm', row)}
+  <button text="Edit" action={openDialog('erpPurchaseOrderForm', row)}
           disabled={row.status === DocStatus.AUDITED} />
-  <button text="审批" action={useMutation('auditErpPurchaseOrder', row.id)}
+  <button text="Approve" action={useMutation('auditErpPurchaseOrder', row.id)}
           visible={row.status === DocStatus.UNAUDIT} />
 }
 ```
 
-**详情 DTO 扁平化**：聚合明细给编辑预填时，返回 `{ 主表字段..., items }`（别套 `{order, items}` 两层），编辑直接传 row。
+**Flatten the detail DTO**: when aggregating line items for edit prefill, return `{ masterFields..., items }` (don't nest `{order, items}` two levels deep) so edit can pass `row` directly.
 
-## 8. 菜单分组 @menu 两级（'模块/分组'）
+## 8. Two-level menu group @menu ('module/group')
 
 ```ts
-@title('客户管理') @menu('客户关系管理/客户管理')
+@title('Customer Management') @menu('CRM/Customer Management')
 page crmCustomerList { ... }
 ```
 
-- 一级 = 顶栏模块；带斜杠的两级 → 左侧菜单子组；无 `@menu` 归入「其他」。
+- One level = top-bar module; a two-level path with a slash → left-menu subgroup; no `@menu` falls under "Other".
 
-## 9. 门户看板（05-portal）
+## 9. Portal dashboard (05-portal)
 
-条件聚合 + statistic / row+col / carousel / progress：
+Conditional aggregation + statistic / row+col / carousel / progress:
 
 ```ts
 @export
@@ -181,24 +181,24 @@ function countErpPurchaseInPending(): Integer {
   return PurchaseIn.where(status = DocStatus.UNAUDIT).aggregate(count());
 }
 
-@title('经营总览') @menu('门户')
+@title('Business Overview') @menu('Portal')
 page bossDashboard {
   <carousel autoplay={true}>
-    <item title="九月采购节" text="办公设备采购满 10 万返 5%，截止 9/30" />
+    <item title="September Purchasing Festival" text="Office equipment: 5% back on orders over 100k, ends 9/30" />
   </carousel>
   <row>
-    <col span={6}><statistic title="销售订单金额" suffix="元" color="blue" dataSource={useQuery('sumErpSaleAmount')} /></col>
-    <col span={8}><progress title="年度销售目标完成率" percent={72} color="blue" /></col>
+    <col span={6}><statistic title="Sales Order Amount" suffix="USD" color="blue" dataSource={useQuery('sumErpSaleAmount')} /></col>
+    <col span={8}><progress title="Annual Sales Target Completion" percent={72} color="blue" /></col>
   </row>
 }
 ```
 
-## 10. 常见错误形态（照抄前先对比）
+## 10. Common mistakes (compare before copying)
 
 ```ts
-// ❌ 缺 @ref 的外键字段：列表只显示数字、表单只给输入框——不渲染引用名/下拉
-supplierId: Integer;                       // 改成 supplierId: Integer @ref(Supplier);
-// ❌ 写法像 JS：三元/==/箭头/模板串/:=/for-in/logic —— 一律按词法面写
-// ❌ 页面用了函数却忘了 interface 端点暴露 → 前端白屏（typecheck 报错，先补 endpoint）
-// ❌ 共用逻辑内联复制三份 → 抽无 @export 的共享 function（见 #3）
+// ❌ FK field missing @ref: the list shows only a number and the form only an input — no reference name/dropdown
+supplierId: Integer;                       // change to supplierId: Integer @ref(Supplier);
+// ❌ Written like JS: ternary/==/arrow/template string/:=/for-in/logic — always use the lexical surface
+// ❌ A page uses a function but forgets the interface endpoint → blank frontend (typecheck errors; add the endpoint first)
+// ❌ Copying shared logic inline three times → extract a shared function without @export (see #3)
 ```

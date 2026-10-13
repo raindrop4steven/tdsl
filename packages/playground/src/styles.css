@@ -8,6 +8,12 @@
 .logo { font-weight: 700; color: #4ec9b0; font-size: 15px; }
 .topbar select { background: #2d2d30; color: #d4d4d4; border: 1px solid #444; padding: 4px 8px; border-radius: 4px; }
 .topbar-hint { color: #888; font-size: 12px; }
+.topbar .lang-toggle {
+  margin-left: auto; background: #2d2d30; color: #d4d4d4;
+  border: 1px solid #444; padding: 4px 10px; border-radius: 4px;
+  cursor: pointer; font-size: 12px;
+}
+.topbar .lang-toggle:hover { border-color: #4ec9b0; color: #fff; }
 
 .main { flex: 1; display: flex; min-height: 0; }
 .editor-pane { flex: 1; min-width: 0; border-right: 1px solid #333; }

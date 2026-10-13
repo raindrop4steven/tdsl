@@ -50,7 +50,7 @@ const publishMeta = {
   main: './dist/index.js',
   exports: { '.': './dist/index.js' },
   bin: { tdsl: 'dist/cli.js' },
-  files: ['dist', 'LICENSE', 'README.md'],
+  files: ['dist', 'LICENSE', 'README.md', 'README.zh.md'],
   keywords: meta.keywords,
   engines: { node: '>=18' },
   repository: {
@@ -65,6 +65,7 @@ const publishMeta = {
 writeFileSync(join(STAGE, 'package.json'), JSON.stringify(publishMeta, null, 2) + '\n', 'utf8');
 copyFileSync(join(ROOT, 'LICENSE'), join(STAGE, 'LICENSE'));
 copyFileSync(join(cliDir, 'README.md'), join(STAGE, 'README.md'));
+copyFileSync(join(cliDir, 'README.zh.md'), join(STAGE, 'README.zh.md'));
 
 // 3) CLI 入口（bin）
 await build({

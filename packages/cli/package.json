@@ -1,6 +1,6 @@
 {
   "name": "@tdsl/cli",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "type": "module",
   "description": "TDSL 命令行工具（tdsl parse/check/generate/build/bundle-jar）",
   "license": "Apache-2.0",
@@ -58,6 +58,7 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ]
 }

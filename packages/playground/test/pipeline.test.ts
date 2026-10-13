@@ -11,7 +11,7 @@ describe('playground/pipeline', () => {
     expect(SAMPLES).toHaveLength(6);
     for (const s of SAMPLES) {
       const r = compile(s.tdsl);
-      expect(r.ok, `${s.name} 编译失败: ${JSON.stringify(r.parseError ?? r.diagnostics)}`).toBe(true);
+      expect(r.ok, `${s.key} 编译失败: ${JSON.stringify(r.parseError ?? r.diagnostics)}`).toBe(true);
       expect(r.java.length).toBeGreaterThan(0);
       expect(r.react.length).toBeGreaterThan(0);
     }

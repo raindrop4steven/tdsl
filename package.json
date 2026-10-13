@@ -1,7 +1,7 @@
 {
   "name": "tdsl",
   "private": true,
-  "version": "0.0.3",
+  "version": "0.0.5",
   "description": "面向 Coding Agent 的低代码 DSL：以 TypeScript 为书写面，编译出 Spring Boot + React 双端工程。",
   "license": "Apache-2.0",
   "repository": {

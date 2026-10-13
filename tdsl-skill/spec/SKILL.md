@@ -1,102 +1,102 @@
 ---
 name: tdsl-spec-first
-description: TDSL 需求先行工作流（Spec 驱动开发，SDD）。Use when 接到用户业务需求要写 TDSL、需求模糊需要先结构化、要新建或修改一个 TDSL 工程、需要对拍需求覆盖率。
+description: TDSL requirements-first workflow (Spec-Driven Development, SDD). Use when receiving a business requirement to write TDSL, when a vague requirement needs structuring first, when creating or modifying a TDSL project, or when reconciling requirement coverage.
 ---
 
-# Spec 先行：需求 → Spec → TDSL → 对照
+# Spec-first: requirements → spec → TDSL → reconcile
 
-> [English](SKILL.en.md) · **中文**
+> [中文](SKILL.zh.md) · **English**
 
-> 接到需求**先写 spec（或改现有 spec），再写 TDSL**——这是本项目验证过的主线方法论
-> （jxc 进销存、yudao ERP 均按此交付，对照覆盖率 100%）。
-> 好处：① 需求结构化后遗漏显形；② spec 是和用户对齐的契约（改动先改 spec）；③ 对照器可自动验证"写了没漏"。
+> On receiving a requirement, **write the spec first (or edit the existing spec), then write TDSL** — this is the main methodology validated on this project
+> (the jxc inventory system and the yudao ERP were both delivered this way, at 100% reconciliation coverage).
+> Benefits: ① once structured, omissions surface; ② the spec is the contract you align with the user on (change the spec first); ③ the reconciler can automatically verify "nothing written is missing".
 
-## 工作流
-
-```
-1. 接需求 → 读工程现有 spec.yaml（有则改，无则建）
-2. 按六层格式把需求落进 spec（不确定的字段/按钮列全，别凭空脑补）
-3. 与用户确认 spec（这份就是需求清单）
-4. 按 spec 写/改 tdsl 分片（参照 ../fewshot/ 与 ../demo-yudao/）
-5. tdsl check → 0 error（../errors/ 修错）
-6. check-spec 对照（若工程带对照器）→ 补缺口到 100%
-```
-
-## spec.yaml 六层格式
+## Workflow
 
 ```
-system:                  # ① 系统：一句话定位
+1. Receive requirement → read the project's existing spec.yaml (edit if present, create if not)
+2. Lay the requirement into the spec using the six-layer format (list every uncertain field/button — don't guess)
+3. Confirm the spec with the user (this is the requirement checklist)
+4. Write/modify tdsl shards per the spec (see ../fewshot/ and ../demo-yudao/)
+5. tdsl check → 0 errors (fix via ../errors/)
+6. check-spec reconciliation (if the project ships a reconciler) → fill gaps to 100%
+```
+
+## spec.yaml six-layer format
+
+```
+system:                  # ① System: one-line positioning
   id: yudao
-  name: 芋道 ERP/CRM 业务中台
+  name: Yudao ERP/CRM business platform
   description: >- ...
 
-data:                    # ② 数据字典（③ 数据模型）
+data:                    # ② Data dictionary (③ Data model)
   enums:
     - id: DocStatus
-      name: 单据状态
+      name: Document status
       items:
-        - { key: UNAUDIT, label: 未审批 }
-        - { key: AUDITED, label: 已审批 }
+        - { key: UNAUDIT, label: Unaudited }
+        - { key: AUDITED, label: Audited }
   entities:
     - id: ProductCategory
-      name: 产品分类
+      name: Product category
       fields:
-        - { id: id, name: 主键, type: Integer, required: true }
-        - { id: parentId, name: 父分类, type: Integer }
-        - { id: name, name: 分类名称, type: String, required: true }
-        - { id: status, name: 启用状态, type: ProductStatus, required: true }
+        - { id: id, name: PK, type: Integer, required: true }
+        - { id: parentId, name: Parent category, type: Integer }
+        - { id: name, name: Category name, type: String, required: true }
+        - { id: status, name: Enabled status, type: ProductStatus, required: true }
 
-modules:                 # ④ 模块 → ⑤ 功能 → ⑥ 页面（列/搜索/表单字段/按钮/动作）
+modules:                 # ④ Module → ⑤ Function → ⑥ Page (columns/search/form fields/buttons/actions)
   - id: product
-    name: 产品管理
+    name: Product management
     functions:
       - id: erp-category
-        name: 产品分类
+        name: Product category
         pages:
-          - id: erpProductCategoryList     # 页面 id 必须与 TDSL page/dialog 名一致
-            name: 产品分类列表
+          - id: erpProductCategoryList     # page id must match the TDSL page/dialog name
+            name: Product category list
             kind: list                      # list | dialog-form | detail | dashboard
-            entity: ProductCategory         # 对应 TDSL 实体
-            query: queryErpProductCategory  # 列表取数 logic 名
+            entity: ProductCategory         # corresponding TDSL entity
+            query: queryErpProductCategory  # list data logic name
             columns: [name, code, sort, status]
             search: [name, status]
             buttons:
-              - { id: add, name: 新增分类, scope: page, action: { type: openDialog, target: erpProductCategoryForm } }
-              - { id: edit, name: 编辑, scope: row, action: { type: openDialog, target: erpProductCategoryForm } }
-              - { id: remove, name: 删除, scope: row, action: { type: logic, target: deleteErpProductCategory } }
+              - { id: add, name: Add category, scope: page, action: { type: openDialog, target: erpProductCategoryForm } }
+              - { id: edit, name: Edit, scope: row, action: { type: openDialog, target: erpProductCategoryForm } }
+              - { id: remove, name: Delete, scope: row, action: { type: logic, target: deleteErpProductCategory } }
           - id: erpProductCategoryForm
-            name: 分类编辑
+            name: Category edit
             kind: dialog-form
             entity: ProductCategory
             fields: [parentId, name, code, sort, status]
             buttons:
-              - { id: save, name: 保存, scope: page, action: { type: logic, target: saveErpProductCategory } }
+              - { id: save, name: Save, scope: page, action: { type: logic, target: saveErpProductCategory } }
 ```
 
-## 字段口径
+## Field mapping
 
-| spec 写法 | 对应 TDSL |
+| spec form | Corresponding TDSL |
 |---|---|
-| `kind: list` | `page XxxList`（@title/@menu） |
+| `kind: list` | `page XxxList` (@title/@menu) |
 | `kind: dialog-form` | `dialog XxxForm` + `<form submit={useMutation('saveXxx')}>` |
 | `kind: detail` | `dialog XxxDetail` + `<detail dataSource={useQuery('getXxx', initial.id)}>` |
-| `action.type: logic` | `useMutation('目标', row.id)` |
-| `action.type: openDialog` | `openDialog('目标', row)` |
-| `button.scope: page/row` | 页面级按钮 / 表格行内按钮 |
-| 按钮 `name` | 必须与 TDSL `<button text="...">` 一致（对照器按 text 匹配） |
-| 枚举 label | TDSL enum `KEY('中文')`；需要颜色加第二参 |
+| `action.type: logic` | `useMutation('target', row.id)` |
+| `action.type: openDialog` | `openDialog('target', row)` |
+| `button.scope: page/row` | Page-level button / table-row button |
+| button `name` | Must match the TDSL `<button text="...">` (the reconciler matches by text) |
+| enum label | TDSL enum `KEY('label')`; add a second argument for a color |
 
-## 对照器（check-spec）
+## Reconciler (check-spec)
 
 ```bash
-tdsl check-spec <工程目录>    # 目录下须有 spec.yaml 与 tdsl/*.tdsl
+tdsl check-spec <project-dir>    # the dir must contain spec.yaml and tdsl/*.tdsl
 ```
 
-- 五维对照：实体字段/枚举/页面/按钮/动作绑定，全 error 级；缺口非零退出码 1（可进 CI）。
-- 退出码：0=零缺口；1=有缺口；2=spec/tdsl 读取或解析失败。
-- 缺口清单直接就是"还没写的 TDSL"，按清单补齐再对照到 100%。
-- spec 与 TDSL 改动**必须双向同步**：改需求先改 spec，改实现必须过对照。
+- Five-dimensional reconciliation: entity fields / enums / pages / buttons / action bindings, all at error level; a non-zero gap exits with code 1 (CI-friendly).
+- Exit codes: 0 = zero gaps; 1 = gaps present; 2 = spec/tdsl read or parse failure.
+- The gap list is literally "the TDSL not yet written" — fill it in and re-reconcile to 100%.
+- Spec and TDSL changes **must stay in sync both ways**: change the requirement first in the spec; change the implementation and it must pass reconciliation.
 
-## 完整参照
+## Full reference
 
-`../demo-yudao/spec.yaml`（1743 行，46 实体/79 页面/201 按钮）+ 同目录 8 个 tdsl 分片——spec 每一层都能在 TDSL 里找到对应物。
+`../demo-yudao/spec.yaml` (1743 lines, 46 entities / 79 pages / 201 buttons) plus the 8 tdsl shards in the same directory — every layer of the spec has a counterpart in the TDSL.

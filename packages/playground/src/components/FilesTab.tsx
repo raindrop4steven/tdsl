@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { GeneratedFile } from '@tdsl/core';
+import { useI18n } from '../i18n';
 
 interface Props {
   files: GeneratedFile[];
@@ -8,6 +9,7 @@ interface Props {
 
 /** 生成产物面板：文件树 + 点击预览 + 复制（Java/React 共用） */
 export function FilesTab({ files, emptyHint }: Props) {
+  const { t } = useI18n();
   const tree = useMemo(() => buildTree(files), [files]);
   const [selected, setSelected] = useState<GeneratedFile | null>(null);
   const [copied, setCopied] = useState(false);
@@ -23,7 +25,7 @@ export function FilesTab({ files, emptyHint }: Props) {
       <div className="file-tree">
         {tree.map((dir) => (
           <div key={dir.dir}>
-            <div className="dir-label">📁 {dir.dir || '（根目录）'}</div>
+            <div className="dir-label">📁 {dir.dir || t.files.root}</div>
             {dir.files.map((f) => (
               <div
                 key={f.path}
@@ -50,13 +52,13 @@ export function FilesTab({ files, emptyHint }: Props) {
                   void navigator.clipboard.writeText(current.content).then(() => setCopied(true));
                 }}
               >
-                {copied ? '已复制 ✓' : '复制'}
+                {copied ? t.files.copied : t.files.copy}
               </button>
             </div>
             <pre className="preview-code">{current.content}</pre>
           </>
         ) : (
-          <div className="tab-body muted">← 点击左侧文件预览生成代码</div>
+          <div className="tab-body muted">{t.files.pickHint}</div>
         )}
       </div>
     </div>

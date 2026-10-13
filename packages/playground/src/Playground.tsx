@@ -4,49 +4,52 @@ import { DiagnosticsTab } from './components/DiagnosticsTab';
 import { AstTab } from './components/AstTab';
 import { FilesTab } from './components/FilesTab';
 import { compile, type CompileResult } from './pipeline';
-import { SAMPLES } from './samples';
+import { SAMPLES, sampleName } from './samples';
 import { BRAND } from './brand';
+import { fmt, LangToggle, useI18n } from './i18n';
 
 type Tab = 'diag' | 'ast' | 'java' | 'react';
 
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'diag', label: '诊断' },
-  { id: 'ast', label: 'AST' },
-  { id: 'java', label: 'Java 生成' },
-  { id: 'react', label: 'React 生成' },
-];
-
 export function Playground() {
+  const { t } = useI18n();
+  const tabs: Array<{ id: Tab; label: string }> = [
+    { id: 'diag', label: t.playground.tabs.diag },
+    { id: 'ast', label: t.playground.tabs.ast },
+    { id: 'java', label: t.playground.tabs.java },
+    { id: 'react', label: t.playground.tabs.react },
+  ];
+
   const [tdsl, setTdsl] = useState(SAMPLES[0].tdsl);
   const [result, setResult] = useState<CompileResult>(() => compile(SAMPLES[0].tdsl));
   const [tab, setTab] = useState<Tab>('diag');
-  const [sampleName, setSampleName] = useState(SAMPLES[0].name);
+  const [sampleKey, setSampleKey] = useState(SAMPLES[0].key);
 
   useEffect(() => {
-    const t = setTimeout(() => setResult(compile(tdsl)), 300);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setResult(compile(tdsl)), 300);
+    return () => clearTimeout(timer);
   }, [tdsl]);
 
-  const loadSample = (name: string) => {
-    const s = SAMPLES.find((x) => x.name === name);
+  const loadSample = (key: string) => {
+    const s = SAMPLES.find((x) => x.key === key);
     if (!s) return;
-    setSampleName(name);
+    setSampleKey(key);
     setTdsl(s.tdsl);
     setTab('diag');
   };
 
   return (
-    <div className="app">
+    <div className="app" id="playground">
       <header className="topbar">
         <span className="logo">{BRAND.name} Playground</span>
-        <select value={sampleName} onChange={(e) => loadSample(e.target.value)}>
+        <select value={sampleKey} onChange={(e) => loadSample(e.target.value)}>
           {SAMPLES.map((s) => (
-            <option key={s.name} value={s.name}>
-              {s.name}
+            <option key={s.key} value={s.key}>
+              {sampleName(t, s)}
             </option>
           ))}
         </select>
-        <span className="topbar-hint">左侧编辑，300ms 自动编译 → 右侧看诊断 / AST / 双端生成代码</span>
+        <span className="topbar-hint">{t.playground.hint}</span>
+        <LangToggle />
       </header>
 
       <main className="main">
@@ -56,14 +59,14 @@ export function Playground() {
 
         <section className="right-pane">
           <nav className="tabs">
-            {TABS.map((t) => (
+            {tabs.map((tb) => (
               <button
-                key={t.id}
-                className={`tab-btn ${tab === t.id ? 'active' : ''} ${t.id === 'diag' && !result.ok ? 'error' : ''}`}
-                onClick={() => setTab(t.id)}
+                key={tb.id}
+                className={`tab-btn ${tab === tb.id ? 'active' : ''} ${tb.id === 'diag' && !result.ok ? 'error' : ''}`}
+                onClick={() => setTab(tb.id)}
               >
-                {t.label}
-                {t.id === 'diag' && !result.ok ? ' ●' : ''}
+                {tb.label}
+                {tb.id === 'diag' && !result.ok ? ' ●' : ''}
               </button>
             ))}
           </nav>
@@ -77,12 +80,8 @@ export function Playground() {
               />
             )}
             {tab === 'ast' && <AstTab app={result.app as unknown as Record<string, unknown>} />}
-            {tab === 'java' && (
-              <FilesTab files={result.java} emptyHint="编译未通过，无 Java 产物（先看诊断）" />
-            )}
-            {tab === 'react' && (
-              <FilesTab files={result.react} emptyHint="编译未通过，无 React 产物（先看诊断）" />
-            )}
+            {tab === 'java' && <FilesTab files={result.java} emptyHint={t.playground.emptyJava} />}
+            {tab === 'react' && <FilesTab files={result.react} emptyHint={t.playground.emptyReact} />}
           </div>
         </section>
       </main>
@@ -90,16 +89,17 @@ export function Playground() {
       <footer className="statusbar">
         {result.ok ? (
           <span className="ok">
-            ✓ 编译通过 · Java {result.java.length} 文件 · React {result.react.length} 文件 ·{' '}
-            {result.ms}ms
+            {fmt(t.playground.statusOk, {
+              java: result.java.length,
+              react: result.react.length,
+              ms: result.ms,
+            })}
           </span>
         ) : (
           <span className="error">
-            ✗ 编译未通过（
             {result.parseError
-              ? `语法/绑定错误，第 ${result.parseError.line} 行`
-              : `${result.diagnostics.length} 个类型检查问题`}
-            ）· {result.ms}ms
+              ? fmt(t.playground.statusSyntaxError, { line: result.parseError.line, ms: result.ms })
+              : fmt(t.playground.statusTypeError, { n: result.diagnostics.length, ms: result.ms })}
           </span>
         )}
       </footer>

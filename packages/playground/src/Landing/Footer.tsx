@@ -1,6 +1,8 @@
 import { BRAND } from '../brand';
+import { LangToggle, useI18n } from '../i18n';
 
 export function Footer() {
+  const { t } = useI18n();
   return (
     <footer className="foot">
       <div className="foot-brand">
@@ -10,14 +12,15 @@ export function Footer() {
         </span>
       </div>
       <div className="foot-links">
-        <a href="#playground">在线试用</a>
-        <a href="#start">快速开始</a>
+        <a href="#playground">{t.footer.trial}</a>
+        <a href="#start">{t.footer.quickStart}</a>
         <a href={BRAND.docs} target="_blank" rel="noreferrer">
-          文档
+          {t.footer.docs}
         </a>
         <a href={BRAND.github} target="_blank" rel="noreferrer">
-          GitHub
+          {t.footer.github}
         </a>
+        <LangToggle />
       </div>
     </footer>
   );

@@ -1,94 +1,94 @@
-# 错误速查与修复（tdsl check 诊断）
+# Error cheat sheet & fixes (tdsl check diagnostics)
 
-> [English](errors.en.md) · **中文**
+> [中文](errors.zh.md) · **English**
 
-> `tdsl check` 输出结构化诊断：`[severity] [code] message (file:line:col) + 改成: suggestion`。
-> 修复循环：读诊断 → 按 code 查下表 → 改 → **再 check**（全量齐报，一次可修多个）。
-> 原则：**error 必须清零；warning（DEP-2/3、FK-REF-NO-QUERY、NULLABLE-HINT）不阻断但要过目**。
+> `tdsl check` prints structured diagnostics: `[severity] [code] message (file:line:col) + change to: suggestion`.
+> Fix loop: read the diagnostic → look up the code in the table below → fix → **check again** (it reports everything at once, so you can fix several in one pass).
+> Principle: **errors must be zeroed; warnings (DEP-2/3, FK-REF-NO-QUERY, NULLABLE-HINT) don't block but should be reviewed**.
 
-## 1. 修复流程（agent 闭环）
+## 1. Fix workflow (agent loop)
 
 ```
-1. tdsl check <tdsl目录>            # 全量诊断（按 error → warning、声明序排序）
-2. 逐条读：code 定位错误类 → 查下表拿"改成"
-3. 同层一起修（编译器全量报错，不用一轮一个）；改完重跑 check
-4. 0 error 后才算过；build 验证可选（tdsl build）
+1. tdsl check <tdsl dir>            # full diagnostics (ordered error → warning, declaration order)
+2. Read each: the code locates the error class → use the table to get "change to"
+3. Fix same-layer issues together (the compiler reports all errors, so no one-per-round); re-run check
+4. Only 0 errors counts as passing; running build is optional (tdsl build)
 ```
 
-纪律（实战教训）：
-- **业务文案/数据写 TDSL**（`@ok`、enum label、按钮 text），不要指望改生成器。
-- **外键必须显式 `@ref`**——编译器零推断，命名 `xxxId` 不构成语义。
-- 页面用到的函数**必须被 interface 端点暴露**，否则生成的前端 api.ts 缺函数 → 白屏。
-- 生成前先清输出目录（孤儿文件会让 mvn 双主类失败）。
+Discipline (lessons from real use):
+- **Write business copy/data in TDSL** (`@ok`, enum label, button text) — don't count on changing the generator.
+- **Foreign keys need an explicit `@ref`** — the compiler infers nothing; a name like `xxxId` carries no semantics.
+- Functions a page uses **must be exposed by an interface endpoint**, otherwise the generated frontend api.ts lacks them → blank screen.
+- Clear the output directory before generating (orphan files make mvn fail on duplicate main classes).
 
-## 2. 语法错误（parser，无 code）
+## 2. Syntax errors (parser, no code)
 
-| 现象 | 原因 | 改成 |
+| Symptom | Cause | Change to |
 |---|---|---|
-| unexpected / 已废弃提示 | 写了 legacy 词法 `logic` / `:=` / `for-in` | `function` / `const x =` / `for (const x of xs)` |
-| 报错行带 `?` `:` 三元 | TDSL 无三元 | `if (...) {...} else {...}` |
-| 模板串 `` ` ` `` 报错 | 无模板字符串 | 字符串拼接 `'a' + x` |
-| 箭头函数报错 | 无箭头函数 | 普通语句 / for-of |
-| `for` 缺 const | `for (x of xs)` | `for (const x of xs)` |
+| unexpected / deprecated hint | used legacy lexical forms `logic` / `:=` / `for-in` | `function` / `const x =` / `for (const x of xs)` |
+| error line contains `?` `:` ternary | TDSL has no ternary | `if (...) {...} else {...}` |
+| template-string `` ` `` errors | no template strings | string concatenation `'a' + x` |
+| arrow function errors | no arrow functions | ordinary statements / for-of |
+| `for` missing const | `for (x of xs)` | `for (const x of xs)` |
 
-## 3. 实体与查询
+## 3. Entities & queries
 
-| code | 触发 | 改成 |
+| code | Trigger | Change to |
 |---|---|---|
-| `DANGLE-REF` | 引用了不存在的实体/结构/逻辑（含跨文件短名写错） | 对齐名字；跨数据源同名加限定名 `erp.Order` |
-| `ENTITY-METHOD` | 实体方法误用（如 `get()` 不带参、`all()` 带参） | `Order.get(id)` / `Order.all`（属性不带括号） |
-| `ENTITY-WHERE` | where 条件不是 `field op value` | 条件字段必须是实体属性，op 用 `= >= <= > < like in`（`= `是等于） |
-| `ENTITY-CHAIN` | 查询链用法错（orderBy 空、limit/page 位置、aggregate 紧跟 where） | 照语法：`.orderBy(f desc).limit(n).page(n,size)`；聚合 `where(...).aggregate(count())` |
-| `FOREACH-CONTAINER` | for-of 容器不是 List | 容器用实体查询/已知 List 变量 |
-| `LIST-SHAPE` | List 用法/形状不符 | 对照 `xs.add/count/get/contains/isEmpty` |
+| `DANGLE-REF` | references a nonexistent entity/struct/logic (incl. a mistyped cross-file short name) | align the name; qualify cross-source same-name as `erp.Order` |
+| `ENTITY-METHOD` | entity method misuse (e.g. `get()` with no arg, `all()` with an arg) | `Order.get(id)` / `Order.all` (the property takes no parentheses) |
+| `ENTITY-WHERE` | a where condition isn't `field op value` | condition fields must be entity properties; ops `= >= <= > < like in` (`=` means equals) |
+| `ENTITY-CHAIN` | query-chain misuse (empty orderBy, limit/page position, aggregate right after where) | follow the syntax: `.orderBy(f desc).limit(n).page(n,size)`; aggregate `where(...).aggregate(count())` |
+| `FOREACH-CONTAINER` | for-of container isn't a List | use an entity query / a known List variable |
+| `LIST-SHAPE` | List usage/shape mismatch | refer to `xs.add/count/get/contains/isEmpty` |
 
-## 4. 外键 @ref
+## 4. Foreign keys @ref
 
-| code | 触发 | 改成 |
+| code | Trigger | Change to |
 |---|---|---|
-| `FK-REF-ENTITY` | `@ref(X)` 的 X 不是实体 | 换成目标实体名 |
-| `FK-REF-DISPLAY` | display 字段不存在或不是 String | 换成目标实体的 String 字段（缺省 `'name'`） |
-| `FK-REF-NO-QUERY` (warning) | 目标实体缺 `query*` 下拉数据源 | 补一个返回 `List<该实体>` 的查询逻辑 |
+| `FK-REF-ENTITY` | the X in `@ref(X)` isn't an entity | use the target entity name |
+| `FK-REF-DISPLAY` | the display field doesn't exist or isn't a String | use a String field of the target entity (defaults to `'name'`) |
+| `FK-REF-NO-QUERY` (warning) | the target entity lacks a `query*` dropdown source | add a query logic returning `List<that entity>` |
 
-## 5. 页面与表单
+## 5. Pages & forms
 
-| code | 触发 | 改成 |
+| code | Trigger | Change to |
 |---|---|---|
-| `VIEW-COMPONENT` | 组件标签未匹配（内置表无此名、npm 声明缺失） | 换内置组件，或补 `dependency npm "pkg" import X;` |
-| `VIEW-BINDING` | 绑定悬空/错形态（useQuery 指向未暴露函数、navigate 指 dialog、openDialog 指 page） | 见下表细项 |
-| `FORM-SEMANTICS` | form/repeat/summary 结构错 | `summary` 的 field 必须匹配同表单 repeat；`of` 与 `expr` 二选一 |
-| `SUMMARY-TARGET` | summary field 未匹配 repeat | field 写对应 `<repeat field="items">` 的字段名 |
-| `SUMMARY-EXPR` | expr 不是表达式 | `expr={qty * price}`（行上下文纯表达式） |
-| `INTERFACE-LOGICREF` | 端点 `-> xxx` 悬空 | 对齐 @export function 名 |
+| `VIEW-COMPONENT` | component tag unmatched (not a built-in name, or a missing npm declaration) | use a built-in component, or add `dependency npm "pkg" import X;` |
+| `VIEW-BINDING` | dangling/mis-shaped binding (useQuery pointing at an unexposed function, navigate pointing at a dialog, openDialog at a page) | see the detail table below |
+| `FORM-SEMANTICS` | wrong form/repeat/summary structure | a `summary` field must match a repeat in the same form; `of` and `expr` are mutually exclusive |
+| `SUMMARY-TARGET` | summary field doesn't match a repeat | set field to the field name of the corresponding `<repeat field="items">` |
+| `SUMMARY-EXPR` | expr isn't an expression | `expr={qty * price}` (a pure row-context expression) |
+| `INTERFACE-LOGICREF` | endpoint `-> xxx` is dangling | align the @export function name |
 
-VIEW-BINDING 细项（页面绑定 6 查）：
+VIEW-BINDING details (page-binding 6 checks):
 
-| message 关键词 | 改成 |
+| message keyword | Change to |
 |---|---|
-| `悬空逻辑引用` | 绑定的函数不存在——对齐函数名 |
-| `没有 interface 端点暴露` | 在 interface 里补一行 `GET '/api/...' -> 函数名` |
-| `openDialog 悬空页面` | dialog 名写错 |
-| `是 page 而非 dialog` | page 用 `navigate`，dialog 用 `openDialog` |
-| `navigate 悬空页面` | page 名写错 |
-| `是 dialog…改用 openDialog` | dialog 不进路由，改 `openDialog('X', row)` |
+| `悬空逻辑引用` ("dangling logic reference") | the bound function doesn't exist — align the function name |
+| `没有 interface 端点暴露` ("no interface endpoint exposes it") | add a line `GET '/api/...' -> fnName` in the interface |
+| `openDialog 悬空页面` ("openDialog dangling page") | wrong dialog name |
+| `是 page 而非 dialog` ("is a page, not a dialog") | use `navigate` for a page, `openDialog` for a dialog |
+| `navigate 悬空页面` ("navigate dangling page") | wrong page name |
+| `是 dialog…改用 openDialog` ("is a dialog… use openDialog") | a dialog has no route; use `openDialog('X', row)` |
 
-## 6. 依赖声明（DEP-1~4）
+## 6. Dependency declarations (DEP-1~4)
 
-| code | 触发 | 改成 |
+| code | Trigger | Change to |
 |---|---|---|
-| `DEP-1` | 用了未声明的第三方类 | 顶层补 `dependency java "g:a:v" import { 类名 };` |
-| `DEP-2` (warning) | 声明了 java 依赖但 libs/ 无扫描产物 | `tdsl bundle-jar <jar> -o <工程>/libs/x.json` |
-| `DEP-3` (warning) | 声明版本 ≠ 产物坐标版本 | 对齐两侧版本 |
-| `DEP-4` | alias 撞车（同名类跨 jar，如 fastjson/jackson 都有 JSON） | 改产物 alias，或 `dependency java "..." as ns` 后写 `ns.JSON` |
+| `DEP-1` | used an undeclared third-party class | add at top level `dependency java "g:a:v" import { ClassName };` |
+| `DEP-2` (warning) | declared a java dependency but libs/ has no scanned artifact | `tdsl bundle-jar <jar> -o <project>/libs/x.json` |
+| `DEP-3` (warning) | declared version ≠ artifact-coordinate version | align the versions on both sides |
+| `DEP-4` | alias collision (same-named classes across jars, e.g. both fastjson/jackson ship JSON) | change the artifact alias, or `dependency java "..." as ns` then write `ns.JSON` |
 
 ## 7. FFI / service
 
-| code | 触发 | 改成 |
+| code | Trigger | Change to |
 |---|---|---|
-| `FFI-MEMBER` | 成员不在内核目录/依赖产物 | 用可用成员；jar 库成员跑 `tdsl bundle-jar` 并入 |
-| `FFI-STATIC` | 实例方法当静态调 | 先 `const x = new 类(…)` 再 `x.m(...)` |
-| `MEMBER-UNKNOWN` | struct 变量访问了不存在的字段 | 对齐 struct 声明的字段名 |
-| `SERVICE-KIND` | service kind 非法 | 只支持 `dubbo` / `http` |
-| `SERVICE-HTTP-OPER` | http service 缺 METHOD+path | `GET '/api/x/{id}' -> fn(...): T;` |
-| `SERVICE-MEMBER` | service 成员声明错 | 对照 service 语法（方法签名 / http 操作行） |
-| `NULLABLE-HINT` (warning) | 局部变量遮蔽（如 `X.get` 结果判空歧义） | 过目即可，不阻断 |
+| `FFI-MEMBER` | member not in the kernel catalog/dependency artifact | use an available member; for jar-library members run `tdsl bundle-jar` and merge it in |
+| `FFI-STATIC` | instance method called statically | first `const x = new Class(…)`, then `x.m(...)` |
+| `MEMBER-UNKNOWN` | a struct variable accessed a nonexistent field | align the field name declared on the struct |
+| `SERVICE-KIND` | invalid service kind | only `dubbo` / `http` are supported |
+| `SERVICE-HTTP-OPER` | http service missing METHOD+path | `GET '/api/x/{id}' -> fn(...): T;` |
+| `SERVICE-MEMBER` | service member declared incorrectly | follow the service syntax (method signature / http operation line) |
+| `NULLABLE-HINT` (warning) | local variable shadowing (e.g. ambiguous null-check on an `X.get` result) | just review; doesn't block |
