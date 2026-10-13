@@ -1,7 +1,20 @@
 {
   "name": "tdsl",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.3",
+  "description": "面向 Coding Agent 的低代码 DSL：以 TypeScript 为书写面，编译出 Spring Boot + React 双端工程。",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raindrop4steven/tdsl.git"
+  },
+  "homepage": "https://raindrop4steven.github.io/tdsl/",
+  "bugs": {
+    "url": "https://github.com/raindrop4steven/tdsl/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "workspaces": [
     "packages/*",
     "examples/todo-app",
@@ -15,6 +28,7 @@
     "slice": "npm run slice -w todo-app",
     "slice:multi": "npm run slice -w todo-multi",
     "pack:compiler": "node scripts/pack-compiler.mjs",
-    "pack:dist": "node scripts/pack-dist.mjs"
+    "pack:dist": "node scripts/pack-dist.mjs",
+    "pack:publish": "npm run pack:compiler && npm publish ./npm-dist/stage-cli"
   }
 }

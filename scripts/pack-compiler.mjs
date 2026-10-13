@@ -8,24 +8,16 @@
  *  - packages/* 的分层是**开发期结构**（workspaces 复用/单测/类型边界），不进交付面；
  *  - 本脚本为「对外发布」单独构建：minify（无 sourcemap）→ 改写 package.json（bin 指 dist、清空 deps）后 npm pack；
  *  - 这是提高复制门槛（去源码/压缩/去 sourcemap），**不是加密**：JS 仍可被逆向阅读。
- *    真正的护城河是语义设计 + 文档 + 服务形态，法务侧靠 LICENSE（专有许可）。
+ *    真正的护城河是语义设计 + 文档 + 服务形态。
  */
 import { build } from 'esbuild';
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const OUT = join(ROOT, 'npm-dist');
 const STAGE = join(OUT, 'stage-cli');
-
-const LICENSE = `专有软件许可（Proprietary License）
-
-Copyright (c) TDSL Project. All rights reserved.
-
-本软件及其源码、编译产物、文档均为专有财产，仅限授权范围内使用。
-未经书面许可，不得复制、分发、再许可、反向工程或用于构建竞争产品。
-`;
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(join(STAGE, 'dist'), { recursive: true });
@@ -53,16 +45,26 @@ const publishMeta = {
   name: meta.name,
   version: meta.version,
   description: meta.description,
-  license: 'UNLICENSED',
+  license: 'Apache-2.0',
   type: 'module',
   main: './dist/index.js',
   exports: { '.': './dist/index.js' },
-  bin: { tdsl: './dist/cli.js' },
-  files: ['dist', 'LICENSE'],
+  bin: { tdsl: 'dist/cli.js' },
+  files: ['dist', 'LICENSE', 'README.md'],
+  keywords: meta.keywords,
   engines: { node: '>=18' },
+  repository: {
+    type: 'git',
+    url: 'git+https://github.com/raindrop4steven/tdsl.git',
+    directory: 'packages/cli',
+  },
+  homepage: 'https://github.com/raindrop4steven/tdsl#readme',
+  bugs: { url: 'https://github.com/raindrop4steven/tdsl/issues' },
+  publishConfig: { access: 'public' },
 };
 writeFileSync(join(STAGE, 'package.json'), JSON.stringify(publishMeta, null, 2) + '\n', 'utf8');
-writeFileSync(join(STAGE, 'LICENSE'), LICENSE, 'utf8');
+copyFileSync(join(ROOT, 'LICENSE'), join(STAGE, 'LICENSE'));
+copyFileSync(join(cliDir, 'README.md'), join(STAGE, 'README.md'));
 
 // 3) CLI 入口（bin）
 await build({
